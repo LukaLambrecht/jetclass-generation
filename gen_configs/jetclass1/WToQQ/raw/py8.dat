@@ -1,0 +1,22 @@
+!
+! Pythia8 cmd card for JetClass-I-style (v1) fixed-mass processes.
+! Decays are already performed at the matrix-element (or MadSpin) level,
+! so no forced particle decay table is needed here, unlike the v2
+! resonance-scan py8.dat files.
+!
+Main:numberOfEvents      = -1
+HEPMCoutput:file         = events.hepmc
+SysCalc:fullCutVariation = off
+!
+Random:setSeed = on
+Random:seed = 0
+!
+Beams:frameType=4
+JetMatching:setMad=off
+JetMatching:etaJetMax=1.0000000000e+03
+HEPMCoutput:scaling=1.0000000000e+09
+Check:epTolErr=1.0000000000e-02
+!
+LHEFInputs:nSubruns=1
+Main:subrun=0
+Beams:LHEF=unweighted_events.lhe.gz

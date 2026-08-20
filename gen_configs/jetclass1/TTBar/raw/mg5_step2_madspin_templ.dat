@@ -1,0 +1,6 @@
+ set max_weight_ps_point 400  # number of PS to estimate the maximum for each event
+decay t > w+ b, w+ > j j
+decay t~ > w- b~, w- > j j
+decay w+ > j j
+decay w- > j j
+launch

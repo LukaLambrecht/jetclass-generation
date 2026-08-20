@@ -1,0 +1,9 @@
+shower=OFF
+done
+set pdlabel nn23lo1
+set use_syst False
+set nevents $NEVENT
+set iseed $SEED
+set pt_min_pdg {25: 450.0}
+set eta_max_pdg {25: 2.5}
+done

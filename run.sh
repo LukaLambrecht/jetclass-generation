@@ -80,7 +80,7 @@ for ((i=0; i<nbatch; i++)); do
 
     # generate GEN events once per batch - shared across all Delphes cards
     rm -f events.hepmc
-    MG5_PATH=$MG5_PATH ./run_gen.sh $NEVENT_GEN
+    MG5_PATH=$MG5_PATH GENCFG_PATH=$GENCFG_PATH ./run_gen.sh $NEVENT_GEN
 
     # run each requested Delphes card on the same events.hepmc
     ln -sf $DELPHES_PATH/MinBias_100k.pileup .
