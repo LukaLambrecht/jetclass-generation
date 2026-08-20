@@ -28,12 +28,14 @@ GENCFG_PATH=$(realpath gen_configs)
 
 card_file_for_name() {
     case "$1" in
-        onlyFatJet)    echo "delphes_card_CMS_JetClassII_onlyFatJet.tcl" ;;
-        onlyFatJetHLT) echo "delphes_card_CMS_JetClassII_onlyFatJet_HLT.tcl" ;;
-        lite)          echo "delphes_card_CMS_JetClassII_lite.tcl" ;;
-        full)          echo "delphes_card_CMS_JetClassII.tcl" ;;
+        onlyFatJet)        echo "delphes_card_CMS_JetClassII_onlyFatJet.tcl" ;;
+        onlyFatJetHLT)     echo "delphes_card_CMS_JetClassII_onlyFatJet_HLT.tcl" ;;
+        onlyFatJetNoPU)    echo "delphes_card_CMS_JetClassII_onlyFatJet_noPU.tcl" ;;
+        onlyFatJetHLTNoPU) echo "delphes_card_CMS_JetClassII_onlyFatJet_HLT_noPU.tcl" ;;
+        lite)              echo "delphes_card_CMS_JetClassII_lite.tcl" ;;
+        full)              echo "delphes_card_CMS_JetClassII.tcl" ;;
         *)
-            echo "Unknown Delphes card option '$1'. Expected one of: onlyFatJet, onlyFatJetHLT, lite, full." >&2
+            echo "Unknown Delphes card option '$1'. Expected one of: onlyFatJet, onlyFatJetHLT, onlyFatJetNoPU, onlyFatJetHLTNoPU, lite, full." >&2
             exit 1
             ;;
     esac
