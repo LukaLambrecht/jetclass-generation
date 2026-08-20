@@ -34,7 +34,7 @@ public:
 
 public:
     FatJetMatching() {}
-    FatJetMatching(double jetR, bool assignQCDLabel, bool debug) : jetR_(jetR), assignQCDLabel_(assignQCDLabel), debug_(debug) {}
+    FatJetMatching(double jetR, bool assignQCDLabel, bool debug, bool useV1Labels = false) : jetR_(jetR), assignQCDLabel_(assignQCDLabel), debug_(debug), useV1Labels_(useV1Labels) {}
 
     virtual ~FatJetMatching() {}
 
@@ -62,11 +62,42 @@ public:
         processed_.insert(gp);
 
         auto pdgid = std::abs(gp->PID);
-        if (pdgid == ParticleID::p_h0 || pdgid == ParticleID::p_H0 || pdgid == ParticleID::p_Hplus) {
-            clearResult();
-            res2PLabel(jet, gp);
-            if (getResult().label != "Invalid") {
-                return;
+        if (useV1Labels_) {
+            // JetClass-I (v1) labeling scheme: real SM top/W/Z/Higgs, dedicated
+            // matchers reproducing the original jetclass_generation labels exactly.
+            if (pdgid == ParticleID::p_t) {
+                clearResult();
+                topLabelV1(jet, gp);
+                if (getResult().label != "Invalid") {
+                    return;
+                }
+            } else if (pdgid == ParticleID::p_h0) {
+                clearResult();
+                higgsLabelV1(jet, gp);
+                if (getResult().label != "Invalid") {
+                    return;
+                }
+            } else if (pdgid == ParticleID::p_Wplus) {
+                clearResult();
+                wLabelV1(jet, gp);
+                if (getResult().label != "Invalid") {
+                    return;
+                }
+            } else if (pdgid == ParticleID::p_Z0) {
+                clearResult();
+                zLabelV1(jet, gp);
+                if (getResult().label != "Invalid") {
+                    return;
+                }
+            }
+        } else {
+            // JetClass-II (v2) labeling scheme: generic scalar resonance(s), unchanged.
+            if (pdgid == ParticleID::p_h0 || pdgid == ParticleID::p_H0 || pdgid == ParticleID::p_Hplus) {
+                clearResult();
+                res2PLabel(jet, gp);
+                if (getResult().label != "Invalid") {
+                    return;
+                }
             }
         }
         }
@@ -582,6 +613,252 @@ private:
         throw std::logic_error("[FatJetMatching::res34PLabel] Unmatched YY label: " + matched_parts_str);
     }
 
+    // ============================================================
+    // JetClass-I (v1) labeling scheme, ported from the original
+    // jet-universe/jetclass_generation makeNtuples.C so that jets from
+    // jetclass1/* processes get exactly the original v1 label strings
+    // (Top_*, W_*, Z_*, H_*). Only active when useV1Labels_ is set;
+    // the v2 scheme above (res2PLabel/res34PLabel/qcdLabel) is untouched.
+    // ============================================================
+
+    void topLabelV1(const Jet *jet, const GenParticle *parton) {
+        auto top = getFinal(parton);
+        const GenParticle *w_from_top = nullptr, *b_from_top = nullptr;
+        for (const auto *dau : getDaughters(top)) {
+            if (std::abs(dau->PID) == ParticleID::p_Wplus) {
+                w_from_top = getFinal(dau);
+            } else if (std::abs(dau->PID) <= ParticleID::p_b) {
+                // use <= p_b: the "b" from top can also be a c/s/d/u in principle
+                b_from_top = dau;
+            }
+        }
+        if (!w_from_top || !b_from_top)
+            throw std::logic_error("[FatJetMatching::topLabelV1] Cannot find b or W from top decay!");
+
+        if (isHadronic(w_from_top)) {
+            auto wdaus = getDaughterQuarks(w_from_top);
+            if (wdaus.size() < 2)
+                throw std::logic_error("[FatJetMatching::topLabelV1] W decay has less than 2 quarks!");
+
+            double dr_b = deltaR(jet, b_from_top);
+            double dr_q1 = deltaR(jet, wdaus.at(0));
+            double dr_q2 = deltaR(jet, wdaus.at(1));
+            if (dr_q1 > dr_q2) {
+                std::swap(dr_q1, dr_q2);
+                std::swap(wdaus.at(0), wdaus.at(1));
+            }
+
+            if (dr_b < jetR_) {
+                auto pdgid_q1 = std::abs(wdaus.at(0)->PID);
+                auto pdgid_q2 = std::abs(wdaus.at(1)->PID);
+
+                if (dr_q1 < jetR_ && dr_q2 < jetR_) {
+                    getResult().resParticles.push_back(top);
+                    getResult().decayParticles.push_back(b_from_top);
+                    getResult().decayParticles.push_back(wdaus.at(0));
+                    getResult().decayParticles.push_back(wdaus.at(1));
+                    if (pdgid_q1 >= ParticleID::p_c || pdgid_q2 >= ParticleID::p_c) {
+                        getResult().label = "Top_bcq";
+                    } else {
+                        getResult().label = "Top_bqq";
+                    }
+                } else if (dr_q1 < jetR_ && dr_q2 >= jetR_) {
+                    getResult().resParticles.push_back(top);
+                    getResult().decayParticles.push_back(b_from_top);
+                    getResult().decayParticles.push_back(wdaus.at(0));
+                    if (pdgid_q1 >= ParticleID::p_c) {
+                        getResult().label = "Top_bc";
+                    } else {
+                        getResult().label = "Top_bq";
+                    }
+                }
+            } else {
+                // b escaped the jet cone; fall back to treating this as a merged-W jet
+                wLabelV1(jet, w_from_top);
+            }
+        } else {
+            // leptonic W
+            const GenParticle *lep = nullptr;
+            for (int idau = w_from_top->D1; idau <= w_from_top->D2; ++idau) {
+                const auto *dau = genParticles_.at(idau);
+                auto pdgid = std::abs(dau->PID);
+                if (pdgid == ParticleID::p_eminus || pdgid == ParticleID::p_muminus) {
+                    lep = getFinal(dau);
+                    break;
+                }
+            }
+            if (!lep)
+                throw std::logic_error("[FatJetMatching::topLabelV1] Cannot find charged lepton from leptonic W decay!");
+
+            double dr_b = deltaR(jet, b_from_top);
+            double dr_l = deltaR(jet, lep);
+
+            if (dr_b < jetR_ && dr_l < jetR_) {
+                auto pdgid = std::abs(lep->PID);
+                getResult().resParticles.push_back(top);
+                getResult().decayParticles.push_back(b_from_top);
+                getResult().decayParticles.push_back(lep);
+                if (pdgid == ParticleID::p_eminus) {
+                    getResult().label = "Top_ben";
+                } else if (pdgid == ParticleID::p_muminus) {
+                    getResult().label = "Top_bmn";
+                }
+            }
+        }
+    }
+
+    void wLabelV1(const Jet *jet, const GenParticle *parton) {
+        auto w = getFinal(parton);
+        if (isHadronic(w)) {
+            auto wdaus = getDaughterQuarks(w);
+            if (wdaus.size() < 2)
+                throw std::logic_error("[FatJetMatching::wLabelV1] W decay has less than 2 quarks!");
+
+            double dr_q1 = deltaR(jet, wdaus.at(0));
+            double dr_q2 = deltaR(jet, wdaus.at(1));
+            if (dr_q1 > dr_q2) {
+                std::swap(dr_q1, dr_q2);
+                std::swap(wdaus.at(0), wdaus.at(1));
+            }
+            auto pdgid_q1 = std::abs(wdaus.at(0)->PID);
+            auto pdgid_q2 = std::abs(wdaus.at(1)->PID);
+
+            if (dr_q1 < jetR_ && dr_q2 < jetR_) {
+                getResult().resParticles.push_back(w);
+                getResult().decayParticles.push_back(wdaus.at(0));
+                getResult().decayParticles.push_back(wdaus.at(1));
+                if (pdgid_q1 >= ParticleID::p_c || pdgid_q2 >= ParticleID::p_c) {
+                    getResult().label = "W_cq";
+                } else {
+                    getResult().label = "W_qq";
+                }
+            }
+        }
+    }
+
+    void zLabelV1(const Jet *jet, const GenParticle *parton) {
+        auto z = getFinal(parton);
+        if (isHadronic(z)) {
+            auto zdaus = getDaughterQuarks(z);
+            if (zdaus.size() < 2)
+                throw std::logic_error("[FatJetMatching::zLabelV1] Z decay has less than 2 quarks!");
+
+            double dr_q1 = deltaR(jet, zdaus.at(0));
+            double dr_q2 = deltaR(jet, zdaus.at(1));
+            if (dr_q1 > dr_q2) {
+                std::swap(dr_q1, dr_q2);
+                std::swap(zdaus.at(0), zdaus.at(1));
+            }
+            auto pdgid_q1 = std::abs(zdaus.at(0)->PID);
+            auto pdgid_q2 = std::abs(zdaus.at(1)->PID);
+
+            if (dr_q1 < jetR_ && dr_q2 < jetR_) {
+                getResult().resParticles.push_back(z);
+                getResult().decayParticles.push_back(zdaus.at(0));
+                getResult().decayParticles.push_back(zdaus.at(1));
+                if (pdgid_q1 == ParticleID::p_b && pdgid_q2 == ParticleID::p_b) {
+                    getResult().label = "Z_bb";
+                } else if (pdgid_q1 == ParticleID::p_c && pdgid_q2 == ParticleID::p_c) {
+                    getResult().label = "Z_cc";
+                } else {
+                    getResult().label = "Z_qq";
+                }
+            }
+        }
+    }
+
+    void higgsLabelV1(const Jet *jet, const GenParticle *parton) {
+        auto higgs = getFinal(parton);
+        auto daus = getDaughters(higgs);
+
+        bool is_hvv = false;
+        if (daus.size() > 2) {
+            // e.g., h->Vqq or h->qqqq
+            is_hvv = true;
+        } else {
+            for (const auto *p : daus) {
+                auto pdgid = std::abs(p->PID);
+                if (pdgid == ParticleID::p_Wplus || pdgid == ParticleID::p_Z0) {
+                    is_hvv = true;
+                    break;
+                }
+            }
+        }
+
+        if (is_hvv) {
+            // h->WW (or h->ZZ) - JetClass-I only supports the WW cases (H_ww4q/H_ww2q1l)
+            std::vector<const GenParticle *> hvv_quarks;
+            std::vector<const GenParticle *> hvv_leptons;
+            for (const auto *p : daus) {
+                auto pdgid = std::abs(p->PID);
+                if (pdgid >= ParticleID::p_d && pdgid <= ParticleID::p_b) {
+                    hvv_quarks.push_back(p);
+                } else if (pdgid == ParticleID::p_eminus || pdgid == ParticleID::p_muminus) {
+                    hvv_leptons.push_back(getFinal(p));
+                } else if (pdgid == ParticleID::p_Wplus || pdgid == ParticleID::p_Z0) {
+                    auto v_daus = getDaughters(getFinal(p));
+                    for (const auto *vdau : v_daus) {
+                        auto vpdgid = std::abs(vdau->PID);
+                        if (vpdgid >= ParticleID::p_d && vpdgid <= ParticleID::p_b) {
+                            hvv_quarks.push_back(vdau);
+                        } else if (vpdgid == ParticleID::p_eminus || vpdgid == ParticleID::p_muminus) {
+                            hvv_leptons.push_back(getFinal(vdau));
+                        }
+                    }
+                }
+            }
+
+            unsigned n_quarks_in_jet = 0;
+            for (const auto *gp : hvv_quarks) {
+                if (deltaR(gp, jet) < jetR_) ++n_quarks_in_jet;
+            }
+            unsigned n_leptons_in_jet = 0;
+            for (const auto *gp : hvv_leptons) {
+                if (deltaR(gp, jet) < jetR_) ++n_leptons_in_jet;
+            }
+
+            if (n_quarks_in_jet >= 4) {
+                getResult().resParticles.push_back(higgs);
+                for (const auto *gp : hvv_quarks) getResult().decayParticles.push_back(gp);
+                getResult().label = "H_ww4q";
+            } else if (n_quarks_in_jet == 2 && n_leptons_in_jet == 1) {
+                getResult().resParticles.push_back(higgs);
+                for (const auto *gp : hvv_quarks) getResult().decayParticles.push_back(gp);
+                for (const auto *gp : hvv_leptons) getResult().decayParticles.push_back(gp);
+                getResult().label = "H_ww2q1l";
+            }
+        } else if (isHadronic(higgs, true)) {
+            // direct h->qq/gg
+            auto hdaus = getDaughterQuarks(higgs, true);
+            if (hdaus.size() < 2)
+                throw std::logic_error("[FatJetMatching::higgsLabelV1] Higgs decay has less than 2 quarks!");
+
+            double dr_q1 = deltaR(jet, hdaus.at(0));
+            double dr_q2 = deltaR(jet, hdaus.at(1));
+            if (dr_q1 > dr_q2) {
+                std::swap(dr_q1, dr_q2);
+                std::swap(hdaus.at(0), hdaus.at(1));
+            }
+            auto pdgid_q1 = std::abs(hdaus.at(0)->PID);
+            auto pdgid_q2 = std::abs(hdaus.at(1)->PID);
+
+            if (dr_q1 < jetR_ && dr_q2 < jetR_) {
+                getResult().resParticles.push_back(higgs);
+                getResult().decayParticles.push_back(hdaus.at(0));
+                getResult().decayParticles.push_back(hdaus.at(1));
+                if (pdgid_q1 == ParticleID::p_b && pdgid_q2 == ParticleID::p_b) {
+                    getResult().label = "H_bb";
+                } else if (pdgid_q1 == ParticleID::p_c && pdgid_q2 == ParticleID::p_c) {
+                    getResult().label = "H_cc";
+                } else if (pdgid_q1 == ParticleID::p_g && pdgid_q2 == ParticleID::p_g) {
+                    getResult().label = "H_gg";
+                } else {
+                    getResult().label = "H_qq";
+                }
+            }
+        }
+    }
+
     void qcdLabel(const Jet* jet) {
 
         int n_b=0, n_c=0, n_s=0;
@@ -748,6 +1025,7 @@ private:
 private:
     double jetR_ = 0.8;
     bool assignQCDLabel_ = false;
+    bool useV1Labels_ = false;
     bool debug_ = false;
     std::vector<const GenParticle *> genParticles_;
     std::unordered_set<const GenParticle *> processed_;
@@ -810,6 +1088,13 @@ private:
         "QCD_bbccss", "QCD_bbccs", "QCD_bbcc", "QCD_bbcss", "QCD_bbcs", "QCD_bbc", "QCD_bbss", "QCD_bbs", "QCD_bb",
         "QCD_bccss", "QCD_bccs", "QCD_bcc", "QCD_bcss", "QCD_bcs", "QCD_bc", "QCD_bss", "QCD_bs", "QCD_b",
         "QCD_ccss", "QCD_ccs", "QCD_cc", "QCD_css", "QCD_cs", "QCD_c", "QCD_ss", "QCD_s", "QCD_light",
+
+        // JetClass-I (v1) labels, appended at the end so existing (v2) label
+        // indices above are unchanged. Only reachable when useV1Labels_ is set.
+        "Top_bcq", "Top_bqq", "Top_bc", "Top_bq", "Top_ben", "Top_bmn",
+        "W_cq", "W_qq",
+        "Z_bb", "Z_cc", "Z_qq",
+        "H_bb", "H_cc", "H_qq", "H_gg", "H_ww4q", "H_ww2q1l",
     };
 };
 

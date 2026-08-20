@@ -1,0 +1,27 @@
+!
+! Pythia8 cmd card for JetClass-I-style (v1) HToCC.
+! The installed heft UFO model has no h->c c~ vertex (charm's mass and
+! Yukawa coupling are hardcoded to zero in this model build, unlike the
+! v1-era model used for the original gridpack), so h is kept stable at
+! the matrix-element level and its decay to c c~ is instead forced here
+! at the Pythia8 shower stage, the same mechanism the v2 resonance-scan
+! processes (e.g. train_higgs2p) already use for exactly this reason.
+!
+Main:numberOfEvents      = -1
+HEPMCoutput:file         = events.hepmc
+SysCalc:fullCutVariation = off
+!
+Random:setSeed = on
+Random:seed = 0
+!
+Beams:frameType=4
+JetMatching:setMad=off
+JetMatching:etaJetMax=1.0000000000e+03
+HEPMCoutput:scaling=1.0000000000e+09
+Check:epTolErr=1.0000000000e-02
+25:onMode = off
+25:oneChannel = 1 1.00000 100 4 -4
+!
+LHEFInputs:nSubruns=1
+Main:subrun=0
+Beams:LHEF=unweighted_events.lhe.gz

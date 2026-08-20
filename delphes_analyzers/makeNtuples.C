@@ -16,7 +16,7 @@
 // class ExRootTreeReader;
 // #endif
 
-void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8", bool assignQCDLabel = false, bool debug = false) {
+void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8", bool assignQCDLabel = false, bool debug = false, bool useV1Labels = false) {
     // gSystem->Load("libDelphes");
 
     TFile *fout = new TFile(outputFile, "RECREATE");
@@ -108,7 +108,7 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
     double jetR = jetBranch.Contains("AK15") ? 1.5 : 0.8;
     std::cerr << "jetR = " << jetR << std::endl;
 
-    FatJetMatching fjmatch(jetR, assignQCDLabel, debug);
+    FatJetMatching fjmatch(jetR, assignQCDLabel, debug, useV1Labels);
 
     // Loop over all events
     int num_processed = 0;

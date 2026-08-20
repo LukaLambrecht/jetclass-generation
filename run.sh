@@ -110,13 +110,19 @@ mv -f events_delphes.root $OUTPUT_PATH/$PROC/events_delphes_$JOBNUM.root
 # (triggered by the "++" in makeNtuples.C++) doesn't race with other concurrent jobs
 # compiling into the same shared delphes_analyzers/ directory
 NTUPLE_PATH=$OUTPUT_PATH/$PROC/ntuple_$JOBNUM.root
+# jetclass1/* processes use the original JetClass-I (v1) label scheme
+# (Top_*/W_*/Z_*/H_*); everything else keeps the v2 scheme, unchanged.
+case "$PROC" in
+    jetclass1/*) USE_V1_LABELS=true ;;
+    *)           USE_V1_LABELS=false ;;
+esac
 mkdir -p $WORKDIR/analyzer
 cp $ANALYZER_PATH/EventData.h $ANALYZER_PATH/FatJetMatching.h $ANALYZER_PATH/ParticleID.h $ANALYZER_PATH/ParticleInfo.h $ANALYZER_PATH/makeNtuples.C $WORKDIR/analyzer/
 (
     cd $WORKDIR/analyzer
     source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
     export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
-    root -b -q "makeNtuples.C++(\"$OUTPUT_PATH/$PROC/events_delphes_$JOBNUM.root\", \"$NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true)"
+    root -b -q "makeNtuples.C++(\"$OUTPUT_PATH/$PROC/events_delphes_$JOBNUM.root\", \"$NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
 )
 
 # remove workspace

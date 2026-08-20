@@ -1,0 +1,29 @@
+!
+! Pythia8 cmd card for JetClass-I-style (v1) ZJetsToNuNu.
+! This sample is MLM-matched (0 and 1 extra partons at ME level, see
+! ickkw=1 / xqcut=30 in mg5_step2_templ.dat). JetMatching:qCut is meant
+! to auto-fill from the LHE/MadGraph banner via JetMatching:setMad=on,
+! but (like Main:numberOfEvents=-1 elsewhere) this Pythia8 build rejects
+! -1 as out-of-range for qCut/nJetMax before setMad gets a chance to run,
+! causing a hang. Set them explicitly instead, matching run_card's
+! xqcut=30.0 and the "0 or 1 extra parton" process definition.
+!
+Main:numberOfEvents      = -1
+HEPMCoutput:file         = events.hepmc
+SysCalc:fullCutVariation = off
+!
+Random:setSeed = on
+Random:seed = 0
+!
+Beams:frameType=4
+JetMatching:merge=on
+JetMatching:setMad=on
+JetMatching:qCut=30.0
+JetMatching:doShowerKt=off
+JetMatching:nJetMax=1
+HEPMCoutput:scaling=1.0000000000e+09
+Check:epTolErr=1.0000000000e-02
+!
+LHEFInputs:nSubruns=1
+Main:subrun=0
+Beams:LHEF=unweighted_events.lhe.gz

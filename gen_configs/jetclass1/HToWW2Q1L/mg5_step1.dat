@@ -1,0 +1,16 @@
+set run_mode 0
+
+import model sm
+define p = g u c d s u~ c~ d~ s~
+define j = g u c d s u~ c~ d~ s~
+define l+ = e+ mu+
+define l- = e- mu-
+define vl = ve vm vt
+define vl~ = ve~ vm~ vt~
+import model heft-ckm
+define p = p b b~
+define j = j b b~
+define lep = l+ l-
+define nu = vl vl~
+generate p p > ve ve~ h, h > w+ w- > j j lep nu
+output proc

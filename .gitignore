@@ -5,6 +5,10 @@
 *_ACLiC_dict_rdict.pcm
 *_ACLiC_dict.cxx
 *_ACLiC_dict.h
+*_ACLiC_linkdef.h
+*_ACLiC_mainC
+*_ACLiC_map.in
+*_ACLiC_map.out
 
 # Generated ROOT output files, e.g. from following the makeNtuples.C README
 # example or a manual test run inside delphes_analyzers/ or a gen_configs/
