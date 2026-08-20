@@ -42,6 +42,12 @@ if [ -f mg5_step2_run_card_templ.dat ]; then
     cp -f mg5_step2_run_card_templ.dat $MDIR/Cards/run_card.dat
 fi
 
+# if mg5_step2_madspin_templ exists, copy it to the MG dir so MadGraph
+# runs MadSpin (forced decays, e.g. for TTBar/TTBarLep) as part of generate_events
+if [ -f mg5_step2_madspin_templ.dat ]; then
+    cp -f mg5_step2_madspin_templ.dat $MDIR/Cards/madspin_card.dat
+fi
+
 ## generate MG events
 rm -rf $MDIR/Events/*
 cat mg5_step2.dat | $MDIR/bin/generate_events pilotrun
@@ -54,4 +60,9 @@ fi
 
 # run pythia
 rm -f events.hepmc
+# Main:numberOfEvents=-1 is meant to auto-detect the event count from the LHEF,
+# but newer Pythia8 releases reject -1 as out of range and silently fall back
+# to their own default (1000), causing a hang when the LHEF has fewer events.
+# Set it explicitly to the requested count instead.
+sed -i "s/^Main:numberOfEvents.*/Main:numberOfEvents      = $NEVENT/" py8.dat
 LD_LIBRARY_PATH=$MG5_PATH/HEPTools/lib:$LD_LIBRARY_PATH $MG5_PATH/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface py8.dat
