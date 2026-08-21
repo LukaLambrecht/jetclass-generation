@@ -1,62 +1,30 @@
 ##############################################################################
-# Approximate CMS Phase-2 HLT-like reconstruction (first version)
+# Approximate CMS Phase-2 HLT ("scouting")-like reconstruction - GENERATED,
+# do not hand-edit. Produced by hlteff/generate_hlt_card.py from:
+#   - the offline card as baseline: delphes_cards/delphes_card_CMS_JetClassII_onlyFatJet.tcl
+#   - data-driven degradation curves: hlteff/curves_qcd.json
+#     (generated unknown time by hlteff/derive_curves.py, reading
+#      256098 QCD jets, deltaR match window 0.03, from:
+#      /eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new
+#      files: dnnTuples_nanov15_0000.root, dnnTuples_nanov15_0001.root, dnnTuples_nanov15_0002.root)
 #
-# This card is identical to delphes_card_CMS_JetClassII_onlyFatJet.tcl except
-# for the charged-hadron tracking efficiency/resolution (see the modules
-# ChargedHadronTrackingEfficiency, ChargedHadronMomentumSmearing, and
-# TrackSmearing below, each individually commented). Everything downstream
-# (PUPPI, calorimeter response, jet clustering, softdrop grooming) is
-# UNCHANGED from the offline card, since:
-#   - PUPPI runs online too for CMS Phase-2 (not swapped for CHS), so the
-#     same algorithm/settings are kept; degradation is applied upstream, to
-#     the tracks PUPPI receives, rather than to PUPPI's own parameters.
-#   - Delphes' calorimeter model is a coarse tower-based parameterization
-#     that doesn't simulate clustering algorithms (offline or online) in the
-#     first place, so there's no natural knob to make HGCAL-style "fewer
-#     online clustering iterations" concrete here.
-#   - Real CMS Phase-2 HLT tracking runs ~2-3 iterations vs. many more
-#     offline, but reaches high absolute efficiency at pT > 1 GeV thanks to
-#     GPU pixel tracking + L1 tracking seeds; the more significant loss is
-#     concentrated below ~1 GeV, where offline's extra iterations recover
-#     soft/displaced tracks that HLT's reduced iteration count misses.
-#     A real, currently-operating Run 3 CMS note also confirms HLT PUPPI
-#     jet softdrop mass is measurably worse than offline specifically
-#     because of degraded online pileup mitigation quality - consistent
-#     with "worse upstream tracks -> worse downstream PUPPI/substructure".
+# Method (see hlteff/README.md for full details):
+#   For each of ChargedHadronTrackingEfficiency, ElectronTrackingEfficiency,
+#   MuonTrackingEfficiency: HLT efficiency(pt,eta) = offline efficiency(pt,eta)
+#   * (fraction of offline CMS "regular PF + lost track" candidates that have
+#   a geometrically-matched scouting candidate of the same particle type, in
+#   real paired offline/scouting CMS data), binned in (pt, |eta|).
+#   For ChargedHadronMomentumSmearing: HLT resolution(pt,eta) = offline
+#   resolution(pt,eta) combined in quadrature with the extra (pt_scouting -
+#   pt_offline)/pt_offline spread measured for matched pairs in that bin.
+#   Everything else (calorimeter response, PUPPI, jet clustering, softdrop,
+#   TrackSmearing D0/DZ impact-parameter resolution, Electron/MuonMomentumSmearing)
+#   is UNCHANGED from the offline card - see README.md for why, and for
+#   what's a documented candidate for future extension.
 #
-# IMPORTANT: no CMS-published HLT/offline paired efficiency or resolution
-# curve was found for Phase-2 (see project research notes). The specific
-# numbers below are a hand-tuned, qualitatively-motivated APPROXIMATION,
-# not a validated CMS parameterization.
-#
-# Re-tuned (v2) against a set of internal offline-vs-HLT comparison plots
-# (particle-pT spectra, jet-constituent counts, and charged/particle-ID
-# composition, all measured on real CMS "scouting"-style HLT reconstruction
-# across many jet classes and pT bins). Three findings from those plots
-# drove the changes from the v1 numbers below:
-#  1. HLT has essentially ZERO particles below ~0.5 GeV (a real cliff, not
-#     just a reduced efficiency), and consistently MORE particles than
-#     offline in the 0.5-1 GeV bin, for every single class studied - the
-#     signature of a hard low-pT reconstruction threshold combined with
-#     poor pT resolution smearing particles up across that boundary.
-#     -> raised the charged-hadron efficiency cutoff to 0.9 GeV and
-#        increased low-pT momentum smearing accordingly (see below).
-#  2. The efficiency loss is NOT confined to soft particles: charged-hadron
-#     content stays suppressed by a roughly constant ~40-45% relative
-#     amount across the whole jet pT range (200 GeV-5 TeV, i.e. reflecting
-#     particle pT from ~1 GeV to hundreds of GeV), only partially
-#     recovering at very high particle pT.
-#     -> replaced the v1 "recovers to near-offline above 1 GeV" shape with
-#        a sustained degraded plateau extending through tens of GeV.
-#  3. Electrons and muons are almost entirely dropped at HLT relative to
-#     offline (even though they're rare in hadronic jets to begin with).
-#     -> added an efficiency cut for ElectronTrackingEfficiency and
-#        MuonTrackingEfficiency, which v1 left unmodified from offline.
-# Lost charged hadrons are expected to partly reappear as photons/neutral
-# hadrons downstream via Delphes' own eflow logic (unmatched calo towers),
-# which needs no separate tuning here.
-# Still a hand-tuned approximation, not a fit - revisit if a real paired
-# CMS reference turns up, or if the comparison needs to be quantitative.
+# To regenerate after new data or a change to the offline card:
+#   python hlteff/derive_curves.py       # only if the input data changed
+#   python hlteff/generate_hlt_card.py
 ##############################################################################
 
 #######################################
@@ -173,25 +141,55 @@ module Efficiency ChargedHadronTrackingEfficiency {
 
   # add EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # HLT-like approximation (v2, see file header): hard cutoff at 0.9 GeV
-  # (nothing reconstructed below it, matching the observed particle-pT
-  # spectra) and a sustained ~45-65% relative degradation (vs. the offline
-  # formula's 0.95/0.85 plateau) through tens of GeV, only partially
-  # recovering at very high pT. See file header for sourcing caveats.
-  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 2.0)    * (0.35) +
-                                           (abs(eta) <= 1.5) * (pt > 2.0   && pt <= 10.0)   * (0.45) +
-                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 50.0)   * (0.50) +
-                                           (abs(eta) <= 1.5) * (pt > 50.0  && pt <= 200.0)  * (0.60) +
-                                           (abs(eta) <= 1.5) * (pt > 200.0 && pt <= 1000.0) * (0.75) +
-                                           (abs(eta) <= 1.5) * (pt > 1000.0)                * (0.85) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 2.0)    * (0.28) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.0   && pt <= 10.0)   * (0.38) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 50.0)   * (0.42) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 50.0  && pt <= 200.0)  * (0.50) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 200.0 && pt <= 1000.0) * (0.65) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000.0)                * (0.75) +
-                         (abs(eta) > 2.5)                                                   * (0.00)}
+  # tracking efficiency formula for charged hadrons
+  set EfficiencyFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.00389854) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.00418639) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.00487981) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.152472) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.281638) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.42857) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.497586) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.548724) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.588006) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.636903) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.675885) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.697767) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.696845) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.679896) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.639398) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.58028) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.507491) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.434112) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.344658) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.24641) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.18908) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.199274) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.00517116) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.00629553) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.00689184) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0760607) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.152179) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.215831) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.255465) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.294938) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.32839) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.375562) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.421514) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.450422) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.459572) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.459082) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.429001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.376569) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.306094) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.236813) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.176684) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.138737) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.147379) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.147379) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.147379)
+  }
 }
 
 ##############################
@@ -204,18 +202,55 @@ module Efficiency ElectronTrackingEfficiency {
 
   # set EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # HLT-like approximation (v2, see file header): the composition plots show
-  # electrons are almost entirely dropped at HLT relative to offline - the
-  # full offline GSF electron reconstruction (needed to recover bremsstrahlung
-  # losses) isn't available online, so a strong, broad cut is applied.
-  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 10.0)   * (0.20) +
-                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 1.0e2)  * (0.30) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0e2)                 * (0.55) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 10.0)   * (0.14) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 1.0e2)  * (0.22) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e2)                 * (0.45) +
-                         (abs(eta) > 2.5)                                                   * (0.00)}
+  # tracking efficiency formula for electrons
+  set EfficiencyFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0)
+  }
 }
 
 ##########################
@@ -228,20 +263,55 @@ module Efficiency MuonTrackingEfficiency {
 
   # set EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # HLT-like approximation (v2, see file header): the composition plots show
-  # muons are also almost entirely dropped at HLT relative to offline. Kept
-  # slightly above the electron plateau since the muon-chamber standalone
-  # measurement is a partial (imperfect) backup to inner-tracker matching
-  # that electrons don't have.
-  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 10.0)   * (0.30) +
-                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 1.0e3)  * (0.45) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0e3 )                * (0.45 * exp(0.5 - pt*5.0e-4)) +
-
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 10.0)   * (0.22) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 1.0e3)  * (0.38) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e3)                 * (0.38 * exp(0.5 - pt*5.0e-4)) +
-                         (abs(eta) > 2.5)                                                   * (0.00)}
+  # tracking efficiency formula for muons
+  set EfficiencyFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.00534413) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.0250812) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.116503) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.118462) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.165281) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.162554) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.160227) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.170974) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.180642) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.192325) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.154785) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.131459) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.0863489) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.0491925) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.0153861) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.000904059) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.0215759) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.0815772) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.0875) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.0986433) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.180179) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.249588) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.243805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.189875)
+  }
 }
 
 ########################################
@@ -254,18 +324,56 @@ module MomentumSmearing ChargedHadronMomentumSmearing {
 
   # set ResolutionFormula {resolution formula as a function of eta and pt}
 
-  # HLT-like approximation (v2, see file header): offline formula
-  # (arXiv:1405.6569) with its constant term scaled by a pT-dependent factor
-  # (~7x worse right at the tracking threshold, decaying to ~3x worse
-  # asymptotically) instead of a flat 2x. The steep near-threshold
-  # degradation is what reproduces the "more particles at HLT than offline
-  # in the 0.5-1 GeV bin" migration effect seen for every class: with a hard
-  # cutoff just below and heavily smeared pT right above it, particles pile
-  # up just above threshold. See file header for sourcing caveats - no
-  # paired HLT/offline resolution number was found publicly.
-  set ResolutionFormula {                  (abs(eta) <= 0.5) * (pt > 0.1) * sqrt((0.06*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*1.3e-3^2) +
-                         (abs(eta) > 0.5 && abs(eta) <= 1.5) * (pt > 0.1) * sqrt((0.10*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*1.7e-3^2) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1) * sqrt((0.25*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*3.1e-3^2)}
+  # resolution formula for charged hadrons
+  # based on arXiv:1405.6569
+  set ResolutionFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.100665) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.100666) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.100667) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.10067) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.100434) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.100228) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.100146) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.100125) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.100152) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.10025) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.100527) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.101104) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.102514) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.106258) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.129561) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.284264) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.407185) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.492546) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.590044) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.737336) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.902224) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (1.4072) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (2.55219) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.253805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.253806) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.253808) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.253812) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.250936) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.250553) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.250387) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.250461) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.250618) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.251038) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.251714) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.253113) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.260767) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.320418) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.40907) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.488629) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.568952) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.66915) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.785341) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (1.04142) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (1.64872) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (2.57105) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (4.65747)
+  }
 }
 
 ###################################
@@ -333,8 +441,7 @@ module TrackSmearing TrackSmearing {
   set CtgThetaResolutionFormula { 0.0 }
   set PhiResolutionFormula { 0.0 }
   # taken from arXiv:1405.6569 fig. 15
-  # HLT-like approximation (v2, see file header): multiply the whole offline-derived table below by a pT-dependent degradation factor (~3.5x at low pT, decaying to ~1.3x asymptotically at high pT) rather than replacing the individual eta/pt-binned entries. See file header for sourcing caveats.
-  set D0ResolutionFormula { ( \
+  set D0ResolutionFormula {
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3543 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.2809 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.2304 +\
@@ -437,8 +544,8 @@ module TrackSmearing TrackSmearing {
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0130 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0137 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0137 
-  ) * ( 1.3 + 2.2*exp(-pt/1.0) ) }
-  set DZResolutionFormula { ( \
+  }
+  set DZResolutionFormula {
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3693 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.3135 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.3125 +\
@@ -541,7 +648,7 @@ module TrackSmearing TrackSmearing {
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0820 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0814 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0850 
-  ) * ( 1.3 + 2.2*exp(-pt/1.0) ) }
+  }
 }
 
 
