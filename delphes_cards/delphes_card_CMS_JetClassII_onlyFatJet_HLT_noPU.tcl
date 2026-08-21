@@ -26,12 +26,37 @@
 #
 # IMPORTANT: no CMS-published HLT/offline paired efficiency or resolution
 # curve was found for Phase-2 (see project research notes). The specific
-# numbers below are a hand-tuned, qualitatively-motivated APPROXIMATION
-# capturing the expected trend (efficiency/resolution close to offline
-# above ~1 GeV, degrading below that), not a validated CMS parameterization.
-# Good enough to compare "offline-like" vs "HLT-like" reconstruction of the
-# same jets as a first milestone - revisit if a real paired reference turns
-# up, or if the comparison needs to be quantitatively precise.
+# numbers below are a hand-tuned, qualitatively-motivated APPROXIMATION,
+# not a validated CMS parameterization.
+#
+# Re-tuned (v2) against a set of internal offline-vs-HLT comparison plots
+# (particle-pT spectra, jet-constituent counts, and charged/particle-ID
+# composition, all measured on real CMS "scouting"-style HLT reconstruction
+# across many jet classes and pT bins). Three findings from those plots
+# drove the changes from the v1 numbers below:
+#  1. HLT has essentially ZERO particles below ~0.5 GeV (a real cliff, not
+#     just a reduced efficiency), and consistently MORE particles than
+#     offline in the 0.5-1 GeV bin, for every single class studied - the
+#     signature of a hard low-pT reconstruction threshold combined with
+#     poor pT resolution smearing particles up across that boundary.
+#     -> raised the charged-hadron efficiency cutoff to 0.9 GeV and
+#        increased low-pT momentum smearing accordingly (see below).
+#  2. The efficiency loss is NOT confined to soft particles: charged-hadron
+#     content stays suppressed by a roughly constant ~40-45% relative
+#     amount across the whole jet pT range (200 GeV-5 TeV, i.e. reflecting
+#     particle pT from ~1 GeV to hundreds of GeV), only partially
+#     recovering at very high particle pT.
+#     -> replaced the v1 "recovers to near-offline above 1 GeV" shape with
+#        a sustained degraded plateau extending through tens of GeV.
+#  3. Electrons and muons are almost entirely dropped at HLT relative to
+#     offline (even though they're rare in hadronic jets to begin with).
+#     -> added an efficiency cut for ElectronTrackingEfficiency and
+#        MuonTrackingEfficiency, which v1 left unmodified from offline.
+# Lost charged hadrons are expected to partly reappear as photons/neutral
+# hadrons downstream via Delphes' own eflow logic (unmatched calo towers),
+# which needs no separate tuning here.
+# Still a hand-tuned approximation, not a fit - revisit if a real paired
+# CMS reference turns up, or if the comparison needs to be quantitative.
 ##############################################################################
 
 #######################################
@@ -148,18 +173,25 @@ module Efficiency ChargedHadronTrackingEfficiency {
 
   # add EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # HLT-like approximation of the offline tracking efficiency formula above:
-  # raised low-pT cutoff (0.1->0.2 GeV, HLT's reduced iteration budget
-  # recovers fewer very-soft tracks) and lower efficiency below ~1 GeV
-  # (where offline's extra iterations specifically recover soft/displaced
-  # tracks); a modest reduction is also applied at the high-pT plateau to
-  # reflect fewer iterations overall. See file header for sourcing caveats.
-  set EfficiencyFormula {                                                    (pt <= 0.2)   * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.2   && pt <= 1.0)   * (0.45) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0)                  * (0.90) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2   && pt <= 1.0)   * (0.35) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0)                  * (0.78) +
-                         (abs(eta) > 2.5)                                                  * (0.00)}
+  # HLT-like approximation (v2, see file header): hard cutoff at 0.9 GeV
+  # (nothing reconstructed below it, matching the observed particle-pT
+  # spectra) and a sustained ~45-65% relative degradation (vs. the offline
+  # formula's 0.95/0.85 plateau) through tens of GeV, only partially
+  # recovering at very high pT. See file header for sourcing caveats.
+  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
+                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 2.0)    * (0.35) +
+                                           (abs(eta) <= 1.5) * (pt > 2.0   && pt <= 10.0)   * (0.45) +
+                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 50.0)   * (0.50) +
+                                           (abs(eta) <= 1.5) * (pt > 50.0  && pt <= 200.0)  * (0.60) +
+                                           (abs(eta) <= 1.5) * (pt > 200.0 && pt <= 1000.0) * (0.75) +
+                                           (abs(eta) <= 1.5) * (pt > 1000.0)                * (0.85) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 2.0)    * (0.28) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.0   && pt <= 10.0)   * (0.38) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 50.0)   * (0.42) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 50.0  && pt <= 200.0)  * (0.50) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 200.0 && pt <= 1000.0) * (0.65) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000.0)                * (0.75) +
+                         (abs(eta) > 2.5)                                                   * (0.00)}
 }
 
 ##############################
@@ -172,15 +204,18 @@ module Efficiency ElectronTrackingEfficiency {
 
   # set EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # tracking efficiency formula for electrons
-  set EfficiencyFormula {                                                    (pt <= 0.1)   * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.1   && pt <= 1.0)   * (0.73) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0   && pt <= 1.0e2) * (0.95) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0e2)                * (0.99) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1   && pt <= 1.0)   * (0.50) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0   && pt <= 1.0e2) * (0.83) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e2)                * (0.90) +
-                         (abs(eta) > 2.5)                                                  * (0.00)}
+  # HLT-like approximation (v2, see file header): the composition plots show
+  # electrons are almost entirely dropped at HLT relative to offline - the
+  # full offline GSF electron reconstruction (needed to recover bremsstrahlung
+  # losses) isn't available online, so a strong, broad cut is applied.
+  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
+                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 10.0)   * (0.20) +
+                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 1.0e2)  * (0.30) +
+                                           (abs(eta) <= 1.5) * (pt > 1.0e2)                 * (0.55) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 10.0)   * (0.14) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 1.0e2)  * (0.22) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e2)                 * (0.45) +
+                         (abs(eta) > 2.5)                                                   * (0.00)}
 }
 
 ##########################
@@ -193,16 +228,20 @@ module Efficiency MuonTrackingEfficiency {
 
   # set EfficiencyFormula {efficiency formula as a function of eta and pt}
 
-  # tracking efficiency formula for muons
-  set EfficiencyFormula {                                                    (pt <= 0.1)   * (0.00) +
-                                           (abs(eta) <= 1.5) * (pt > 0.1   && pt <= 1.0)   * (0.75) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0   && pt <= 1.0e3) * (0.99) +
-                                           (abs(eta) <= 1.5) * (pt > 1.0e3 )               * (0.99 * exp(0.5 - pt*5.0e-4)) +
+  # HLT-like approximation (v2, see file header): the composition plots show
+  # muons are also almost entirely dropped at HLT relative to offline. Kept
+  # slightly above the electron plateau since the muon-chamber standalone
+  # measurement is a partial (imperfect) backup to inner-tracker matching
+  # that electrons don't have.
+  set EfficiencyFormula {                                                    (pt <= 0.9)    * (0.00) +
+                                           (abs(eta) <= 1.5) * (pt > 0.9   && pt <= 10.0)   * (0.30) +
+                                           (abs(eta) <= 1.5) * (pt > 10.0  && pt <= 1.0e3)  * (0.45) +
+                                           (abs(eta) <= 1.5) * (pt > 1.0e3 )                * (0.45 * exp(0.5 - pt*5.0e-4)) +
 
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1   && pt <= 1.0)   * (0.70) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0   && pt <= 1.0e3) * (0.98) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e3)                * (0.98 * exp(0.5 - pt*5.0e-4)) +
-                         (abs(eta) > 2.5)                                                  * (0.00)}
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9   && pt <= 10.0)   * (0.22) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10.0  && pt <= 1.0e3)  * (0.38) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.0e3)                 * (0.38 * exp(0.5 - pt*5.0e-4)) +
+                         (abs(eta) > 2.5)                                                   * (0.00)}
 }
 
 ########################################
@@ -215,13 +254,18 @@ module MomentumSmearing ChargedHadronMomentumSmearing {
 
   # set ResolutionFormula {resolution formula as a function of eta and pt}
 
-  # HLT-like approximation: offline formula (arXiv:1405.6569) with its
-  # constant term roughly doubled, reflecting worse curvature/pT resolution
-  # from fewer online track-fit iterations. See file header for sourcing
-  # caveats - no paired HLT/offline resolution number was found publicly.
-  set ResolutionFormula {                  (abs(eta) <= 0.5) * (pt > 0.1) * sqrt(0.12^2 + pt^2*1.3e-3^2) +
-                         (abs(eta) > 0.5 && abs(eta) <= 1.5) * (pt > 0.1) * sqrt(0.20^2 + pt^2*1.7e-3^2) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1) * sqrt(0.50^2 + pt^2*3.1e-3^2)}
+  # HLT-like approximation (v2, see file header): offline formula
+  # (arXiv:1405.6569) with its constant term scaled by a pT-dependent factor
+  # (~7x worse right at the tracking threshold, decaying to ~3x worse
+  # asymptotically) instead of a flat 2x. The steep near-threshold
+  # degradation is what reproduces the "more particles at HLT than offline
+  # in the 0.5-1 GeV bin" migration effect seen for every class: with a hard
+  # cutoff just below and heavily smeared pT right above it, particles pile
+  # up just above threshold. See file header for sourcing caveats - no
+  # paired HLT/offline resolution number was found publicly.
+  set ResolutionFormula {                  (abs(eta) <= 0.5) * (pt > 0.1) * sqrt((0.06*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*1.3e-3^2) +
+                         (abs(eta) > 0.5 && abs(eta) <= 1.5) * (pt > 0.1) * sqrt((0.10*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*1.7e-3^2) +
+                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1) * sqrt((0.25*(3.0+4.0*exp(-pt/1.0)))^2 + pt^2*3.1e-3^2)}
 }
 
 ###################################
@@ -289,7 +333,7 @@ module TrackSmearing TrackSmearing {
   set CtgThetaResolutionFormula { 0.0 }
   set PhiResolutionFormula { 0.0 }
   # taken from arXiv:1405.6569 fig. 15
-  # HLT-like approximation: multiply the whole offline-derived table below by a pT-dependent degradation factor (worse at low pT, ~1.2x asymptotically at high pT) rather than replacing the individual eta/pt-binned entries. See file header for sourcing caveats.
+  # HLT-like approximation (v2, see file header): multiply the whole offline-derived table below by a pT-dependent degradation factor (~3.5x at low pT, decaying to ~1.3x asymptotically at high pT) rather than replacing the individual eta/pt-binned entries. See file header for sourcing caveats.
   set D0ResolutionFormula { ( \
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3543 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.2809 +\
@@ -393,7 +437,7 @@ module TrackSmearing TrackSmearing {
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0130 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0137 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0137 
-  ) * ( 1.2 + 1.3*exp(-pt/2.0) ) }
+  ) * ( 1.3 + 2.2*exp(-pt/1.0) ) }
   set DZResolutionFormula { ( \
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3693 +\
       ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.3135 +\
@@ -497,7 +541,7 @@ module TrackSmearing TrackSmearing {
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0820 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0814 +\
       ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0850 
-  ) * ( 1.2 + 1.3*exp(-pt/2.0) ) }
+  ) * ( 1.3 + 2.2*exp(-pt/1.0) ) }
 }
 
 
