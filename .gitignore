@@ -1,3 +1,11 @@
+# outputs and results
+**output_*
+*.png
+*.root
+
+# job directories
+condor
+
 # ROOT / ACLiC compiled artifacts (machine- and ROOT-version-specific;
 # regenerated automatically by `root -b -q 'macro.C++(...)'`)
 *.so
