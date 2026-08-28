@@ -27,6 +27,13 @@ PT_EDGES = [
 # and are not binned here.
 ETA_EDGES = [0.0, 1.5, 2.5]
 
+# separate, coarser binning for whole-jet quantities (JetEnergyScale): real
+# jets in this sample start at 200 GeV (the ntuple's own baseline selection)
+# so PT_EDGES' many sub-GeV/few-GeV bins would be entirely empty here.
+# Matches testing/plot_composition.py's default jet-pT bins, for a
+# consistent "how we usually slice jet pT in this repo" convention.
+JET_PT_EDGES = [200.0, 250.0, 300.0, 400.0, 500.0, 650.0, 800.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0]
+
 
 def n_pt_bins():
     return len(PT_EDGES) - 1
@@ -34,6 +41,23 @@ def n_pt_bins():
 
 def n_eta_bins():
     return len(ETA_EDGES) - 1
+
+
+def n_jet_pt_bins():
+    return len(JET_PT_EDGES) - 1
+
+
+def jet_pt_bin_index(pt):
+    if pt < JET_PT_EDGES[0] or pt >= JET_PT_EDGES[-1]:
+        return None
+    lo, hi = 0, len(JET_PT_EDGES) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if pt < JET_PT_EDGES[mid]:
+            hi = mid
+        else:
+            lo = mid
+    return lo
 
 
 def pt_bin_index(pt):

@@ -6,15 +6,20 @@ formulas used throughout this repo's Delphes cards (EfficiencyFormula,
 ResolutionFormula, ...), and for writing new ones in the same style.
 
 These formulas are Delphes' own small expression language: arithmetic on
-the free variables `pt` and `eta`, comparisons, `&&`, and abs()/exp()/sqrt(),
-combined as a sum of "indicator * ... * value" terms (see any existing
-EfficiencyFormula block for examples). extract_formula_block() pulls the
-literal text of one such block out of a .tcl file (via brace matching, not
-regex-of-the-contents, so it's robust to whatever arithmetic is inside),
-and evaluate_formula() evaluates that literal text at a given (pt, eta)
-point using a tiny, restricted Python expression evaluator - not a real
-Tcl interpreter, since Delphes' `^` means "power" (like Python's `**`),
-which is different from Tcl's own `expr` semantics (bitwise XOR).
+free variables (`pt`/`eta` for tracking Efficiency/MomentumSmearing/
+TrackSmearing formulas; `energy`/`eta` for SimpleCalorimeter's
+ResolutionFormula), comparisons, `&&`, and abs()/exp()/sqrt(), combined as
+a sum of "indicator * ... * value" terms (see any existing EfficiencyFormula
+block for examples). extract_formula_block() pulls the literal text of one
+such block out of a .tcl file (via brace matching, not regex-of-the-contents,
+so it's robust to whatever arithmetic is inside), and evaluate_formula()
+evaluates that literal text at a given point (given as keyword arguments
+matching whichever free variables the formula actually uses) using a tiny,
+restricted Python expression evaluator - not a real Tcl interpreter, since
+Delphes' `^` means "power" (like Python's `**`), which is different from
+Tcl's own `expr` semantics (bitwise XOR). extract_scalar() reads a plain
+(non-piecewise, unbraced) `set Name value` line, e.g. SimpleCalorimeter's
+`EnergyMin`/`EnergySignificanceMin`.
 
 Together these let generate_hlt_card.py treat the offline Delphes card as
 the single source of truth for "what does offline reconstruction do",
@@ -90,28 +95,50 @@ _ALLOWED_NAMES = {'abs': abs, 'exp': math.exp, 'sqrt': math.sqrt}
 _IDENTIFIER_RE = re.compile(r'\b[a-zA-Z_][a-zA-Z_0-9]*\b')
 
 
-def evaluate_formula(formula_text, pt, eta):
+def evaluate_formula(formula_text, **variables):
     '''
-    Numerically evaluate a Delphes-style pT/eta formula string at a given
-    (pt, eta) point. Translates Delphes/Tcl syntax to Python syntax
-    (`^` -> `**`, `&&` -> `and`, bare `pt`/`eta` -> literal numbers) and
-    evaluates with no builtins except abs/exp/sqrt.
+    Numerically evaluate a Delphes-style formula string at a given point.
+    `variables` supplies the free variables the formula itself uses as
+    keyword arguments, e.g. evaluate_formula(f, pt=1.5, eta=0.3) for a
+    tracking formula, or evaluate_formula(f, energy=5.0, eta=0.3) for a
+    SimpleCalorimeter ResolutionFormula. Translates Delphes/Tcl syntax to
+    Python syntax (`^` -> `**`, `&&` -> `and`) and evaluates with no
+    builtins except abs/exp/sqrt.
     '''
     expr = formula_text.replace('\\\n', ' ').replace('\n', ' ')
     expr = expr.replace('^', '**').replace('&&', ' and ').replace('||', ' or ')
 
     def repl(m):
         name = m.group(0)
-        if name == 'pt':
-            return '({!r})'.format(float(pt))
-        if name == 'eta':
-            return '({!r})'.format(float(eta))
+        if name in variables:
+            return '({!r})'.format(float(variables[name]))
         if name in _ALLOWED_NAMES or name in ('and', 'or'):
             return name
-        raise ValueError('unexpected identifier {!r} in formula'.format(name))
+        raise ValueError('unexpected identifier {!r} in formula (no value given for it)'.format(name))
 
     expr = _IDENTIFIER_RE.sub(repl, expr)
     return float(eval(expr, {'__builtins__': {}}, dict(_ALLOWED_NAMES)))
+
+
+def extract_scalar(text, module_name, var_name):
+    '''
+    Read a plain scalar assignment, e.g. `set EnergyMin 0.5` inside
+    `module ... module_name { ... }` - unlike EfficiencyFormula/
+    ResolutionFormula, these aren't brace-enclosed.
+    '''
+    module_pat = re.compile(
+        r'^\s*module\s+\S+\s+' + re.escape(module_name) + r'\s*\{', re.MULTILINE)
+    m = module_pat.search(text)
+    if not m:
+        raise ValueError('module {} not found'.format(module_name))
+    module_open = m.end() - 1
+    module_body, _ = _match_braces(text, module_open)
+    body_no_comments = re.sub(r'#[^\n]*', lambda m: ' ' * len(m.group(0)), module_body)
+
+    m2 = re.search(r'set\s+' + re.escape(var_name) + r'\s+([0-9.eE+-]+)', body_no_comments)
+    if not m2:
+        raise ValueError('scalar {} not found in module {}'.format(var_name, module_name))
+    return float(m2.group(1))
 
 
 def format_piecewise_table(eta_edges, pt_edges, values, var_prefix=''):

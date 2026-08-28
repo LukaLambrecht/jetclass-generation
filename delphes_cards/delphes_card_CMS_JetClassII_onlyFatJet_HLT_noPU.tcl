@@ -3,24 +3,25 @@
 # do not hand-edit. Produced by hlteff/generate_hlt_card.py from:
 #   - the offline card as baseline: delphes_cards/delphes_card_CMS_JetClassII_onlyFatJet.tcl
 #   - data-driven degradation curves: hlteff/curves_qcd.json
-#     (generated unknown time by hlteff/derive_curves.py, reading
+#     (generated 2026-08-28 07:56 UTC by hlteff/derive_curves.py, reading
 #      256098 QCD jets, deltaR match window 0.03, from:
 #      /eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new
 #      files: dnnTuples_nanov15_0000.root, dnnTuples_nanov15_0001.root, dnnTuples_nanov15_0002.root)
 #
-# Method (see hlteff/README.md for full details):
-#   For each of ChargedHadronTrackingEfficiency, ElectronTrackingEfficiency,
-#   MuonTrackingEfficiency: HLT efficiency(pt,eta) = offline efficiency(pt,eta)
-#   * (fraction of offline CMS "regular PF + lost track" candidates that have
-#   a geometrically-matched scouting candidate of the same particle type, in
-#   real paired offline/scouting CMS data), binned in (pt, |eta|).
-#   For ChargedHadronMomentumSmearing: HLT resolution(pt,eta) = offline
-#   resolution(pt,eta) combined in quadrature with the extra (pt_scouting -
-#   pt_offline)/pt_offline spread measured for matched pairs in that bin.
+# Method (see hlteff/README.md for full details): two combination rules,
+# chosen per module by what physically makes sense for that quantity.
+#   Multiplicative (ChargedHadronTrackingEfficiency, ElectronTrackingEfficiency,
+#   MuonTrackingEfficiency, JetEnergyScalePUPPIAK8): HLT(pt,eta) =
+#   offline(pt,eta) * (a data-driven ratio measured in real paired
+#   offline/scouting CMS data, binned in (pt,|eta|) for tracking, or jet
+#   (pT,|eta|) for JES).
+#   Quadrature (ChargedHadronMomentumSmearing, Electron/MuonMomentumSmearing,
+#   TrackSmearing D0/DZResolutionFormula): HLT(pt,eta) = sqrt(offline(pt,eta)^2
+#   + extra(pt,eta)^2), where extra is the additional smearing/spread
+#   measured for matched offline-scouting pairs in that bin.
 #   Everything else (calorimeter response, PUPPI, jet clustering, softdrop,
-#   TrackSmearing D0/DZ impact-parameter resolution, Electron/MuonMomentumSmearing)
-#   is UNCHANGED from the offline card - see README.md for why, and for
-#   what's a documented candidate for future extension.
+#   TrackPileUpSubtractor.ZVertexResolution, JetEnergyScalePUPPIAK15) is
+#   UNCHANGED from the offline card - see README.md for why.
 #
 # To regenerate after new data or a change to the offline card:
 #   python hlteff/derive_curves.py       # only if the input data changed
@@ -388,9 +389,54 @@ module MomentumSmearing ElectronMomentumSmearing {
 
   # resolution formula for electrons
   # based on arXiv:1405.6569
-  set ResolutionFormula {                  (abs(eta) <= 0.5) * (pt > 0.1) * sqrt(0.03^2 + pt^2*1.3e-3^2) +
-                         (abs(eta) > 0.5 && abs(eta) <= 1.5) * (pt > 0.1) * sqrt(0.05^2 + pt^2*1.7e-3^2) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1) * sqrt(0.15^2 + pt^2*3.1e-3^2)}
+  set ResolutionFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.0500007) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.0500022) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.0500052) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.0500104) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.0500185) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.0500319) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.0500566) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.0501042) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.050195) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.0504048) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.0509465) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.0520462) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.0546664) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.0609469) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.0745155) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.102301) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.148896) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.226586) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.352069) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.554758) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.893899) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (1.40339) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (2.55049) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.150001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.150002) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.150006) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.150012) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.15002) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.150035) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.150063) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.150116) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.150216) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.15045) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.151055) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.152297) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.155319) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.162907) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.180695) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.221331) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.296493) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.43001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.652963) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (1.01861) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (1.6344) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (2.5619) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (4.65242)
+  }
 }
 
 ###############################
@@ -404,9 +450,54 @@ module MomentumSmearing MuonMomentumSmearing {
   # set ResolutionFormula {resolution formula as a function of eta and pt}
 
   # resolution formula for muons
-  set ResolutionFormula {                  (abs(eta) <= 0.5) * (pt > 0.1) * sqrt(0.01^2 + pt^2*1.0e-4^2) +
-                         (abs(eta) > 0.5 && abs(eta) <= 1.5) * (pt > 0.1) * sqrt(0.015^2 + pt^2*1.5e-4^2) +
-                         (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1) * sqrt(0.025^2 + pt^2*3.5e-4^2)}
+  set ResolutionFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.0150815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.0150815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.0150816) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.0150817) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.0150819) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.0150823) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.0150829) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.0150842) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.0150865) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.0150919) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.0151061) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.0151438) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.0153282) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.0155867) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.0161589) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.0182118) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.0231983) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.0305656) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.0387243) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.0541347) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.0821923) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.125969) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.226228) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.0250001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.0250002) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.0250004) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0250009) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.0250016) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.0250027) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.0250048) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.0250088) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.0250166) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.0250344) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.0250809) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.0251764) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.0254107) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.0260092) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.0274662) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.0310265) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.0381938) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.0519158) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.0759807) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.116465) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.185443) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.28983) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.525595)
+  }
 }
 
 ##############
@@ -442,212 +533,100 @@ module TrackSmearing TrackSmearing {
   set PhiResolutionFormula { 0.0 }
   # taken from arXiv:1405.6569 fig. 15
   set D0ResolutionFormula {
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3543 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.2809 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.2304 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 0.1917 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 0.1737 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 0.1434 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.1060 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.0893 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.0753 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.0670 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.0577 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.0524 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.0452 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.0376 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.0350 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.0324 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.0283 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.0258 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.0237 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.0211 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.0191 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.0164 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.0150 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0143 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0130 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0130 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0116 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0116 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0110 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0110 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0110 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0104 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0109 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 134.7130 ) * 0.0110 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.4564 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.3580 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.3010 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 0.2353 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 0.2026 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 0.1595 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.1383 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.1119 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.0926 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.0816 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.0663 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.0553 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.0488 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.0431 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.0399 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.0357 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.0313 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.0277 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.0233 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.0221 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.0214 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.0180 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.0155 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0141 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0128 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0134 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0121 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0108 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0101 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0101 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0101 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0102 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0088 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 134.7130 ) * 0.0095 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.6970 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.6046 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.5315 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 0.4306 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 0.3398 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 0.2788 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.2387 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.1814 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.1557 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.1230 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.1009 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.0914 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.0767 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.0638 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.0544 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.0468 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.0425 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.0385 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.0331 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.0278 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.0256 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.0236 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.0217 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0196 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0176 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0165 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0157 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0150 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0144 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0144 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0137 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0130 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0137 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0137 
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.358774) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.426383) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.393543) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.147484) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.0938066) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.0786118) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.0609298) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.0554238) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.041351) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.036541) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.0307982) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.0270361) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.0238641) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.0232168) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.0235746) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.0250602) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.0296599) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.0380673) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.0600523) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.109751) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.157729) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.155722) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.177801) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.59825) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.800247) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.688017) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.288314) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.189011) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.161122) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.106857) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.0969849) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.0711278) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.0557533) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.0488215) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.0407116) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.0374349) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.0353455) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.0333961) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.0337484) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.0419306) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.0654104) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.113237) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.181009) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.181009) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.181009) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.181009)
   }
   set DZResolutionFormula {
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.3693 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.3135 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.3125 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 0.2578 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 0.2221 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 0.1936 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.1686 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.1351 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.1113 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.0983 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.0882 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.0786 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.0684 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.0615 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.0551 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.0516 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.0484 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.0450 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.0416 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.0416 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.0382 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.0350 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.0317 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0348 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0316 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0284 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0283 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0315 +\
-      ( abs(eta) > 0.0 && abs(eta) <= 0.9 ) * ( pt > 134.7130 ) * 0.0318 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 0.7062 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 0.6010 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 0.5992 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 0.4959 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 0.3877 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 0.3199 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.2649 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.2518 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.1982 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.1587 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.1399 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.1199 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.1031 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.0967 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.0805 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.0736 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.0707 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.0603 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.0609 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.0541 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.0511 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.0443 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.0409 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0408 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0409 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0377 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0375 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0377 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0342 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0342 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0343 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0343 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0309 +\
-      ( abs(eta) > 0.9 && abs(eta) <= 1.4 ) * ( pt > 134.7130 ) * 0.0310 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.1823 && pt <= 0.2227 ) * 2.1717 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.2227 && pt <= 0.2720 ) * 2.0715 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.2720 && pt <= 0.3323 ) * 2.0679 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.3323 && pt <= 0.4060 ) * 1.7679 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.4060 && pt <= 0.4959 ) * 1.4393 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.4959 && pt <= 0.6058 ) * 1.1997 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.6058 && pt <= 0.7401 ) * 0.9800 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.7401 && pt <= 0.9041 ) * 0.8251 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 0.9041 && pt <= 1.1044 ) * 0.6695 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.1044 && pt <= 1.3492 ) * 0.5545 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.3492 && pt <= 1.6481 ) * 0.4366 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 1.6481 && pt <= 2.0134 ) * 0.3711 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 2.0134 && pt <= 2.4595 ) * 0.3319 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 2.4595 && pt <= 3.0045 ) * 0.2721 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 3.0045 && pt <= 3.6703 ) * 0.2443 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 3.6703 && pt <= 4.4837 ) * 0.2085 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 4.4837 && pt <= 5.4772 ) * 0.1816 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 5.4772 && pt <= 6.6910 ) * 0.1641 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 6.6910 && pt <= 8.1737 ) * 0.1451 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 8.1737 && pt <= 9.9849 ) * 0.1317 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 9.9849 && pt <= 12.1976 ) * 0.1117 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 12.1976 && pt <= 14.9005 ) * 0.1020 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 14.9005 && pt <= 18.2024 ) * 0.1017 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 18.2024 && pt <= 22.2360 ) * 0.0983 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 22.2360 && pt <= 27.1635 ) * 0.0882 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 27.1635 && pt <= 33.1828 ) * 0.0847 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 33.1828 && pt <= 40.5360 ) * 0.0814 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 40.5360 && pt <= 49.5187 ) * 0.0784 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 49.5187 && pt <= 60.4919 ) * 0.0817 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 60.4919 && pt <= 73.8967 ) * 0.0750 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 73.8967 && pt <= 90.2720 ) * 0.0816 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 90.2720 && pt <= 110.2760 ) * 0.0820 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 110.2760 && pt <= 134.7130 ) * 0.0814 +\
-      ( abs(eta) > 1.4 && abs(eta) <= 2.5 ) * ( pt > 134.7130 ) * 0.0850 
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (1.46642) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (1.49935) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (1.48315) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.19554) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.137585) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.113906) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.0910885) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.0815563) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.0650857) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.0558303) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.0501506) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.047825) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.0437041) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.044409) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.0504743) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.062117) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.0766251) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.0966241) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.121061) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.167579) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.208372) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.216005) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201508) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.113281) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (2.071) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (1.44375) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (1.20504) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.830275) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.675329) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.44455) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.380114) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.284377) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.224291) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.184915) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.161226) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.142915) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.15369) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.163082) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.197297) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.230802) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.291936) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.432702) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.49521) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.49521) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.49521) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.49521)
   }
 }
 
@@ -1176,7 +1155,30 @@ module EnergyScale JetEnergyScalePUPPIAK8 {
   set OutputArray jets
 
  # scale formula for jets
-  set ScaleFormula {1.00}
+  set ScaleFormula {
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 200 && pt <= 250) * (1.02948) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 300) * (1.02298) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 300 && pt <= 400) * (1.01411) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 500) * (1.00739) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 500 && pt <= 650) * (1.00143) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 800) * (0.9968) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 800 && pt <= 1000) * (0.993623) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000 && pt <= 1500) * (0.990814) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1500 && pt <= 2000) * (0.990758) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2000 && pt <= 3000) * (0.989641) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3000) * (0.988095) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 200 && pt <= 250) * (1.09579) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 300) * (1.07237) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 300 && pt <= 400) * (1.04741) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 500) * (1.02741) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 500 && pt <= 650) * (1.01215) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 800) * (1.00068) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 800 && pt <= 1000) * (0.991693) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000 && pt <= 1500) * (0.986043) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1500 && pt <= 2000) * (0.986043) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2000 && pt <= 3000) * (0.986043) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3000) * (0.986043)
+  }
 }
 
 module EnergyScale JetEnergyScalePUPPIAK15 {
