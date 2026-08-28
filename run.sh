@@ -10,13 +10,16 @@ JOBNUM=$4
 # step is repeated per card, producing its own events_delphes_*.root and
 # ntuple_*.root under a per-card subdirectory.
 DELPHES_CARD_NAMES=${5:-onlyFatJet}
+# optional 6th arg: output directory, in place of the default below - lets a
+# one-off/exploratory run (e.g. a timing scan) be pointed at a completely
+# separate directory instead of mixing its output into the default one
+OUTPUT_PATH=${6:-/eos/user/l/llambrec/jetclass/output_test}
 
 # Setup environment
 
 # ============ basic configuration ============
 MG5_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2
 DELPHES_PATH=/eos/user/l/llambrec/jetclass/delphes
-OUTPUT_PATH=/eos/user/l/llambrec/jetclass/output_test
 
 ## some env variables are required by the softwares
 LHAPDFCONFIG=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF/lhapdf.conf

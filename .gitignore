@@ -2,6 +2,7 @@
 **output_*
 *.png
 *.root
+hlteff/curves_qcd.json
 
 # job directories
 condor

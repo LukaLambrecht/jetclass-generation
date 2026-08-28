@@ -12,7 +12,7 @@ HLT tracking) typically only affect a subset of particle types (e.g.
 charged hadrons), which can otherwise be diluted in the "all particles"
 view by the unaffected categories.
 
-Usage:
+Usage (from any directory - output defaults to output_plots/ next to this script):
   python plot_pt.py FILE1 [FILE2 ...] [--labels LABEL1 [LABEL2 ...]] [options]
 
 Example:
@@ -20,7 +20,7 @@ Example:
       /path/to/HToBB/onlyFatJetNoPU/ntuple_0.root \
       /path/to/HToBB/onlyFatJetHLTNoPU/ntuple_0.root \
       --labels offline HLT \
-      --output testing/plot_pt.png
+      --output output_plots/plot_pt.png
 '''
 
 import os
@@ -30,6 +30,9 @@ import numpy as np
 import awkward as ak
 import uproot
 import matplotlib.pyplot as plt
+
+THISDIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUTPUT = os.path.join(THISDIR, 'output_plots', 'plot_pt.png')
 
 plt.rcParams.update({
     'font.size': 16,
@@ -124,11 +127,12 @@ def main():
         help='extra info text shown in the upper left corner of every plot'
              ' (e.g. a process name like "Hbb jets"); the particle-type'
              ' label is placed just below it when this is set')
-    parser.add_argument('--output', default='testing/plot_pt.png',
+    parser.add_argument('--output', default=DEFAULT_OUTPUT,
         help='base output plot file; a separate file is written per particle'
              ' category by inserting a suffix before the extension, e.g.'
-             ' testing/plot_pt.png -> testing/plot_pt_all.png,'
-             ' testing/plot_pt_charged.png, ... (default: testing/plot_pt.png)')
+             ' output_plots/plot_pt.png -> output_plots/plot_pt_all.png,'
+             ' output_plots/plot_pt_charged.png, ... (default: output_plots/plot_pt.png,'
+             ' next to this script)')
     args = parser.parse_args()
 
     if args.labels is not None and len(args.labels) != len(args.files):

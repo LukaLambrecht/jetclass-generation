@@ -33,26 +33,10 @@ MDIR=proc
 GRIDPACK_CACHE=${GRIDPACK_CACHE:-/eos/user/l/llambrec/jetclass/gridpack_cache}
 CACHED_PROC=$GRIDPACK_CACHE/$GRIDPACK_NAME/proc
 
-# step1: populate the cache for this process, if not already there
-if [ ! -d "$CACHED_PROC" ]; then
-    echo "Populating gridpack cache for $GRIDPACK_NAME"
-    DLDIR=$(mktemp -d)
-    curl -sL "https://raw.githubusercontent.com/jet-universe/jetclass_generation/main/gridpacks/${GRIDPACK_NAME}.tar.gz" -o $DLDIR/gridpack.tar.gz
-    tar -xzf $DLDIR/gridpack.tar.gz -C $DLDIR
-    # the gridpack hardcodes the original author's own (inaccessible) MG5
-    # install path in this file - repoint it at our own MG5_PATH
-    sed -i "s#/afs/cern.ch/work/h/hqu/tools/madgraph/LCG100/MG5_aMC_v3_1_1#$MG5_PATH#g" \
-        $DLDIR/$GRIDPACK_NAME/Cards/me5_configuration.txt
-    mkdir -p $GRIDPACK_CACHE/$GRIDPACK_NAME
-    # move into place under a unique temp name then rename, so concurrent
-    # jobs racing to populate the same cache entry don't clobber each other;
-    # if another job already won the race, just discard our own copy
-    UNIQUE=proc.tmp.$$_$RANDOM
-    mv $DLDIR/$GRIDPACK_NAME $GRIDPACK_CACHE/$GRIDPACK_NAME/$UNIQUE
-    mv -T $GRIDPACK_CACHE/$GRIDPACK_NAME/$UNIQUE $CACHED_PROC 2>/dev/null \
-        || rm -rf $GRIDPACK_CACHE/$GRIDPACK_NAME/$UNIQUE
-    rm -rf $DLDIR
-fi
+# step1: populate the cache for this process, if not already there (shared
+# with ../download_gridpack.py, which can do this ahead of time for many
+# processes in parallel - see populate_gridpack_cache.sh for the logic)
+GRIDPACK_CACHE=$GRIDPACK_CACHE MG5_PATH=$MG5_PATH $GENCFG_PATH/populate_gridpack_cache.sh $GRIDPACK_NAME
 
 # step2: reuse the cached, precompiled process for this job
 if [ ! -d $MDIR ]; then

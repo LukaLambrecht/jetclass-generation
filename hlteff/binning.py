@@ -30,7 +30,7 @@ ETA_EDGES = [0.0, 1.5, 2.5]
 # separate, coarser binning for whole-jet quantities (JetEnergyScale): real
 # jets in this sample start at 200 GeV (the ntuple's own baseline selection)
 # so PT_EDGES' many sub-GeV/few-GeV bins would be entirely empty here.
-# Matches testing/plot_composition.py's default jet-pT bins, for a
+# Matches testing/test-hlt-jets/plot_composition.py's default jet-pT bins, for a
 # consistent "how we usually slice jet pT in this repo" convention.
 JET_PT_EDGES = [200.0, 250.0, 300.0, 400.0, 500.0, 650.0, 800.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0]
 

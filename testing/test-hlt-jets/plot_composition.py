@@ -7,7 +7,7 @@ unclassified constituents) versus jet pT, as horizontal stacked bar
 charts - one panel per input ntuple, arranged side by side in the order
 the files are given on the command line.
 
-Usage:
+Usage (from any directory - output defaults to output_plots/ next to this script):
   python plot_composition.py FILE1 [FILE2 ...] [--labels LABEL1 [LABEL2 ...]] [options]
 
 Example:
@@ -15,7 +15,7 @@ Example:
       /path/to/HToBB/onlyFatJetNoPU/ntuple_0.root \
       /path/to/HToBB/onlyFatJetHLTNoPU/ntuple_0.root \
       --labels Offline HLT \
-      --output testing/plot_composition.png
+      --output output_plots/plot_composition.png
 '''
 
 import os
@@ -25,6 +25,9 @@ import numpy as np
 import awkward as ak
 import uproot
 import matplotlib.pyplot as plt
+
+THISDIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUTPUT = os.path.join(THISDIR, 'output_plots', 'plot_composition.png')
 
 plt.rcParams.update({
     'font.size': 14,
@@ -104,8 +107,8 @@ def main():
              ' (default: {})'.format(','.join(str(b) for b in DEFAULT_PT_BINS)))
     parser.add_argument('--label-threshold', type=float, default=5.0,
         help='minimum segment size in %% for a percentage label to be drawn inside it (default: 5)')
-    parser.add_argument('--output', default='testing/plot_composition.png',
-        help='output plot file (default: testing/plot_composition.png)')
+    parser.add_argument('--output', default=DEFAULT_OUTPUT,
+        help='output plot file (default: output_plots/plot_composition.png, next to this script)')
     args = parser.parse_args()
 
     if args.labels is not None and len(args.labels) != len(args.files):

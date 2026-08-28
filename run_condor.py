@@ -9,7 +9,7 @@ submits a single condor job that calls run.sh with those arguments, using
 the submission tooling in jobtools/.
 
 Usage:
-  python run_condor.py PROC NEVENT NEVENT_GEN JOBNUM [DELPHES_CARD_NAMES]
+  python run_condor.py PROC NEVENT NEVENT_GEN JOBNUM [DELPHES_CARD_NAMES] [OUTPUT_PATH]
 
 Example:
   # one card, offline reconstruction, no pileup
@@ -17,6 +17,10 @@ Example:
 
   # both offline and HLT reconstruction, no pileup
   python run_condor.py jetclass1/HToBB 5000 250 0 onlyFatJetNoPU,onlyFatJetHLTNoPU
+
+  # a one-off/exploratory run, written to a separate output directory instead
+  # of the default one (DELPHES_CARD_NAMES must be given to reach this arg)
+  python run_condor.py jetclass1/HToBB 100 100 0 onlyFatJetNoPU /eos/user/l/llambrec/jetclass/output_timing_test
 '''
 
 import os
@@ -42,6 +46,12 @@ if __name__=='__main__':
     parser.add_argument('delphes_cards', nargs='?', default=None,
         help='comma-separated Delphes card names, e.g. onlyFatJet,onlyFatJetHLT'
              ' (same as run.sh optional positional arg 5; if omitted, run.sh uses its own default)')
+    parser.add_argument('output_path', nargs='?', default=None,
+        help='detector-output directory (same as run.sh optional positional arg 6;'
+             ' if omitted, run.sh uses its own default. Requires delphes_cards to also'
+             ' be given, since it is a positional arg after it - not to be confused with'
+             ' --outputdir below, which is a different thing: where condor submission'
+             ' files for *this job* are written, not where its detector output goes)')
     parser.add_argument('-o', '--outputdir', default='condor',
         help='directory to write condor submission files into (default: condor)')
     parser.add_argument('--cpus', type=int, default=1)
@@ -60,8 +70,14 @@ if __name__=='__main__':
         raise Exception('run.sh not found at {}'.format(runsh))
 
     runsh_args = [args.proc, str(args.nevent), str(args.nevent_gen), str(args.jobnum)]
+    if args.output_path is not None and args.delphes_cards is None:
+        raise Exception('output_path was given without delphes_cards - since output_path is'
+            ' positional arg 6, delphes_cards (arg 5) must also be given; pass its default'
+            ' explicitly, e.g. "onlyFatJet"')
     if args.delphes_cards is not None:
         runsh_args.append(args.delphes_cards)
+    if args.output_path is not None:
+        runsh_args.append(args.output_path)
     command = '{} {}'.format(runsh, ' '.join(runsh_args))
 
     outputdir = os.path.abspath(args.outputdir)

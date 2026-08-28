@@ -375,7 +375,7 @@ generated card looks like:
 ## Next steps (not done here)
 
 - Cross-check the QCD-derived card against the `H0HpHm_mixed_new/` sample
-  (e.g. rerun the `testing/plot_pt.py` / `testing/plot_composition.py`
+  (e.g. rerun the `testing/test-hlt-jets/plot_pt.py` / `testing/test-hlt-jets/plot_composition.py`
   comparisons from the main generation pipeline using this card, or run
   `derive_curves.py` pointed at the Higgs sample and compare curves
   directly) - per the original request, QCD is deliberately the *starting*
