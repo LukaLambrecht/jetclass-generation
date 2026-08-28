@@ -2,10 +2,14 @@
 
 '''
 Generate the HLT-like Delphes card from the offline-like Delphes card plus
-the data-driven curves produced by derive_curves.py. No hand-picked numbers
-live in this script: every number written into the output card is either
-read out of the offline card (treated as the given baseline) or read out of
-curves_qcd.json (treated as the measurement) - see README.md for the method.
+the data-driven curves produced by derive_curves.py. Almost every number
+written into the output card is either read out of the offline card
+(treated as the given baseline) or read out of curves_qcd.json (treated as
+the measurement) - see README.md for the method. The one exception is
+ECal/HCal, which use a small number of explicit, documented hand-set
+placeholder values instead ("plan B" - see apply_calo_plan_b() and
+hlteff/calorimeters/README.md for why the data-driven approach doesn't work
+there).
 
 Two combination rules are used, chosen per module by what physically makes
 sense for that quantity:
@@ -40,10 +44,15 @@ data the fallback is "no measured degradation" (ratio 1, extra 0), and a
 warning is printed - this can happen at very high pT where statistics run
 out, or for electrons (see README "Notable findings").
 
-Still NOT touched by this script: ECal/HCal (calorimeter response),
-RunPUPPIBase (PUPPI itself), TrackPileUpSubtractor.ZVertexResolution,
-FastJetFinder*/JetEnergyScalePUPPIAK15 (no AK15 data in this ntuple - see
-README). See README.md ("Known limitations / not yet data-driven").
+ECal/HCal ResolutionFormula are set to (offline formula) *
+--calo-resolution-degradation (default 1.5, i.e. a 50% degradation), and
+both modules' tower grids are additionally coarsened by
+--calo-granularity-factor (default 1.5, in both eta and phi) - hand-set
+assumptions, not measurements; see apply_calo_plan_b() and
+hlteff/calorimeters/README.md. Everything else
+(PUPPI itself, TrackPileUpSubtractor.ZVertexResolution,
+JetEnergyScalePUPPIAK15) is still genuinely untouched - see README.md
+("Known limitations / not yet data-driven").
 
 Usage:
   python generate_hlt_card.py [--curves PATH] [--offline-card PATH]
@@ -59,6 +68,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from delphes_formula import evaluate_formula, extract_formula_block, replace_formula_block, format_piecewise_table
+from calo_grid import parse_regions, coarsen_regions, replace_grid
 
 HLTEFF_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(HLTEFF_DIR)
@@ -171,7 +181,40 @@ def build_quadrature_table(sigma_grid, n_grid, offline_formula, eta_edges, pt_ed
     return table
 
 
-def make_header(curves_path, curves, offline_card_path):
+# ECal/HCal: unlike every other module above, this is NOT derived from
+# curves_qcd.json. Two closure checks (see hlteff/calorimeters/README.md)
+# found the matched-pair approach doesn't work for the calorimeters the way
+# it does for tracking - ECal's is workably-close-but-imprecise, HCal's
+# breaks down outright (a real energy-attribution effect, most likely
+# offline-lost charged tracks' calo deposits reappearing online as "extra"
+# neutral hadron candidates with no clean 1-to-1 offline counterpart, not a
+# resolution or granularity effect - see hlteff/calorimeters/README.md
+# "Findings"). A tower-granularity scan (also documented there) confirmed
+# that coarsening HCal's grid does not reproduce the observed real-data
+# multiplicity pattern either (it can only ever reduce candidate count, but
+# real scouting has *more* candidates than offline through most of the
+# spectrum) - so these are deliberate, hand-set placeholder assumptions
+# ("plan B"), not a fit to data, applied identically to both modules for
+# consistency even though the granularity scan itself only tested HCal.
+# Revisit if a better-founded measurement becomes available.
+CALO_MODULES = ['ECal', 'HCal']
+
+
+def apply_calo_plan_b(text, resolution_factor, calo_granularity_factor):
+    for module in CALO_MODULES:
+        offline_formula = extract_formula_block(text, module, 'ResolutionFormula')
+        new_formula = '({}) * {:.6g}'.format(offline_formula.strip(), resolution_factor)
+        text = replace_formula_block(text, module, 'ResolutionFormula', new_formula)
+
+    if calo_granularity_factor != 1:
+        for module in CALO_MODULES:
+            regions = parse_regions(text, module)
+            coarsened = coarsen_regions(regions, calo_granularity_factor)
+            text = replace_grid(text, module, coarsened)
+    return text
+
+
+def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor):
     src = curves['source']
     return '''\
 ##############################################################################
@@ -195,9 +238,24 @@ def make_header(curves_path, curves, offline_card_path):
 #   TrackSmearing D0/DZResolutionFormula): HLT(pt,eta) = sqrt(offline(pt,eta)^2
 #   + extra(pt,eta)^2), where extra is the additional smearing/spread
 #   measured for matched offline-scouting pairs in that bin.
-#   Everything else (calorimeter response, PUPPI, jet clustering, softdrop,
-#   TrackPileUpSubtractor.ZVertexResolution, JetEnergyScalePUPPIAK15) is
-#   UNCHANGED from the offline card - see README.md for why.
+#   PUPPI, jet clustering, softdrop, TrackPileUpSubtractor.ZVertexResolution,
+#   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see
+#   README.md for why.
+#
+#   ECal/HCal ResolutionFormula are hand-set to (offline formula) *
+#   {calo_resolution_degradation:g} ("plan B": data-driven closure checks found the
+#   matched-pair approach doesn't work for calorimeters the way it does for
+#   tracking - see hlteff/calorimeters/README.md - so this is a documented
+#   placeholder assumption, not a measurement). Both modules' tower grids
+#   are additionally coarsened by a factor {calo_granularity_factor:g} in both eta and phi
+#   (each tower {calo_granularity_factor:g}x wider in each dimension, {calo_granularity_factor_sq:g}x the area) - also a
+#   hand-set assumption (a data-driven granularity scan found no coarsening
+#   factor actually reproduces the measured effect, see
+#   hlteff/calorimeters/README.md, but a modest coarsening is retained as a
+#   physically-motivated guess given degraded upstream tracking efficiency
+#   independently increases the neutral-hadron rate). Both ECal/HCal
+#   thresholds (EnergyMin/EnergySignificanceMin) are left at their offline
+#   values.
 #
 # To regenerate after new data or a change to the offline card:
 #   python hlteff/derive_curves.py       # only if the input data changed
@@ -211,6 +269,9 @@ def make_header(curves_path, curves, offline_card_path):
         dr_max=src['dr_max'],
         input_dir=src['input_dir'],
         files=', '.join(os.path.basename(f) for f in src['files']),
+        calo_resolution_degradation=calo_resolution_degradation,
+        calo_granularity_factor=calo_granularity_factor,
+        calo_granularity_factor_sq=calo_granularity_factor ** 2,
     )
 
 
@@ -233,6 +294,14 @@ def main():
     parser.add_argument('--max-sigma-dz', type=float, default=2.0,
         help='same as --max-sigma, in mm, for the DZ (dz) impact-parameter measurement'
              ' (looser than dxy by default: dz genuinely has a wider physical spread; default: 2.0)')
+    parser.add_argument('--calo-resolution-degradation', type=float, default=1.5,
+        help='ECal/HCal ResolutionFormula HAND-SET multiplier ("plan B", not data-driven - see'
+             ' hlteff/calorimeters/README.md): HLT sigma = offline sigma * this (default: 1.5, i.e. a 50%%'
+             ' resolution degradation)')
+    parser.add_argument('--calo-granularity-factor', type=float, default=1.5,
+        help='ECal/HCal tower-grid coarsening factor, HAND-SET ("plan B", see hlteff/calorimeters/README.md -'
+             ' a data-driven scan found no factor actually reproduces the measured effect): each tower'
+             ' this many times wider in both eta and phi (need not be an integer; 1 = unchanged; default: 1.5)')
     args = parser.parse_args()
 
     with open(args.curves) as f:
@@ -286,7 +355,11 @@ def main():
     new_jes_formula = format_piecewise_table(eta_edges, jet_pt_edges, jes_table, var_prefix='  ')
     text = replace_formula_block(text, 'JetEnergyScalePUPPIAK8', 'ScaleFormula', new_jes_formula)
 
-    header = make_header(args.curves, curves, args.offline_card)
+    # --- ECal/HCal (hand-set "plan B", not data-driven - see function docstring) ---
+    text = apply_calo_plan_b(text, args.calo_resolution_degradation, args.calo_granularity_factor)
+
+    header = make_header(args.curves, curves, args.offline_card,
+                          args.calo_resolution_degradation, args.calo_granularity_factor)
     text = header + '\n' + text
 
     with open(args.output, 'w') as f:

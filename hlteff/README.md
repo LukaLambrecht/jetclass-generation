@@ -23,6 +23,14 @@ directly from the underlying paired data and turns the measurement into the
 new Delphes card automatically, so the card is reproducible and traceable
 rather than a black box of chosen numbers.
 
+`calorimeters/` is a separate subfolder (own README) holding the
+measurement/closure-check/granularity-scan tools used to investigate
+whether ECal/HCal could be retuned the same data-driven way - kept apart
+from the files here to avoid clutter, since that investigation ended up
+concluding "no" and feeding hand-set numbers into `generate_hlt_card.py`
+instead (see "Scope" below) rather than a routine part of regenerating the
+card.
+
 ## Data source
 
 `/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/` contains
@@ -65,35 +73,53 @@ statistics in every bin except the very highest-pT tail.
 
 ## Scope
 
-The offline card has 37 `module` blocks. Of those, 9 have a physics
-parameter that plausibly differs between offline and HLT reconstruction
-*and* is measurable from this dataset, and are retuned here:
+The offline card has 37 `module` blocks, in four groups:
+- **8 tuned directly from data** (the table below).
+- **2 tuned from a hand-set "reasonable guess"** (`ECal`, `HCal` - see below).
+- **3 that plausibly need tuning too but aren't attempted here**:
+  `TrackPileUpSubtractor` (its `ZVertexResolution`), `RunPUPPIBase` (PUPPI
+  itself), `JetEnergyScalePUPPIAK15` - see "Known limitations" for why each
+  is out of scope *for now* rather than because it doesn't matter.
+- **24 that don't need tuning at all** - mergers/filters/geometry/truth-level
+  modules with no offline-vs-HLT physics distinction to make (`PileUpMerger`,
+  `ParticlePropagator`, `TrackMerger`, `ElectronFilter`, `RecoPuFilter`,
+  `TowerMerger`, `NeutralEFlowMerger`, `EFlowMerger`, `LeptonFilterNoLep`,
+  `LeptonFilterLep`, `RunPUPPIMerger`, `RunPUPPI`, `EFlowFilterPuppi`,
+  `MissingET`, `PuppiMissingET`, `GenPileUpMissingET`, `ScalarHT`,
+  `NeutrinoFilter`, `GenJetFinderAK8`, `GenJetFinderAK15`, `GenMissingET`,
+  `FastJetFinderPUPPIAK8`, `FastJetFinderPUPPIAK15`, `TreeWriter`).
+
+(8 + 2 + 3 + 24 = 37 - every module accounted for exactly once.)
+
+The 8 data-driven modules:
 
 | Module | Quantity | Combination |
 |---|---|---|
-| `ChargedHadronTrackingEfficiency` | charged hadron tracking efficiency | multiplicative |
-| `ElectronTrackingEfficiency` | electron tracking efficiency | multiplicative |
-| `MuonTrackingEfficiency` | muon tracking efficiency | multiplicative |
-| `ChargedHadronMomentumSmearing` | charged hadron pT resolution | quadrature |
-| `ElectronMomentumSmearing` | electron pT resolution | quadrature |
-| `MuonMomentumSmearing` | muon pT resolution | quadrature |
-| `TrackSmearing` (`D0ResolutionFormula`) | dxy impact-parameter resolution | quadrature |
-| `TrackSmearing` (`DZResolutionFormula`) | dz impact-parameter resolution | quadrature |
-| `JetEnergyScalePUPPIAK8` | jet energy scale | multiplicative |
+| `ChargedHadronTrackingEfficiency` | charged hadron tracking efficiency | multiplicative, data-driven |
+| `ElectronTrackingEfficiency` | electron tracking efficiency | multiplicative, data-driven |
+| `MuonTrackingEfficiency` | muon tracking efficiency | multiplicative, data-driven |
+| `ChargedHadronMomentumSmearing` | charged hadron pT resolution | quadrature, data-driven |
+| `ElectronMomentumSmearing` | electron pT resolution | quadrature, data-driven |
+| `MuonMomentumSmearing` | muon pT resolution | quadrature, data-driven |
+| `TrackSmearing` (both `D0ResolutionFormula` and `DZResolutionFormula`) | dxy/dz impact-parameter resolution | quadrature, data-driven |
+| `JetEnergyScalePUPPIAK8` | jet energy scale | multiplicative, data-driven |
 
-Everything else in the generated card - calorimeter response (`ECal`/`HCal`),
-`RunPUPPIBase` (PUPPI itself), `TrackPileUpSubtractor.ZVertexResolution`,
-`JetEnergyScalePUPPIAK15`, and every merger/filter/geometry/truth-level
-module - is copied unchanged from the offline card. See "Known limitations"
-for why those are out of scope *for now* rather than because they don't
-matter, and the top-level repo README/conversation history for the full
-37-module inventory with a difficulty assessment for each remaining one.
+And the 2 hand-set ("plan B") modules:
 
-Neutral particles (photons, neutral hadrons) aren't retuned: Delphes
-doesn't have an `Efficiency` module for them in this card (`ECal`/`HCal`
-always produce a tower deposit above their energy thresholds), so there's
-no equivalent knob to turn - only their calorimeter resolution formulas
-would be a lever, which is out of scope here.
+| Module | Quantity | Combination |
+|---|---|---|
+| `ECal` (`ResolutionFormula` + tower grid) | photon energy resolution + granularity | multiplicative + grid coarsening, **hand-set ("plan B")** |
+| `HCal` (`ResolutionFormula` + tower grid) | neutral hadron energy resolution + granularity | multiplicative + grid coarsening, **hand-set ("plan B")** |
+
+`ECal`/`HCal` don't get a genuine data-driven retuning like the other 8,
+because they have no `Efficiency` module to begin with - a neutral
+particle's "reconstructed or not" only exists implicitly, as whatever
+fraction of its smeared energy clears the (unchanged) `EnergyMin`/
+`EnergySignificanceMin` thresholds. Investigating whether that's still
+retunable via `ResolutionFormula`/tower-granularity alone is what
+`calorimeters/` is for - see `calorimeters/README.md` for the full
+investigation and why it ended in hand-set numbers rather than a
+measurement.
 
 ## Method
 
@@ -148,15 +174,16 @@ provenance metadata: which files, how many jets, what deltaR window).
 `ResolutionFormula` is a function of energy, not pT) rather than pT, and the
 "extra smearing" is an *absolute* energy difference in GeV (not relative -
 unlike the fractional pT resolution formulas, these are already
-absolute-GeV). This doesn't feed `generate_hlt_card.py` directly (no
-Efficiency module exists for neutrals - see "Scope") - it feeds
-`check_calo_closure.py` instead.
+absolute-GeV). This measurement does NOT feed the actual ECal/HCal card
+generation (that uses hand-set "plan B" values instead - see "Scope") - it
+only fed the closure check that led to that decision, in
+`calorimeters/check_calo_closure.py`.
 
 ### 2. `generate_hlt_card.py` - translate into a Delphes card
 
 Takes `curves_qcd.json` and the offline Delphes card
 (`delphes_cards/delphes_card_CMS_JetClassII_onlyFatJet.tcl`, treated as a
-given, not duplicated) and, for each of the 9 modules in scope:
+given, not duplicated) and, for each of the 8 modules in scope:
 - reads the *actual* offline formula out of the offline `.tcl` file (via
   brace-matching text extraction, not a hardcoded copy - see
   `delphes_formula.py`) and evaluates it at each bin's center using a small
@@ -185,26 +212,26 @@ The pileup (`MeanPileUp 50`) and no-pileup (`MeanPileUp 0`) variants are
 both written from the same generated text, exactly like the hand-tuned card
 before it.
 
-### 3. `check_calo_closure.py` - validate the ECal/HCal simplification
+### 3. `apply_calo_plan_b()` (inside `generate_hlt_card.py`) - hand-set ECal/HCal
 
-`ECal`/`HCal` have no Efficiency module - a neutral particle's "reconstructed
-or not" only exists implicitly, as whatever fraction of its Gaussian-smeared
-energy clears the fixed `EnergyMin`/`EnergySignificanceMin` zero-suppression
-thresholds. Since those thresholds are a hardware noise-floor property
-(same calorimeter reads the same hits online and offline) rather than a
-reconstruction-quality one, the natural retuning move is to degrade only
-`ResolutionFormula` and leave the thresholds fixed - but that's an
-assumption, not a given, so this script checks it rather than just applying
-it: for each (category, |eta|, energy) bin, it combines the offline
-`ResolutionFormula` with the measured extra energy-smearing in quadrature,
-computes what fraction of a Gaussian centered at that energy would clear
-`max(EnergyMin, EnergySignificanceMin * sigma)` (a normal-CDF calculation,
-approximating - not bit-exact to - Delphes' own C++ accept logic), and
-compares that *predicted* efficiency to the neutral efficiency *directly
-measured* in the same real data (matched photon/neutralHadron pairs, exactly
-like the tracking categories). Prints a per-bin table and saves
-`hlteff/plots/closure_calo_{photon,neutralHadron}.png`. Does not modify any
-Delphes card - purely diagnostic, see "Notable findings" for the result.
+`ECal`/`HCal` are handled entirely differently from the other 8 modules,
+because the data-driven approach was investigated in depth and doesn't work
+for them (matched-pair measurement, closure checks, and a tower-granularity
+scan - see `calorimeters/README.md` for the full investigation and why it
+concluded with hand-set numbers). What's actually applied to the card:
+- `ResolutionFormula` (both `ECal` and `HCal`): the offline formula's literal
+  text is wrapped as `(offline formula) * --calo-resolution-degradation`
+  (default 1.5, i.e. a 50% degradation) - no data-driven table involved.
+- `HCal`'s tower grid (`EtaPhiBins`) is additionally coarsened by
+  `--hcal-granularity-factor` (default 2) in both eta and phi, using
+  `calo_grid.py` (parses the offline grid, downsamples its eta/phi edge
+  lists by the factor per region, regenerates valid Tcl).
+- `EnergyMin`/`EnergySignificanceMin` (the zero-suppression thresholds) are
+  left untouched in both modules.
+
+These are documented placeholder assumptions, not measurements - see
+`calorimeters/README.md` for why, and revisit if a better-founded approach
+becomes available.
 
 ## Usage
 
@@ -216,17 +243,14 @@ source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
 #    jets/s, so a few hundred thousand jets is a few tens of minutes)
 python hlteff/derive_curves.py --n-files 3 --max-jets 250000
 
-# 2. translate into the Delphes card(s)
+# 2. translate into the Delphes card(s) - also applies the hand-set ECal/HCal
+#    "plan B" (see Method step 3); tune with --calo-resolution-degradation /
+#    --hcal-granularity-factor if you want to revisit those numbers
 python hlteff/generate_hlt_card.py
 
 # 3. (optional) visualize: offline vs generated-HLT vs raw data curves,
 #    one figure per module, one panel per |eta| bin, saved to hlteff/plots/
 python hlteff/plot_curves.py
-
-# 4. (optional) check whether ECal/HCal could be retuned by degrading only
-#    ResolutionFormula, holding EnergyMin/EnergySignificanceMin fixed - a
-#    diagnostic only, does not touch any card (see "Method" step 3)
-python hlteff/check_calo_closure.py
 ```
 
 `derive_curves.py`'s `--input-dir`/`--n-files`/`--max-jets`/`--dr-max` and
@@ -235,68 +259,27 @@ worth revisiting if you want tighter statistics, a different matching
 window, or different trust thresholds - nothing about the pipeline is
 QCD-specific except the default `--input-dir`.
 
+See `calorimeters/README.md` for that subfolder's own usage (the
+measurement/closure-check/granularity-scan tools that informed the ECal/HCal
+plan-B numbers above - not needed for routine card regeneration).
+
 ## Notable findings
 
 Worth flagging since they weren't obvious going in, and shaped what the
 generated card looks like:
 
-- **ECal/HCal closure check result (see Method step 3): resolution-only
-  works reasonably for photons, does not for neutral hadrons.** Run at full
-  statistics (256k jets) via `check_calo_closure.py`:
-  - **Photons (ECal)**: the predicted (resolution-only) and measured
-    efficiency curves track the same qualitative turn-on shape (see
-    `hlteff/plots/closure_calo_photon.png`), but not precisely - the model
-    is too *pessimistic* at very low energy (predicts 10-30% where data
-    shows 40-90% in the barrel) and slightly too *optimistic* at high
-    energy (predicts ~100% where data plateaus at 94-99% barrel, and is
-    both lower and more scattered in the endcap, 60-100%). A workable
-    first approximation, not a precise one.
-  - **Neutral hadrons (HCal)**: does not closure at all
-    (`hlteff/plots/closure_calo_neutralHadron.png`). Measured efficiency
-    rises smoothly and stays around 85-95% (barrel) across nearly the
-    whole energy range; the resolution-only prediction instead has a
-    severe, unphysical *dip* down to ~30% around 30-100 GeV before
-    climbing back up. The root cause: the raw matched-pair "extra
-    smearing" measurement itself explodes from a few GeV at ~10-20 GeV
-    particle energy to 100-330 GeV (!) by a few hundred GeV - i.e. bigger
-    than the particle's own energy, which a symmetric Gaussian resolution
-    widening cannot represent as a sane "spread." This is more likely
-    genuine hadronic-shower matching confusion (HCal showers are much
-    broader than ECal ones, more prone to overlapping/being mismatched in
-    dense high-pT jet cores) and/or a real non-Gaussian online calibration
-    difference, than an actual resolution effect - meaning "hold thresholds
-    fixed, only widen resolution" is *not* a safe simplification for HCal
-    as currently measured, and applying it directly would bake a spurious
-    dip into the card.
-  - **Tried tightening the matching to test the mismatch hypothesis - it
-    didn't help, and is informative on its own.** `match_jet()` (see its
-    docstring) can optionally rank candidate pairs by a combined
-    geometric+energy metric instead of pure deltaR (a soft tie-break among
-    candidates already within the deltaR window, not a second hard cut),
-    and `derive_curves.py` gained `--dr-max-neutral`/`--neutral-use-energy`/
-    `--rel-e-tol` to drive it (off by default - see below for why). Tested
-    at `--dr-max-neutral 0.015 --neutral-use-energy` (half the default
-    deltaR window, plus energy-aware tie-breaking) on 60k jets: the HCal
-    sigma blowup was **essentially unchanged** (same magnitude, same ~20-25
-    GeV onset) - evidence *against* nearest-neighbor mismatching as the
-    cause, and *for* a genuine reconstruction-topology difference (e.g.
-    offline resolving one large shower into multiple candidates that a
-    simpler online clustering merges into one, or vice versa - not
-    something any 1-to-1 particle-matching scheme can fix). Photon (ECal)
-    got measurably *worse*: a tighter window starts excluding genuine
-    matches whose shower centroid shifts a bit between offline/HLT
-    reconstruction, turning what had been a smoothly rising measured
-    efficiency curve into a dip. **Conclusion: keep the default (loose,
-    geometry-only) matching - it's the better of the two tested options for
-    both calorimeters. Worth pursuing a real ECal retune (with the
-    documented residual imprecision); HCal's matched-pair measurement isn't
-    fixable by better matching alone, so it needs either a fundamentally
-    different measurement (e.g. jet/cluster-level rather than particle-level,
-    similar in spirit to how JetEnergyScalePUPPIAK8 sidesteps particle
-    matching entirely) or a set of reasonable hand-set assumptions ("plan
-    B") instead of a matched-pair-driven retune.** Not yet acted on for
-    either calorimeter - this whole item is the check the user asked for,
-    not (yet) a card change.
+- **ECal/HCal: the data-driven approach doesn't work, hence the hand-set
+  "plan B" (see Scope and Method step 3).** In short: a closure check found
+  resolution-only retuning workable-but-imprecise for photons and broken
+  for neutral hadrons (the matched-pair measurement itself blows up at
+  higher energy - most likely lost-charged-track calorimeter energy
+  reappearing online as extra, unmatchable neutral hadron candidates,
+  not a resolution effect); a follow-up tower-granularity scan confirmed
+  no coarsening factor reproduces the real pattern either (real scouting
+  has *more* neutral hadron candidates than offline through most of the
+  spectrum - merging can only ever produce fewer). Full investigation,
+  plots, and reasoning in `calorimeters/README.md` - this is what
+  motivated the hand-set numbers instead of a measurement.
 - **Scouting reconstructs essentially zero electrons in this QCD sample**:
   `scoutpfcand_isEl` is `!= 0` for exactly 0 of ~2.4M scouting candidates
   checked (across a full file) - not "rare", *none*. The generated
@@ -368,10 +351,11 @@ generated card looks like:
   already documents a considered reason to leave it alone (real CMS
   Phase-2 scouting runs the same PUPPI algorithm online; degradation is
   modeled upstream, in the tracks it receives).
-- **Neutral particles**: no efficiency retuning (see "Scope"); calorimeter
-  resolution retuning for photons/neutral hadrons is a possible future
-  extension using `npfcand_*`/the neutral part of `scoutpfcand_*`, not
-  attempted here.
+- **Neutral particles (ECal/HCal)**: no genuine efficiency/resolution
+  retuning - hand-set placeholder values instead (see "Scope",
+  `calorimeters/README.md`). No equivalent of the tracking Efficiency
+  modules exists for neutrals at all, so this isn't fixable the same way
+  even in principle without a fundamentally different measurement.
 - **Statistics thin out at high particle pT** (above ~100-200 GeV per
   particle): the fallback behavior described above keeps the card
   physically sane there (falls back toward the offline value rather than
@@ -399,6 +383,9 @@ generated card looks like:
 - Run the JES closure test described above (see "Known limitations") before
   trusting `JetEnergyScalePUPPIAK8`'s correction as a genuine residual
   rather than a possible double-count.
+- ECal/HCal: see `calorimeters/README.md` "Next steps" for what a
+  fundamentally different (non-particle-matching) measurement could look
+  like, if the hand-set plan-B numbers turn out not to be good enough.
 - `TrackPileUpSubtractor.ZVertexResolution` and `RunPUPPIBase`: check
   whether this ntuple carries anything usable for the former; the latter
   would need a real design decision (external CMS scouting-PUPPI settings,

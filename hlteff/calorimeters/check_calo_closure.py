@@ -56,16 +56,16 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+CALO_DIR = os.path.dirname(os.path.abspath(__file__))
+HLTEFF_DIR = os.path.dirname(CALO_DIR)
+REPO_DIR = os.path.dirname(HLTEFF_DIR)
+sys.path.insert(0, HLTEFF_DIR)
 from delphes_formula import evaluate_formula, extract_formula_block, extract_scalar
 from generate_hlt_card import fill_missing
 
-HLTEFF_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_DIR = os.path.dirname(HLTEFF_DIR)
-
 DEFAULT_CURVES = os.path.join(HLTEFF_DIR, 'curves_qcd.json')
 DEFAULT_OFFLINE_CARD = os.path.join(REPO_DIR, 'delphes_cards', 'delphes_card_CMS_JetClassII_onlyFatJet.tcl')
-DEFAULT_OUTDIR = os.path.join(HLTEFF_DIR, 'plots')
+DEFAULT_OUTDIR = os.path.join(CALO_DIR, 'plots')
 
 # neutral category -> its SimpleCalorimeter module
 CALO_MODULES = {
