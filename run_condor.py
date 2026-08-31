@@ -3,57 +3,143 @@
 '''
 Submit a run.sh generation+reconstruction job to HTCondor.
 
-This is a thin wrapper: the positional arguments are exactly run.sh's own
-positional arguments (see run.sh's own header), forwarded unchanged. It
-submits a single condor job that calls run.sh with those arguments, using
-the submission tooling in jobtools/.
+This is a thin wrapper: every argument is named (no positional arguments at
+all - deliberately, so a command line is self-explanatory without having to
+cross-reference run.sh's own positional-arg order to know what a bare
+number means), and maps 1:1 onto one of run.sh's own positional arguments
+(see run.sh's own header) - forwarded unchanged, run.sh itself is not
+touched by any of this - except NEVENT, which is given via exactly one of
+--nevent (a plain event count) or --target-njets (a target JET count
+instead - translated to NEVENT here, in this script, before run.sh is ever
+invoked).
+
+--output-path is REQUIRED (run.sh itself still falls back to its own
+hardcoded default if invoked directly without going through this script -
+that default is untouched, but this wrapper no longer lets you fall into it
+by accident). Note there are two different, unrelated "output directories"
+involved:
+  - --output-path (required): where the JOB'S OWN detector-level output
+    (events_delphes_*.root, ntuple_*.root) is written - this is run.sh's
+    OUTPUT_PATH, positional arg 6.
+  - -o/--outputdir (optional, default "condor"): where THIS SCRIPT writes
+    the condor submission files (.sh/.txt/log) for the job it submits - has
+    nothing to do with the job's own detector output.
 
 Usage:
-  python run_condor.py PROC NEVENT NEVENT_GEN JOBNUM [DELPHES_CARD_NAMES] [OUTPUT_PATH]
+  python run_condor.py --proc PROC (--nevent NEVENT | --target-njets NJETS) --output-path OUTPUT_PATH --batch-size BATCH_SIZE --jobnum JOBNUM [--delphes-cards DELPHES_CARD_NAMES]
 
 Example:
   # one card, offline reconstruction, no pileup
-  python run_condor.py jetclass1/HToBB 5000 250 0 onlyFatJetNoPU
+  python run_condor.py --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU
 
   # both offline and HLT reconstruction, no pileup
-  python run_condor.py jetclass1/HToBB 5000 250 0 onlyFatJetNoPU,onlyFatJetHLTNoPU
+  python run_condor.py --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU,onlyFatJetHLTNoPU
 
-  # a one-off/exploratory run, written to a separate output directory instead
-  # of the default one (DELPHES_CARD_NAMES must be given to reach this arg)
-  python run_condor.py jetclass1/HToBB 100 100 0 onlyFatJetNoPU /eos/user/l/llambrec/jetclass/output_timing_test
+  # a one-off/exploratory run, written to a separate output directory
+  python run_condor.py --proc jetclass1/HToBB --nevent 100 --output-path /eos/user/l/llambrec/jetclass/output_timing_test --batch-size 100 --jobnum 0 --delphes-cards onlyFatJetNoPU
+
+  # target a number of JETS instead of events: NEVENT is derived here (in
+  # this script, not run.sh) from --target-njets using the process's
+  # measured jets-per-event ratio in --njets-map (default:
+  # run_configs/njets_per_nevents.json, see testing/test-generation-time/
+  # plot_njets.py for how those ratios were measured)
+  python run_condor.py --proc jetclass1/HToBB --target-njets 150000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU
 '''
 
 import os
 import sys
+import json
 import argparse
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jobtools'))
 import condortools as ct
+from download_gridpack import normalize_proc
+
+THISDIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json')
+# run.sh's own default for DELPHES_CARD_NAMES (positional arg 5) - mirrored
+# here (not imported - run.sh has no importable defaults) only so that
+# OUTPUT_PATH (positional arg 6, always given now that --output-path is
+# required) can still be placed correctly even when delphes_cards is
+# omitted; run.sh's own behavior/default is otherwise completely untouched
+RUNSH_DEFAULT_DELPHES_CARDS = 'onlyFatJet'
+
+
+def nevent_for_target_njets(proc, target_njets, njets_map_path):
+    '''
+    Translate a target jet count into NEVENT for `proc`, using the
+    (process -> jets per event) ratios in the JSON file at njets_map_path
+    (keyed by the same bare process name normalize_proc() extracts from
+    PROC, e.g. "HToBB" out of "jetclass1/HToBB" - see run_configs/
+    njets_per_nevents.json). Deliberately raises rather than falling back
+    to anything if the map is missing or doesn't cover this process -
+    silently guessing NEVENT would be worse than an explicit error here.
+    '''
+    if not os.path.exists(njets_map_path):
+        raise Exception(
+            '--target-njets was given but the njets-per-event map {!r} does not exist - '
+            'either create it (see run_configs/njets_per_nevents.json for the format: '
+            '{{"<process>": <jets per event>, ...}}, e.g. from '
+            'testing/test-generation-time/plot_njets.py\'s fitted ratios) or point '
+            '--njets-map at an existing one.'.format(njets_map_path))
+    with open(njets_map_path) as f:
+        njets_map = json.load(f)
+    short = normalize_proc(proc)
+    if short not in njets_map:
+        raise Exception(
+            '--target-njets was given but {!r} (process {!r}) has no entry in {!r}. '
+            'Known processes: {}'.format(short, proc, njets_map_path, ', '.join(sorted(njets_map))))
+    ratio = njets_map[short]
+    if ratio <= 0:
+        raise Exception('{!r} has a non-positive jets-per-event ratio ({}) in {!r}'.format(
+            short, ratio, njets_map_path))
+    nevent = round(target_njets / ratio)
+    print('Translating target {:g} jets for {} (ratio {:g} jets/event, from {}) -> {} events'.format(
+        target_njets, short, ratio, njets_map_path, nevent))
+    return nevent
 
 
 if __name__=='__main__':
 
     parser = argparse.ArgumentParser(
-        description='Submit a run.sh job to condor. Positional arguments are forwarded to run.sh unchanged.')
-    parser.add_argument('proc',
+        description='Submit a run.sh job to condor. All arguments (NEVENT, however it was'
+                     ' arrived at, included) are forwarded to run.sh unchanged.')
+    parser.add_argument('--proc', required=True,
         help='process name, e.g. jetclass1/HToBB (same as run.sh positional arg 1)')
-    parser.add_argument('nevent', type=int,
-        help='total number of events (same as run.sh positional arg 2)')
-    parser.add_argument('nevent_gen', type=int,
-        help='events per generation batch (same as run.sh positional arg 3)')
-    parser.add_argument('jobnum', type=int,
+    nevent_group = parser.add_mutually_exclusive_group(required=True)
+    nevent_group.add_argument('--nevent', type=int, default=None,
+        help='total number of events (same as run.sh positional arg 2, but given as a flag'
+             ' here rather than positionally - see --target-njets for why)')
+    nevent_group.add_argument('--target-njets', type=float, default=None,
+        help='target number of jets instead of NEVENT - translated to NEVENT here (not in'
+             ' run.sh) via --njets-map')
+    parser.add_argument('--njets-map', default=DEFAULT_NJETS_MAP,
+        help='JSON file mapping process name -> jets per event, used only with --target-njets'
+             ' (default: run_configs/njets_per_nevents.json)')
+    parser.add_argument('--output-path', required=True,
+        help='REQUIRED: detector-output directory (same as run.sh positional arg 6) - where'
+             ' this job\'s events_delphes_*.root/ntuple_*.root end up. Not to be confused with'
+             ' -o/--outputdir below (a different thing - see module docstring)')
+    parser.add_argument('--batch-size', type=int, required=True,
+        help='number of events generated per batch (same as run.sh positional arg 3,'
+             ' NEVENT_GEN there) - run.sh splits NEVENT into NEVENT/BATCH_SIZE batches,'
+             ' each its own MG5+Pythia8+Delphes call, merged (hadd) at the end; must divide'
+             ' NEVENT evenly, since run.sh drops any remainder rather than generating it')
+    parser.add_argument('--jobnum', type=int, required=True,
         help='job number, used for output naming (same as run.sh positional arg 4)')
-    parser.add_argument('delphes_cards', nargs='?', default=None,
+    parser.add_argument('--delphes-cards', default=None,
         help='comma-separated Delphes card names, e.g. onlyFatJet,onlyFatJetHLT'
-             ' (same as run.sh optional positional arg 5; if omitted, run.sh uses its own default)')
-    parser.add_argument('output_path', nargs='?', default=None,
-        help='detector-output directory (same as run.sh optional positional arg 6;'
-             ' if omitted, run.sh uses its own default. Requires delphes_cards to also'
-             ' be given, since it is a positional arg after it - not to be confused with'
-             ' --outputdir below, which is a different thing: where condor submission'
-             ' files for *this job* are written, not where its detector output goes)')
+             ' (same as run.sh optional positional arg 5; if omitted, run.sh\'s own default'
+             ' ("{}") is passed explicitly, so --output-path still lands in the right'
+             ' positional slot for run.sh)'.format(RUNSH_DEFAULT_DELPHES_CARDS))
+    parser.add_argument('--keep-delphes-output', action='store_true',
+        help='also copy events_delphes_*.root to --output-path, not just the ntuple (same as'
+             ' run.sh positional arg 7; default: off - production runs only need the ntuples,'
+             ' the Delphes ROOT file is still produced and used locally to make the ntuple'
+             ' either way, it just isn\'t copied out unless this is set)')
     parser.add_argument('-o', '--outputdir', default='condor',
-        help='directory to write condor submission files into (default: condor)')
+        help='directory to write condor submission files into (default: condor) - NOT the'
+             ' detector-output directory, see --output-path and module docstring')
     parser.add_argument('--cpus', type=int, default=1)
     parser.add_argument('--mem', type=int, default=2048,
         help='requested memory in MB (default: 2048)')
@@ -69,15 +155,17 @@ if __name__=='__main__':
     if not os.path.exists(runsh):
         raise Exception('run.sh not found at {}'.format(runsh))
 
-    runsh_args = [args.proc, str(args.nevent), str(args.nevent_gen), str(args.jobnum)]
-    if args.output_path is not None and args.delphes_cards is None:
-        raise Exception('output_path was given without delphes_cards - since output_path is'
-            ' positional arg 6, delphes_cards (arg 5) must also be given; pass its default'
-            ' explicitly, e.g. "onlyFatJet"')
-    if args.delphes_cards is not None:
-        runsh_args.append(args.delphes_cards)
-    if args.output_path is not None:
-        runsh_args.append(args.output_path)
+    if args.target_njets is not None:
+        nevent = nevent_for_target_njets(args.proc, args.target_njets, args.njets_map)
+    else:
+        nevent = args.nevent
+
+    # DELPHES_CARD_NAMES (run.sh positional arg 5) must be filled in explicitly
+    # if omitted, since OUTPUT_PATH (arg 6) is always given now
+    delphes_cards = args.delphes_cards if args.delphes_cards is not None else RUNSH_DEFAULT_DELPHES_CARDS
+    keep_delphes_output = 'true' if args.keep_delphes_output else 'false'
+    runsh_args = [args.proc, str(nevent), str(args.batch_size), str(args.jobnum), delphes_cards,
+                  args.output_path, keep_delphes_output]
     command = '{} {}'.format(runsh, ' '.join(runsh_args))
 
     outputdir = os.path.abspath(args.outputdir)
@@ -114,6 +202,6 @@ if __name__=='__main__':
     finally:
         os.chdir(cwd)
 
-    print('Submitted condor job for proc={} jobnum={} (cards={})'.format(
-        args.proc, args.jobnum, args.delphes_cards or '<run.sh default>'))
+    print('Submitted condor job for proc={} jobnum={} nevent={} output_path={} (cards={}, keep_delphes_output={})'.format(
+        args.proc, args.jobnum, nevent, args.output_path, delphes_cards, keep_delphes_output))
     print('Job description: {}'.format(os.path.join(outputdir, jobname + '.txt')))

@@ -14,6 +14,11 @@ DELPHES_CARD_NAMES=${5:-onlyFatJet}
 # one-off/exploratory run (e.g. a timing scan) be pointed at a completely
 # separate directory instead of mixing its output into the default one
 OUTPUT_PATH=${6:-/eos/user/l/llambrec/jetclass/output_test}
+# optional 7th arg: whether to also copy events_delphes_*.root to EOS
+# (default false) - production runs only need the ntuples; the Delphes
+# ROOT file is still produced and used locally to make the ntuple either
+# way, it just isn't copied out unless this is "true"
+KEEP_DELPHES_OUTPUT=${7:-false}
 
 # Setup environment
 
@@ -196,7 +201,9 @@ for name in "${CARD_NAMES[@]}"; do
     # only now, with both final files ready locally, copy them to EOS - the
     # only per-job writes to EOS in this whole script (besides the mkdir -p).
     # See copy_to_eos()'s own comment for why this isn't just a plain `mv`.
-    copy_to_eos $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root || exit 1
+    if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+        copy_to_eos $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root || exit 1
+    fi
     copy_to_eos $LOCAL_NTUPLE_PATH $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root || exit 1
 done
 
@@ -205,6 +212,8 @@ done
 
 echo -e "\033[1mJob done. Generated $NEVENT events for $PROC.\033[0m"
 for name in "${CARD_NAMES[@]}"; do
-    echo -e "\033[1m[$name] Delphes file path: $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root\033[0m"
+    if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+        echo -e "\033[1m[$name] Delphes file path: $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root\033[0m"
+    fi
     echo -e "\033[1m[$name] Ntuple file path: $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root\033[0m"
 done
