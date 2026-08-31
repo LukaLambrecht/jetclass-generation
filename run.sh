@@ -42,8 +42,9 @@ card_file_for_name() {
         onlyFatJetHLTNoPU) echo "delphes_card_CMS_JetClassII_onlyFatJet_HLT_noPU.tcl" ;;
         lite)              echo "delphes_card_CMS_JetClassII_lite.tcl" ;;
         full)              echo "delphes_card_CMS_JetClassII.tcl" ;;
+        JetClassI)         echo "delphes_card_CMS_JetClassI.tcl" ;;
         *)
-            echo "Unknown Delphes card option '$1'. Expected one of: onlyFatJet, onlyFatJetHLT, onlyFatJetNoPU, onlyFatJetHLTNoPU, lite, full." >&2
+            echo "Unknown Delphes card option '$1'. Expected one of: onlyFatJet, onlyFatJetHLT, onlyFatJetNoPU, onlyFatJetHLTNoPU, lite, full, JetClassI." >&2
             exit 1
             ;;
     esac
