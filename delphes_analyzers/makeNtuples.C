@@ -16,13 +16,27 @@
 // class ExRootTreeReader;
 // #endif
 
-void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8", bool assignQCDLabel = false, bool debug = false, bool useV1Labels = false) {
+// keepGenParticles/keepAuxGenParticles/keepGenJet: all default to false, so
+// the default output only has the branches that match the officially
+// published JetClass files (part_*, jet_*) plus the single jet_label int.
+// Enabling any of them adds a *second*, generator-level-truth copy of the
+// per-particle data on top of that (genpart_* mirrors part_* at the same
+// per-jet multiplicity, aux_genpart_* the matched resonance/tau-decay
+// chain, genjet_* the matched gen-jet's own summary) - useful for
+// validation/cross-checking during pipeline development, but roughly
+// doubles the per-jet ntuple size when enabled (see
+// testing/test-generation-time/README.md's ntuple-size comparison against
+// the official release for the measurement behind this default).
+void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8", bool assignQCDLabel = false, bool debug = false, bool useV1Labels = false,
+                  bool keepGenParticles = false, bool keepAuxGenParticles = false, bool keepGenJet = false) {
     // gSystem->Load("libDelphes");
 
     TFile *fout = new TFile(outputFile, "RECREATE");
     TTree *tree = new TTree("tree", "tree");
 
-    // define branches
+    // define branches - always the reco-level ones (matching the official
+    // JetClass release exactly); the generator-level-truth groups below are
+    // appended only if their own keep* flag is set
     std::vector<std::pair<std::string, std::string>> branchList = {
         // particle (jet constituent) features
         {"part_px", "vector<float>"},
@@ -53,37 +67,52 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
         {"jet_tau3", "float"},
         {"jet_tau4", "float"},
         {"jet_label", "int"},
-        // gen-particle (genjet constituent) features
-        {"genpart_px", "vector<float>"},
-        {"genpart_py", "vector<float>"},
-        {"genpart_pz", "vector<float>"},
-        {"genpart_energy", "vector<float>"},
-        {"genpart_jet_deta", "vector<float>"},
-        {"genpart_jet_dphi", "vector<float>"},
-        {"genpart_x", "vector<float>"},
-        {"genpart_y", "vector<float>"},
-        {"genpart_z", "vector<float>"},
-        {"genpart_t", "vector<float>"},
-        {"genpart_pid", "vector<int>"},
-        // genjet features
-        {"genjet_pt", "float"},
-        {"genjet_eta", "float"},
-        {"genjet_phi", "float"},
-        {"genjet_energy", "float"},
-        {"genjet_sdmass", "float"},
-        {"genjet_nparticles", "int"},
-        // aux genpart features
-        {"aux_genpart_pt", "vector<float>"},
-        {"aux_genpart_eta", "vector<float>"},
-        {"aux_genpart_phi", "vector<float>"},
-        {"aux_genpart_mass", "vector<float>"},
-        {"aux_genpart_pid", "vector<int>"},
-        {"aux_genpart_isResX", "vector<bool>"},
-        {"aux_genpart_isResY", "vector<bool>"},
-        {"aux_genpart_isResDecayProd", "vector<bool>"},
-        {"aux_genpart_isTauDecayProd", "vector<bool>"},
-        {"aux_genpart_isQcdParton", "vector<bool>"}
     };
+    if (keepGenParticles) {
+        // gen-particle (genjet constituent) features
+        std::vector<std::pair<std::string, std::string>> genPartBranches = {
+            {"genpart_px", "vector<float>"},
+            {"genpart_py", "vector<float>"},
+            {"genpart_pz", "vector<float>"},
+            {"genpart_energy", "vector<float>"},
+            {"genpart_jet_deta", "vector<float>"},
+            {"genpart_jet_dphi", "vector<float>"},
+            {"genpart_x", "vector<float>"},
+            {"genpart_y", "vector<float>"},
+            {"genpart_z", "vector<float>"},
+            {"genpart_t", "vector<float>"},
+            {"genpart_pid", "vector<int>"},
+        };
+        branchList.insert(branchList.end(), genPartBranches.begin(), genPartBranches.end());
+    }
+    if (keepGenJet) {
+        // genjet features
+        std::vector<std::pair<std::string, std::string>> genJetBranches = {
+            {"genjet_pt", "float"},
+            {"genjet_eta", "float"},
+            {"genjet_phi", "float"},
+            {"genjet_energy", "float"},
+            {"genjet_sdmass", "float"},
+            {"genjet_nparticles", "int"},
+        };
+        branchList.insert(branchList.end(), genJetBranches.begin(), genJetBranches.end());
+    }
+    if (keepAuxGenParticles) {
+        // aux genpart features
+        std::vector<std::pair<std::string, std::string>> auxGenPartBranches = {
+            {"aux_genpart_pt", "vector<float>"},
+            {"aux_genpart_eta", "vector<float>"},
+            {"aux_genpart_phi", "vector<float>"},
+            {"aux_genpart_mass", "vector<float>"},
+            {"aux_genpart_pid", "vector<int>"},
+            {"aux_genpart_isResX", "vector<bool>"},
+            {"aux_genpart_isResY", "vector<bool>"},
+            {"aux_genpart_isResDecayProd", "vector<bool>"},
+            {"aux_genpart_isTauDecayProd", "vector<bool>"},
+            {"aux_genpart_isQcdParton", "vector<bool>"},
+        };
+        branchList.insert(branchList.end(), auxGenPartBranches.begin(), auxGenPartBranches.end());
+    }
     EventData data(branchList);
     data.setOutputBranch(tree);
 
@@ -148,31 +177,33 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
             // GEN label and original particles (as auxiliary vars)
             data.intVars.at("jet_label") = fjmatch.findLabelIndex();
 
-            auto fillAuxVars = [](EventData& data, const auto& part, bool isResX, bool isResY, bool isResDecayProd, bool isTauDecayProd, bool isQcdParton) {
-                data.vfloatVars.at("aux_genpart_pt")->push_back(part->PT);
-                data.vfloatVars.at("aux_genpart_eta")->push_back(part->Eta);
-                data.vfloatVars.at("aux_genpart_phi")->push_back(part->Phi);
-                data.vfloatVars.at("aux_genpart_mass")->push_back(part->Mass);
-                data.vintVars.at("aux_genpart_pid")->push_back(part->PID);
-                data.vboolVars.at("aux_genpart_isResX")->push_back(isResX);
-                data.vboolVars.at("aux_genpart_isResY")->push_back(isResY);
-                data.vboolVars.at("aux_genpart_isResDecayProd")->push_back(isResDecayProd);
-                data.vboolVars.at("aux_genpart_isTauDecayProd")->push_back(isTauDecayProd);
-                data.vboolVars.at("aux_genpart_isQcdParton")->push_back(isQcdParton);
-            };
-            int nRes = 0;
-            for (const auto &p : fjmatch.getResult().resParticles) {
-                fillAuxVars(data, p, nRes == 0, nRes > 0, false, false, false);
-                ++nRes;
-            }
-            for (const auto &p : fjmatch.getResult().decayParticles) {
-                fillAuxVars(data, p, false, false, true, false, false);
-            }
-            for (const auto &p : fjmatch.getResult().tauDecayParticles) {
-                fillAuxVars(data, p, false, false, false, true, false);
-            }
-            for (const auto &p : fjmatch.getResult().qcdPartons) {
-                fillAuxVars(data, p, false, false, false, false, true);
+            if (keepAuxGenParticles) {
+                auto fillAuxVars = [](EventData& data, const auto& part, bool isResX, bool isResY, bool isResDecayProd, bool isTauDecayProd, bool isQcdParton) {
+                    data.vfloatVars.at("aux_genpart_pt")->push_back(part->PT);
+                    data.vfloatVars.at("aux_genpart_eta")->push_back(part->Eta);
+                    data.vfloatVars.at("aux_genpart_phi")->push_back(part->Phi);
+                    data.vfloatVars.at("aux_genpart_mass")->push_back(part->Mass);
+                    data.vintVars.at("aux_genpart_pid")->push_back(part->PID);
+                    data.vboolVars.at("aux_genpart_isResX")->push_back(isResX);
+                    data.vboolVars.at("aux_genpart_isResY")->push_back(isResY);
+                    data.vboolVars.at("aux_genpart_isResDecayProd")->push_back(isResDecayProd);
+                    data.vboolVars.at("aux_genpart_isTauDecayProd")->push_back(isTauDecayProd);
+                    data.vboolVars.at("aux_genpart_isQcdParton")->push_back(isQcdParton);
+                };
+                int nRes = 0;
+                for (const auto &p : fjmatch.getResult().resParticles) {
+                    fillAuxVars(data, p, nRes == 0, nRes > 0, false, false, false);
+                    ++nRes;
+                }
+                for (const auto &p : fjmatch.getResult().decayParticles) {
+                    fillAuxVars(data, p, false, false, true, false, false);
+                }
+                for (const auto &p : fjmatch.getResult().tauDecayParticles) {
+                    fillAuxVars(data, p, false, false, false, true, false);
+                }
+                for (const auto &p : fjmatch.getResult().qcdPartons) {
+                    fillAuxVars(data, p, false, false, false, false, true);
+                }
             }
 
             // Jet features
@@ -233,7 +264,9 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
                 data.vboolVars.at("part_isNeutralHadron")->push_back(p.charge == 0 && !(p.pid == 22));
             }
 
-            // Writing genjet features
+            // Writing genjet features - the whole matching search is skipped
+            // when neither flag needs it (the default), not just the writes
+            if (keepGenJet || keepGenParticles) {
             float min_dr = 999;
             int min_dr_index = -1;
             for (Int_t j = 0; j < branchGenJet->GetEntriesFast(); ++j) {
@@ -250,20 +283,16 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
                 // target genjet found
                 genjet_used_inds.push_back(min_dr_index);
                 const Jet *genjet = (Jet *)branchGenJet->At(min_dr_index);
-                
+
                 if (debug) {
                     std::cerr << ">> debug matched genjet (pT, eta, phi) : " << genjet->PT << "  " << genjet->Eta << "  " << genjet->Phi
                               << "   dr(genjet, jet) : " << min_dr
                               << std::endl;
                 }
 
-                data.floatVars.at("genjet_pt") = genjet->PT;
-                data.floatVars.at("genjet_eta") = genjet->Eta;
-                data.floatVars.at("genjet_phi") = genjet->Phi;
-                data.floatVars.at("genjet_energy") = genjet->P4().Energy();
-                data.floatVars.at("genjet_sdmass") = genjet->SoftDroppedP4[0].M();
-
-                // Loop over all jet's constituents
+                // Loop over all jet's constituents - needed for genjet_nparticles
+                // (keepGenJet) as well as genpart_* (keepGenParticles), so always
+                // built once here regardless of which of the two is enabled
                 std::vector<ParticleInfo> genparticles;
                 for (Int_t j = 0; j < genjet->Constituents.GetEntriesFast(); ++j) {
                     const TObject *object = genjet->Constituents.At(j);
@@ -283,7 +312,16 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
                 // sort particles by pt
                 std::sort(genparticles.begin(), genparticles.end(), [](const auto &a, const auto &b) { return a.pt > b.pt; });
 
-                data.intVars["genjet_nparticles"] = genparticles.size();
+                if (keepGenJet) {
+                    data.floatVars.at("genjet_pt") = genjet->PT;
+                    data.floatVars.at("genjet_eta") = genjet->Eta;
+                    data.floatVars.at("genjet_phi") = genjet->Phi;
+                    data.floatVars.at("genjet_energy") = genjet->P4().Energy();
+                    data.floatVars.at("genjet_sdmass") = genjet->SoftDroppedP4[0].M();
+                    data.intVars["genjet_nparticles"] = genparticles.size();
+                }
+
+                if (keepGenParticles) {
                 for (const auto &p : genparticles) {
                     data.vfloatVars.at("genpart_px")->push_back(p.px);
                     data.vfloatVars.at("genpart_py")->push_back(p.py);
@@ -297,8 +335,10 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
                     data.vfloatVars.at("genpart_x")->push_back(absz < 1e-10 ? 0. : p.x); // fix the precision problem for p.x and p.y
                     data.vfloatVars.at("genpart_y")->push_back(absz < 1e-10 ? 0. : p.y);
                     data.vintVars.at("genpart_pid")->push_back(p.pid);
-                }
-            }
+                } // end for (genparticles)
+                } // end if (keepGenParticles)
+            } // end if (min_dr < jetR)
+            } // end if (keepGenJet || keepGenParticles)
 
 
             tree->Fill();

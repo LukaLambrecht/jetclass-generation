@@ -3,6 +3,7 @@
 *.png
 *.root
 hlteff/curves_qcd.json
+testing/test-generation-time/*.txt
 
 # job directories
 condor

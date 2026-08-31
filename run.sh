@@ -44,6 +44,37 @@ card_file_for_name() {
     esac
 }
 
+# Retry+verify a local-scratch -> EOS "mv" a few times before giving up.
+# Needed because EOS's FUSE mount can spuriously fail `mkdir -p`/`mv` under
+# heavy concurrent load - observed directly: "mkdir: cannot create
+# directory '...': File exists" for a directory that DOES already exist
+# (created moments earlier by another concurrent job sharing the same
+# output subdirectory), immediately followed by the `mv` itself failing
+# with "No such file or directory" even though the destination directory is
+# genuinely there - a transient FUSE-side race/cache inconsistency, not a
+# real missing-directory error (see testing/test-generation-time/README.md).
+# Silently swallowing this (the previous behavior: no exit-code check on
+# `mv`) meant run.sh exited 0 while quietly losing the job's actual output -
+# found the hard way (nearly half of 100 concurrent jobs lost their output
+# this way; see the README linked above). copy_to_eos() instead retries
+# with backoff and, if it still can't verify the file landed, exits nonzero
+# so the failure is loud and visible instead of silent.
+copy_to_eos() {
+    local src=$1 dst=$2 dstdir attempt
+    dstdir=$(dirname "$dst")
+    for attempt in 1 2 3 4 5; do
+        mkdir -p "$dstdir"
+        mv -f "$src" "$dst"
+        if [ -f "$dst" ]; then
+            return 0
+        fi
+        echo "WARNING: copy to EOS failed (attempt $attempt/5): $src -> $dst" >&2
+        sleep $((attempt * 3))
+    done
+    echo "ERROR: giving up copying to EOS after 5 attempts: $src -> $dst" >&2
+    return 1
+}
+
 IFS=',' read -ra CARD_NAMES <<< "$DELPHES_CARD_NAMES"
 declare -a CARD_PATHS
 for name in "${CARD_NAMES[@]}"; do
@@ -55,10 +86,27 @@ OUTPUT_PATH=$(realpath $OUTPUT_PATH)
 
 # =============================================
 
-# Create workdir
+# Create workdir - on the worker node's own LOCAL scratch disk, not on EOS.
+# All the heavy per-job I/O below (copying the gridpack, MG5/Pythia8 event
+# generation, Delphes reconstruction, ntupling) happens here; only the two
+# final output files per card are copied out to $OUTPUT_PATH (EOS) at the
+# very end. This matters a lot once many jobs run concurrently: EOS charges
+# real network-round-trip latency per file operation, and having dozens of
+# jobs all doing that for every intermediate file (rather than just the 2
+# final ones) is what caused severe slowdowns/timeouts when running 100
+# jobs at once (see testing/test-generation-time/README.md).
+# _CONDOR_SCRATCH_DIR is HTCondor's own per-job local scratch directory
+# (auto-cleaned by condor on job exit); fall back to TMPDIR/tmp for a
+# non-condor (e.g. interactive/local) invocation.
+SCRATCH_BASE=${_CONDOR_SCRATCH_DIR:-${TMPDIR:-/tmp}}
 RANDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 10; echo)
-WORKDIR=$(realpath $OUTPUT_PATH)/workdir_$(date +%y%m%d-%H%M%S)_${RANDSTR}_$(echo "$PROC" | sed 's/\//_/g')_$JOBNUM
+WORKDIR=$SCRATCH_BASE/workdir_$(date +%y%m%d-%H%M%S)_${RANDSTR}_$(echo "$PROC" | sed 's/\//_/g')_$JOBNUM
 mkdir -p $WORKDIR
+# clean up on ANY exit (success, failure, or an `exit 1` from copy_to_eos
+# below) - not just the success path, so a failed job doesn't leave its
+# local scratch copy behind. Condor tears down per-job scratch regardless
+# once the job exits, but this also matters for a non-condor/local run.
+trap 'rm -rf "$WORKDIR"' EXIT
 
 cd $WORKDIR
 
@@ -128,28 +176,32 @@ mkdir -p $WORKDIR/analyzer
 cp $ANALYZER_PATH/EventData.h $ANALYZER_PATH/FatJetMatching.h $ANALYZER_PATH/ParticleID.h $ANALYZER_PATH/ParticleInfo.h $ANALYZER_PATH/makeNtuples.C $WORKDIR/analyzer/
 
 for name in "${CARD_NAMES[@]}"; do
-    # combine all root files for this card
+    # combine all root files for this card - still entirely on local scratch
     if [ $nbatch -eq 1 ]; then
         mv $WORKDIR/$name/events_delphes_0.root $WORKDIR/$name/events_delphes.root
     else
         hadd -f $WORKDIR/$name/events_delphes.root $WORKDIR/$name/*.root
     fi
-    mkdir -p $OUTPUT_PATH/$PROC/$name
 
-    # transfer the file
-    mv -f $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root
-
-    NTUPLE_PATH=$OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root
+    # ntuple from the LOCAL Delphes file, not (yet) the EOS copy - avoids
+    # reading it back over the network right after having just written it
+    LOCAL_NTUPLE_PATH=$WORKDIR/$name/ntuple_$JOBNUM.root
     (
         cd $WORKDIR/analyzer
         source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
         export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
-        root -b -q "makeNtuples.C++(\"$OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root\", \"$NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
+        root -b -q "makeNtuples.C++(\"$WORKDIR/$name/events_delphes.root\", \"$LOCAL_NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
     )
+
+    # only now, with both final files ready locally, copy them to EOS - the
+    # only per-job writes to EOS in this whole script (besides the mkdir -p).
+    # See copy_to_eos()'s own comment for why this isn't just a plain `mv`.
+    copy_to_eos $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root || exit 1
+    copy_to_eos $LOCAL_NTUPLE_PATH $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root || exit 1
 done
 
-# remove workspace
-rm -rf $WORKDIR
+# (workspace cleanup happens via the EXIT trap set above, not here - so it
+# still runs even if something above exited early)
 
 echo -e "\033[1mJob done. Generated $NEVENT events for $PROC.\033[0m"
 for name in "${CARD_NAMES[@]}"; do
