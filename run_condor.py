@@ -65,6 +65,56 @@ DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json
 RUNSH_DEFAULT_DELPHES_CARDS = 'onlyFatJet'
 
 
+def validate_proc(proc, thisdir):
+    '''
+    Sanity-check that `proc` (run.sh's PROC positional arg, e.g.
+    "jetclass1/HToBB/precompiled") actually resolves to a runnable process
+    config directory under gen_configs/, before ever submitting a job for
+    it - catches the mistake that motivated this check: passing
+    "jetclass1/HToBB" (missing the "/precompiled" or "/raw" mode suffix).
+
+    run.sh's own `cp -r $GENCFG_PATH/$PROC/* proc_base/` does NOT fail
+    loudly on that mistake - with the suffix missing, $PROC only has
+    subdirectories (precompiled/, raw/) under it, so that cp copies those
+    SUBDIRECTORIES themselves into proc_base/ instead of the process' own
+    MG5/Pythia8 config files. proc_base/run_gen.sh then doesn't exist, run.sh
+    falls back to run_gen_default.sh, which has nothing real to generate
+    from - the job still runs to completion and exits 0, just with an
+    empty/near-empty ntuple (a handful of KB, no real jets) instead of a
+    real crash. Exactly this happened once submitting
+    output_jetclass1_5M_sync_mg311 (100 jobs, "/precompiled" dropped from
+    every --proc) - all 100 "succeeded" in a few minutes with ~7.5KB
+    ntuples before it was noticed.
+
+    Every real leaf process directory in gen_configs/ (jetclass1/*/precompiled,
+    jetclass1/*/raw, jetclass2/train_*) has at least one regular file
+    directly inside it; a directory holding only further subdirectories
+    (e.g. gen_configs/jetclass1/HToBB itself, vs. .../HToBB/precompiled) is
+    exactly the invalid case above. Checking for "any file directly inside",
+    rather than hardcoding expected filenames (which differ between
+    jetclass1's py8.dat/mg5_step2_templ.dat and jetclass2's own naming,
+    e.g. train_qcd's py8_main.cc/py8_params.dat/py8_templ.dat/run_gen.sh),
+    keeps this generic to whatever gen_configs/ currently holds or grows to.
+    '''
+    procdir = os.path.join(thisdir, 'gen_configs', proc)
+    if not os.path.isdir(procdir):
+        raise Exception(
+            '--proc {!r} does not resolve to a directory under gen_configs/ '
+            '({!r} not found).'.format(proc, procdir))
+    entries = os.listdir(procdir)
+    if not any(os.path.isfile(os.path.join(procdir, e)) for e in entries):
+        subdirs = sorted(e for e in entries if os.path.isdir(os.path.join(procdir, e)))
+        hint = ''
+        if subdirs:
+            hint = ' Did you forget a mode suffix, e.g. {}?'.format(
+                ' or '.join('{!r}'.format(proc + '/' + s) for s in subdirs))
+        raise Exception(
+            '--proc {!r} (gen_configs/{}) has no files directly inside it - it does not look '
+            'like a runnable process config (only subdirector{} found: {}). run.sh would not '
+            'fail loudly on this - see validate_proc()\'s own docstring for why.{}'.format(
+                proc, proc, 'y' if len(subdirs) == 1 else 'ies', ', '.join(subdirs) or '<none>', hint))
+
+
 def nevent_for_target_njets(proc, target_njets, njets_map_path):
     '''
     Translate a target jet count into NEVENT for `proc`, using the
@@ -148,12 +198,21 @@ if __name__=='__main__':
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour, see https://batchdocs.web.cern.ch/local/submit.html'
              ' (default: workday, i.e. up to 8h)')
+    parser.add_argument('--extra-env', default=None,
+        help='comma-separated KEY=VALUE pairs, exported in the job before run.sh runs (e.g.'
+             ' --extra-env MG5_PATH=/path/to/other/MG5,GRIDPACK_CACHE=/path/to/other/cache) -'
+             ' for one-off toolchain-comparison runs without editing run.sh itself; MG5_PATH'
+             ' is the only run.sh variable that actually reads an override this way (see its'
+             ' own comment), GRIDPACK_CACHE is read directly by gen_configs/'
+             ' run_gen_precompiled.sh/populate_gridpack_cache.sh, not run.sh')
     args = parser.parse_args()
 
     thisdir = os.path.dirname(os.path.abspath(__file__))
     runsh = os.path.join(thisdir, 'run.sh')
     if not os.path.exists(runsh):
         raise Exception('run.sh not found at {}'.format(runsh))
+
+    validate_proc(args.proc, thisdir)
 
     if args.target_njets is not None:
         nevent = nevent_for_target_njets(args.proc, args.target_njets, args.njets_map)
@@ -178,6 +237,16 @@ if __name__=='__main__':
     commands = [
         'cd {}'.format(thisdir),
         'echo "###starting###"',
+    ]
+    if args.extra_env:
+        for pair in args.extra_env.split(','):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if '=' not in pair:
+                raise Exception('--extra-env entries must be KEY=VALUE, got {!r}'.format(pair))
+            commands.append('export {}'.format(pair))
+    commands += [
         command,
         'echo "###done###"',
     ]

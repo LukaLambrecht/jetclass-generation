@@ -55,7 +55,7 @@ import subprocess
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 RUN_CONDOR_PY = os.path.join(THISDIR, 'run_condor.py')
 sys.path.insert(0, THISDIR)
-from run_condor import RUNSH_DEFAULT_DELPHES_CARDS
+from run_condor import RUNSH_DEFAULT_DELPHES_CARDS, validate_proc
 
 
 if __name__ == '__main__':
@@ -103,11 +103,22 @@ if __name__ == '__main__':
     parser.add_argument('--disk', type=int, default=20480, help='requested disk in MB')
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour, see https://batchdocs.web.cern.ch/local/submit.html')
+    parser.add_argument('--extra-env', default=None,
+        help='forwarded unchanged to run_condor.py as --extra-env - see its own docs')
     args = parser.parse_args()
 
     procs = [p.strip() for p in args.procs.split(',') if p.strip()]
     if not procs:
         raise Exception('--procs did not contain any process names')
+    # validate ALL requested procs upfront, before creating any output
+    # directory or submitting a single job - run_condor.py itself validates
+    # too, but only proc-by-proc as the loop below reaches it, so a mistake
+    # affecting every proc (e.g. a missing "/precompiled" suffix applied to
+    # the whole --procs list - see validate_proc()'s own docstring for the
+    # incident that motivated this) would otherwise still submit everything
+    # up to the first bad one before failing
+    for proc in procs:
+        validate_proc(proc, THISDIR)
     cards = [c.strip() for c in
              (args.delphes_cards if args.delphes_cards is not None else RUNSH_DEFAULT_DELPHES_CARDS).split(',')
              if c.strip()]
@@ -150,6 +161,8 @@ if __name__ == '__main__':
                 cmd.append('--keep-delphes-output')
             cmd += ['-o', args.outputdir, '--cpus', str(args.cpus), '--mem', str(args.mem),
                     '--disk', str(args.disk), '--jobflavour', args.jobflavour]
+            if args.extra_env:
+                cmd += ['--extra-env', args.extra_env]
 
             print('=== proc={} jobnum={} ==='.format(proc, jobnum))
             ret = subprocess.run(cmd).returncode

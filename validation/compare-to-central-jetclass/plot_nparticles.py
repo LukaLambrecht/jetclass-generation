@@ -105,7 +105,30 @@ PARTICLE_TYPES = [
     ('electron',       'Electrons per jet',       'part_isElectron'),
     ('muon',           'Muons per jet',           'part_isMuon'),
 ]
-ALL_BRANCHES = [NPARTICLES_BRANCH] + [branch for _, _, branch in PARTICLE_TYPES]
+ALL_BRANCHES = [NPARTICLES_BRANCH, 'jet_pt', 'jet_eta'] + [branch for _, _, branch in PARTICLE_TYPES]
+
+# JetClass paper (Qu, Li, Qian 2022) selection window - confirmed to be
+# baked directly into the actual central JetClass files (see
+# plot_jet_kinematics.py: central jet_pt/jet_eta show a hard edge at
+# exactly these values in every class), not a later-analysis-stage cut as
+# originally suspected. It's implemented in the jet-universe/
+# jetclass_generation repo across TWO stages: makeNtuples.C applies
+# `PT < 500 || |Eta| > 2` per job, and a separate postprocessing step
+# (postprocessing/mergeTrees.C, run after run.sh, when merging per-job
+# outputs into the final published files) applies the upper bound:
+# `jet_pt > 500 && jet_pt < 1000`.
+#
+# Applied HERE (this comparison script) only, on both sources, so
+# central-vs-ours stays apples-to-apples - deliberately NOT applied in our
+# own production ntuplizer/run.sh, which keeps the broader (unselected)
+# output for now (see --our-card's own default output, still the full
+# unselected sample on disk).
+SELECTION_PT_RANGE = (500.0, 1000.0)
+SELECTION_ETA_MAX = 2.0
+
+
+def selection_mask(jet_pt, jet_eta):
+    return (jet_pt > SELECTION_PT_RANGE[0]) & (jet_pt < SELECTION_PT_RANGE[1]) & (np.abs(jet_eta) < SELECTION_ETA_MAX)
 
 
 def our_files(output_path, proc, card):
@@ -117,21 +140,28 @@ def central_files(central_path, proc, pattern):
     return sorted(glob.glob(os.path.join(central_path, pattern.format(proc=proc))))
 
 
-def read_jet_data(files, max_jets=None):
+def read_jet_data(files, max_jets=None, apply_selection=True):
     '''
-    Single-pass read of `files`, capped at max_jets jets total (stopping
-    once reached, rather than reading every file in full first - matters
-    for central JetClass files, ~100k jets each; the result is then the
-    first max_jets jets in file order, not necessarily an unbiased sample
-    if max_jets is much smaller than the total). Returns a dict:
+    Single-pass read of `files`, capped at max_jets SELECTED jets (i.e. the
+    cap is applied after the pT/eta selection below, not before - so
+    max_jets jets of actual analyzed statistics are returned, not max_jets
+    read-then-mostly-thrown-away). Stops reading further files once
+    reached, rather than reading everything first - matters for central
+    JetClass files, ~100k jets each; the result is then the first max_jets
+    SELECTED jets in file order, not necessarily an unbiased sample if
+    max_jets is much smaller than the total. Returns a dict:
       {'total': <per-jet jet_nparticles>,
        'charged_hadron': <per-jet count of part_isChargedHadron==True>,
-       'neutral_hadron': ..., 'photon': ..., 'electron': ..., 'muon': ...}
-    each value a flat np.array. A file that fails to open/read is skipped
-    with a warning rather than aborting the whole comparison.
+       'neutral_hadron': ..., 'photon': ..., 'electron': ..., 'muon': ...,
+       'jet_pt': ..., 'jet_eta': ...}
+    each value a flat np.array. If apply_selection, every array only
+    contains jets passing selection_mask() (see its own docstring for why -
+    default on, matching central JetClass's own actual file content). A
+    file that fails to open/read is skipped with a warning rather than
+    aborting the whole comparison.
     '''
-    chunks = {key: [] for key, _, _ in PARTICLE_TYPES}
-    chunks['total'] = []
+    keys = [key for key, _, _ in PARTICLE_TYPES] + ['total', 'jet_pt', 'jet_eta']
+    chunks = {key: [] for key in keys}
     total = 0
     for path in files:
         if max_jets is not None and total >= max_jets:
@@ -142,12 +172,18 @@ def read_jet_data(files, max_jets=None):
         except Exception as e:
             print('  WARNING: could not read {} ({}: {})'.format(path, type(e).__name__, e), file=sys.stderr)
             continue
-        chunks['total'].append(ak.to_numpy(arrs[NPARTICLES_BRANCH]))
+        jet_pt = ak.to_numpy(arrs['jet_pt'])
+        jet_eta = ak.to_numpy(arrs['jet_eta'])
+        mask = selection_mask(jet_pt, jet_eta) if apply_selection else slice(None)
+
+        chunks['total'].append(ak.to_numpy(arrs[NPARTICLES_BRANCH])[mask])
+        chunks['jet_pt'].append(jet_pt[mask])
+        chunks['jet_eta'].append(jet_eta[mask])
         for key, _, branch in PARTICLE_TYPES:
             # part_is<Type> is a per-particle bool, one jagged list per jet -
             # summing it (True=1) over axis=1 gives the per-jet count of that type
-            chunks[key].append(ak.to_numpy(ak.sum(arrs[branch], axis=1)))
-        total += len(arrs[NPARTICLES_BRANCH])
+            chunks[key].append(ak.to_numpy(ak.sum(arrs[branch], axis=1))[mask])
+        total += len(chunks['total'][-1])
 
     result = {}
     for key, pieces in chunks.items():
@@ -252,6 +288,10 @@ if __name__ == '__main__':
         help='label the run as a plumbing self-test (e.g. --central-path pointed at our own'
              ' output) rather than a real central-vs-ours comparison - only affects the'
              ' printed banner, not the plots/logic themselves')
+    parser.add_argument('--no-selection', action='store_true',
+        help='skip the pT in [{:g},{:g}] GeV / |eta|<{:g} selection (default: applied to both'
+             ' sources - see SELECTION_PT_RANGE/SELECTION_ETA_MAX\'s own comment for why)'.format(
+                 SELECTION_PT_RANGE[0], SELECTION_PT_RANGE[1], SELECTION_ETA_MAX))
     args = parser.parse_args()
 
     procs = [normalize_proc(p.strip()) for p in args.procs.split(',') if p.strip()]
@@ -271,8 +311,10 @@ if __name__ == '__main__':
 
     results = {}
     for proc in procs:
-        ours = read_jet_data(our_files(args.our_output_path, proc, args.our_card), max_jets)
-        central = read_jet_data(central_files(args.central_path, proc, args.central_pattern), max_jets)
+        ours = read_jet_data(our_files(args.our_output_path, proc, args.our_card), max_jets,
+                              apply_selection=not args.no_selection)
+        central = read_jet_data(central_files(args.central_path, proc, args.central_pattern), max_jets,
+                                 apply_selection=not args.no_selection)
         results[proc] = (ours, central)
         print_stats(proc, 'ours ({})'.format(args.our_card), ours['total'])
         print_stats(proc, 'central JetClass', central['total'])

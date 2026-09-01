@@ -23,7 +23,13 @@ KEEP_DELPHES_OUTPUT=${7:-false}
 # Setup environment
 
 # ============ basic configuration ============
-MG5_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2
+# MG5_PATH respects a pre-set environment variable (falls back to the usual
+# default otherwise) - lets a caller (e.g. run_condor.py's --extra-env) point
+# a one-off run at a different MG5 install (e.g. for a toolchain-comparison
+# test) without editing this file; DELPHES_PATH is intentionally NOT made
+# overridable the same way - Delphes itself isn't part of what such tests
+# vary, only the generation/showering toolchain upstream of it
+MG5_PATH=${MG5_PATH:-/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2}
 DELPHES_PATH=/eos/user/l/llambrec/jetclass/delphes
 
 ## some env variables are required by the softwares

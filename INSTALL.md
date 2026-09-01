@@ -131,3 +131,150 @@ source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
 export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
 root -b -q 'makeNtuples.C++("events_delphes.root", "ntuple.root", "JetPUPPIAK8", "GenJetAK8", true)'
 ```
+
+## 9. Installing an alternate MG5/Pythia8 toolchain (e.g. MG5 3.1.1, for toolchain-comparison tests)
+
+Central JetClass was originally produced with an older MG5/Pythia8 combination than the "main"
+install from step 2 above (MG5 3.7.2). To reproduce that more closely - e.g. to check whether the
+generator/shower vintage itself explains a discrepancy against central JetClass - it's useful to
+have a **second, separate** MG5 install (here: MG5 3.1.1, released 2021-05-28) alongside the main
+one, without disturbing it. This section documents that procedure end to end, including the
+pitfalls hit getting it working.
+
+### 9.1. Install MG5 3.1.1 itself
+
+Same as step 2, but into its own directory (a sibling of the main install, not nested inside it -
+e.g. `MG5_aMC_v3_1_1` next to `MG5_aMC_v3_7_2`), and **do not** run `install pythia8`/
+`install lhapdf6` yet - those need extra setup first (9.2-9.3 below) or you'll hit the crash
+described there.
+
+```bash
+wget https://launchpad.net/mg5amcnlo/3.0/3.1.x/+download/MG5_aMC_v3.1.1.tar.gz
+tar xzf MG5_aMC_v3.1.1.tar.gz
+```
+
+(Adjust the launchpad URL/branch if 3.1.1 has since been moved to a different series' download
+page - the `3.0/3.1.x` path reflects where it lived at the time of writing.)
+
+### 9.2. Set up a durable `--local` HEPToolsInstaller copy
+
+**Problem:** `install <tool>` inside `mg5_aMC` does *not* use anything bundled with the MG5
+release. Every single time it's called, it re-downloads a "maintained online" installer script
+(as of writing: `http://madgraph.phys.ucl.ac.be//Downloads/HEPToolsInstaller/HEPToolsInstaller_V168.tar.gz`)
+into `MG5_PATH/HEPTools/HEPToolsInstallers/`, completely overwriting whatever was there before -
+so this installer is **not** version-pinned to MG5 3.1.1, and any patch made directly to that
+downloaded copy is silently wiped out by the next `install` call (found the hard way, twice).
+
+Two of the patches this toolchain actually needs (9.3 below) have to survive across repeated
+`install` retries. `mg5_aMC`'s `install` command supports a `--local` flag for exactly this: with
+`--local`, instead of using the freshly re-downloaded copy, it copies the installer from a fixed
+sibling directory of `MG5_PATH` itself - `pjoin(MG5_PATH, os.path.pardir, 'HEPToolsInstallers')`,
+i.e. `<MG5_PATH>/../HEPToolsInstallers` - which is **not** touched by the normal re-download/
+overwrite behavior. This only works if that directory already exists, though (`--local` copies
+*from* it, it does not create it) - so it has to be seeded once, manually:
+
+```bash
+# from outside MG5_aMC_v3_1_1, i.e. the same directory MG5_aMC_v3_1_1 itself lives in
+wget http://madgraph.phys.ucl.ac.be//Downloads/HEPToolsInstaller/HEPToolsInstaller_V168.tar.gz
+tar xzf HEPToolsInstaller_V168.tar.gz   # extracts to ./HEPToolsInstallers/
+rm HEPToolsInstaller_V168.tar.gz
+```
+
+Every `install <tool>` call against this MG5 install should then use `--local` (and `--force` to
+reinstall over an existing copy), e.g. `install pythia8 --local --force` - never a bare
+`install pythia8`, or the fixes below get lost.
+
+### 9.3. Patch the durable installer copy
+
+Edit `<jetclass_root>/HEPToolsInstallers/HEPToolInstaller.py` (the sibling directory from 9.2, NOT
+anything under `MG5_aMC_v3_1_1/`) with the following, before ever running `install pythia8
+--local`:
+
+**a. Pin the Pythia8 version.** The installer's own default pythia8 version at the time of
+writing is too recent to be the version actually bundled with MG5 3.1.1 at release (2021-05-28),
+and separately, an old version contemporary with MG5 3.1.1 (8.244, Dec 2019) turns out to be too
+*old*: its LHE reader predates MG5 3.1.1 itself by ~1.5 years, and can't parse the LHEF 3.0 output
+this MG5 version's gridpacks produce - `Pythia::init()` hard-fails with "Les Houches initialization
+failed", and the interface then loops forever calling `next()` on the uninitialized instance
+(looks like a hang, not a crash - burned 30+ minutes of wall time before being diagnosed via
+`gdb -p <pid> -batch -ex "bt"` on the stuck process). The version actually used here, verified to
+build and run cleanly against this MG5 version with no source patches needed, is **8.306**
+(~Sep 2021, genuinely post-dates MG5 3.1.1). In the `_HepTools['pythia8']` dict, set:
+```python
+'version': '8306',
+```
+
+**b. Add back the missing compiler optimization flags.** `install_pythia8()`'s own construction of
+Pythia8's `./configure --cxx-common=...` (search for `cxx_common = ['-ldl','-fPIC',_cpp_standard_lib]`)
+omits **any** optimization flag - no `-O2`, no `-std=c++11`, no `-pthread` - unlike the (different/
+newer) online installer that MG5 3.7.2 uses, whose own `--cxx-common` includes all three. With no
+`-O` flag at all, gcc defaults to `-O0`: the resulting Pythia8 build is unoptimized, and since the
+parton shower/hadronization code is CPU-bound C++, this cost a **~3-10x slowdown** in practice
+(caught only because production jobs were taking hours where the reference MG5 3.7.2 toolchain
+took tens of minutes - see the `output_jetclass1_5M_sync_mg311` validation history). Fix:
+```python
+cxx_common = ['-ldl','-fPIC',_cpp_standard_lib,'-std=c++11','-O2','-pthread']
+```
+
+With both patches in place:
+```bash
+cd MG5_aMC_v3_1_1
+echo "install pythia8 --local --force" | ./bin/mg5_aMC
+```
+This one call also cascades straight into rebuilding `mg5amc_py8_interface` against the new
+Pythia8 automatically - no separate `install mg5amc_py8_interface` call needed. Verify both took
+effect:
+```bash
+grep -o "\-\-cxx-common='[^']*'" HEPTools/pythia8/pythia8_install.log
+# should show: -ldl -fPIC -lstdc++ -std=c++11 -O2 -pthread -DHEPMC2HACK
+cat HEPTools/MG5aMC_PY8_interface/PYTHIA8_VERSION_ON_INSTALL   # should read 8.306
+```
+
+If, instead, you need an *older* Pythia8 version than 8.306 for some other test: two more issues
+were hit and fixed along the way while debugging 8.244 specifically, before settling on 8.306 -
+kept here in case they resurface for another old version:
+- The bundled/offline installer's URL for some older pythia8 tarballs (`http://home.thep.lu.se/
+  ~torbjorn/pythia8/pythia8<VVV>.tgz`) is dead; `https://pythia.org/releases/pythia8<major>/
+  pythia8<VVV>.tgz` works instead.
+- Older Pythia8 releases' own C++ API differs enough (raw `UserHooks*` vs `shared_ptr<UserHooks>`
+  for `setUserHooksPtr`, no implicit `<memory>` include) that `MG5aMC_PY8_interface.cc` needs
+  small source patches to compile against them at all. Not needed for 8.306.
+- `compile.py` (bundled inside the downloaded `MG5aMC_PY8_interface_V1.3.tar.gz`) and
+  `Makefile_mg5amc_py8_interface_static` disagree about the expected format of the `HEPMC2_LIB`
+  Makefile.inc variable (bare directory vs. full link flags) for versions of HepMC/Pythia8 without
+  a shared library - if hit again (error: "The version of HEPMC2 linked to Pythia8 seems not to
+  include a static library"), keep `HEPMC2_LIB` bare and use the (otherwise dead-code)
+  `CUSTOM_STATIC_HEPMC2_LIB` variable directly in the Makefile recipe instead, plus an explicit
+  `-L$(GZIP_LIB) -lz`.
+
+### 9.4. Point the generation pipeline at the new install
+
+`run.sh`'s `MG5_PATH` respects a pre-set environment variable (see its own comment), so the new
+install can be used **without editing any repo file**:
+
+```bash
+MG5_PATH=/path/to/MG5_aMC_v3_1_1 GRIDPACK_CACHE=/path/to/a/SEPARATE/gridpack/cache \
+    ./run.sh jetclass1/TTBarLep/precompiled 1000 1000 999 JetClassI /path/to/test_output false
+```
+
+`GRIDPACK_CACHE` must point at a **separate** cache directory from the main one -
+`populate_gridpack_cache.sh`/`run_gen_precompiled.sh` short-circuit if a process is already
+cached, so reusing the main cache would silently keep serving MG5 3.7.2-built gridpacks. Populate
+it once per process before running:
+```bash
+MG5_PATH=/path/to/MG5_aMC_v3_1_1 GRIDPACK_CACHE=/path/to/a/SEPARATE/gridpack/cache \
+    bash gen_configs/populate_gridpack_cache.sh jetclass1/HToBB
+```
+(repeat per process - this changes the MG5 install path baked into the gridpack's own
+`me5_configuration.txt`, not the physics/process definition itself, so it's a like-for-like
+comparison against the same processes in the main cache.)
+
+For actual condor production runs (rather than one-off local tests), `run_condor.py`/
+`run_condor_loop.py`'s `--extra-env MG5_PATH=...,GRIDPACK_CACHE=...` flag does the same thing per
+job, e.g.:
+```bash
+python run_condor_loop.py --procs jetclass1/HToBB/precompiled --njobs 10 --nevents-per-job 50000 \
+    --output-path /path/to/output --batch-size 12500 --delphes-cards JetClassI \
+    --extra-env MG5_PATH=/path/to/MG5_aMC_v3_1_1,GRIDPACK_CACHE=/path/to/a/SEPARATE/gridpack/cache
+```
+
