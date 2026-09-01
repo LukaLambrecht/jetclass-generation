@@ -166,6 +166,16 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
             if (fjlabel == "Invalid")
                 continue;
 
+            // JetClass-I (v1) only: reject any jet whose matching search
+            // touched a truth top/Higgs/W/Z decay but didn't end up fully
+            // merged - mirrors the original jet-universe/jetclass_generation
+            // makeNtuples.C's own "is_signal" rejection exactly (see
+            // FatJetMatching::shouldRejectV1()'s own docstring for the full
+            // reasoning). Not applied for v2 (useV1Labels false) - jetclass2
+            // processing is unchanged, matching jet-universe/jetclass2_generation.
+            if (useV1Labels && fjmatch.shouldRejectV1())
+                continue;
+
             if (debug) {
                 std::cerr << ">> debug fjlabel     : " << fjlabel << "  " << std::endl;
                 std::cerr << "   resParticles      : "; for (auto& p: fjmatch.getResult().resParticles) {std::cerr << p->PID << " ";} std::cerr << std::endl;

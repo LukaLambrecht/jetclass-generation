@@ -32,6 +32,43 @@ public:
         result_.qcdPartons.clear();
     }
 
+    // ============================================================
+    // JetClass-I (v1) "is_signal" rejection, ported from the original
+    // jet-universe/jetclass_generation makeNtuples.C. That reference
+    // rejects any jet whose matching search touched a truth top/Higgs/W/Z
+    // decay (eventTypeV1() != QCD) unless the FINAL label is one of a
+    // specific "fully merged" whitelist per type - a partial merge
+    // (Top_bc/Top_bq), a Top-triggered search that only found a bystander
+    // W_cq/W_qq (topLabelV1's own fallback below), or no match at all
+    // (including one that fell through to a QCD_* flavor label via
+    // qcdLabel()) are all dropped, not kept or miscounted as generic QCD.
+    // A jet whose search never touched any resonance at all
+    // (eventTypeV1() stays QCD - true QCD/ISR jets in any sample,
+    // including non-signal jets within signal-process events) is never
+    // rejected by this. Only meaningful/called when useV1Labels_ is set;
+    // eventTypeV1_ stays QCD for the entire v2 scheme, so this always
+    // returns false there. See FatJetMatching.h's own V1-scheme section
+    // below for where eventTypeV1_ actually gets set.
+    // ============================================================
+    enum class EventTypeV1 { QCD = 0, Top, Higgs, W, Z };
+    EventTypeV1 eventTypeV1() const { return eventTypeV1_; }
+    bool shouldRejectV1() const {
+        switch (eventTypeV1_) {
+            case EventTypeV1::Top:
+                return !(result_.label == "Top_bcq" || result_.label == "Top_bqq" ||
+                         result_.label == "Top_ben" || result_.label == "Top_bmn");
+            case EventTypeV1::Higgs:
+                return !(result_.label == "H_bb" || result_.label == "H_cc" || result_.label == "H_qq" ||
+                         result_.label == "H_gg" || result_.label == "H_ww4q" || result_.label == "H_ww2q1l");
+            case EventTypeV1::W:
+                return !(result_.label == "W_cq" || result_.label == "W_qq");
+            case EventTypeV1::Z:
+                return !(result_.label == "Z_bb" || result_.label == "Z_cc" || result_.label == "Z_qq");
+            default:
+                return false;
+        }
+    }
+
 public:
     FatJetMatching() {}
     FatJetMatching(double jetR, bool assignQCDLabel, bool debug, bool useV1Labels = false) : jetR_(jetR), assignQCDLabel_(assignQCDLabel), debug_(debug), useV1Labels_(useV1Labels) {}
@@ -45,6 +82,11 @@ public:
         genParticles_.push_back((GenParticle *)branchParticle->At(i));
         }
         processed_.clear();
+        // reset once per jet (per getLabel() call), same granularity as the
+        // reference's own event_type_ - persists/accumulates across multiple
+        // candidate attempts WITHIN this call (clearResult() below does NOT
+        // touch it), same as the reference
+        eventTypeV1_ = EventTypeV1::QCD;
 
         if (debug_) {
         std::cout << "\n=======\nJet (energy, pT, eta, phi) = " << jet->P4().Energy() << ", " << jet->PT << ", "
@@ -636,6 +678,8 @@ private:
             throw std::logic_error("[FatJetMatching::topLabelV1] Cannot find b or W from top decay!");
 
         if (isHadronic(w_from_top)) {
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::Top;
+
             auto wdaus = getDaughterQuarks(w_from_top);
             if (wdaus.size() < 2)
                 throw std::logic_error("[FatJetMatching::topLabelV1] W decay has less than 2 quarks!");
@@ -678,6 +722,8 @@ private:
             }
         } else {
             // leptonic W
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::Top;
+
             const GenParticle *lep = nullptr;
             for (int idau = w_from_top->D1; idau <= w_from_top->D2; ++idau) {
                 const auto *dau = genParticles_.at(idau);
@@ -710,6 +756,8 @@ private:
     void wLabelV1(const Jet *jet, const GenParticle *parton) {
         auto w = getFinal(parton);
         if (isHadronic(w)) {
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::W;
+
             auto wdaus = getDaughterQuarks(w);
             if (wdaus.size() < 2)
                 throw std::logic_error("[FatJetMatching::wLabelV1] W decay has less than 2 quarks!");
@@ -739,6 +787,8 @@ private:
     void zLabelV1(const Jet *jet, const GenParticle *parton) {
         auto z = getFinal(parton);
         if (isHadronic(z)) {
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::Z;
+
             auto zdaus = getDaughterQuarks(z);
             if (zdaus.size() < 2)
                 throw std::logic_error("[FatJetMatching::zLabelV1] Z decay has less than 2 quarks!");
@@ -786,6 +836,8 @@ private:
         }
 
         if (is_hvv) {
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::Higgs;
+
             // h->WW (or h->ZZ) - JetClass-I only supports the WW cases (H_ww4q/H_ww2q1l)
             std::vector<const GenParticle *> hvv_quarks;
             std::vector<const GenParticle *> hvv_leptons;
@@ -828,6 +880,8 @@ private:
                 getResult().label = "H_ww2q1l";
             }
         } else if (isHadronic(higgs, true)) {
+            if (eventTypeV1_ == EventTypeV1::QCD) eventTypeV1_ = EventTypeV1::Higgs;
+
             // direct h->qq/gg
             auto hdaus = getDaughterQuarks(higgs, true);
             if (hdaus.size() < 2)
@@ -1030,6 +1084,9 @@ private:
     std::vector<const GenParticle *> genParticles_;
     std::unordered_set<const GenParticle *> processed_;
     FatJetMatchingResult result_{"Invalid", std::vector<const GenParticle*>(), std::vector<const GenParticle*>(), std::vector<const GenParticle*>(), std::vector<const GenParticle*>()};
+    // only ever set away from QCD by the useV1Labels_ matchers below; stays
+    // QCD for the entire v2 scheme, so shouldRejectV1() is always false there
+    EventTypeV1 eventTypeV1_ = EventTypeV1::QCD;
 
     std::vector<std::string> labels_{
         // X->2-prong
