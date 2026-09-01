@@ -149,7 +149,14 @@ public:
 
         if (assignQCDLabel_) {
             clearResult();
-            qcdLabel(jet);
+            if (useV1Labels_) {
+                // JetClass-I (v1): a single catch-all "QCD_all" label, not
+                // v2's flavor-split QCD_bb/QCD_cc/.../QCD_light breakdown -
+                // see qcdLabelV1()'s own comment for why.
+                qcdLabelV1();
+            } else {
+                qcdLabel(jet);
+            }
         }
     }
 
@@ -913,6 +920,19 @@ private:
         }
     }
 
+    void qcdLabelV1() {
+        // JetClass-I (v1) background jets get a single catch-all label, not
+        // qcdLabel()'s v2-only flavor breakdown (QCD_bb/QCD_cc/.../
+        // QCD_light) - mirrors the original jet-universe/jetclass_generation
+        // FatJetLabel enum, whose only non-signal outcome is QCD_all (its
+        // own getLabel() dispatch falls straight through to
+        // `return {FatJetLabel::QCD_all, nullptr}` with no further
+        // sub-typing), and its postprocessing/rename.py, which defines the
+        // final published label as the single boolean `label_QCD = 1 -
+        // is_signal` - never split by flavor.
+        getResult().label = "QCD_all";
+    }
+
     void qcdLabel(const Jet* jet) {
 
         int n_b=0, n_c=0, n_s=0;
@@ -1152,6 +1172,9 @@ private:
         "W_cq", "W_qq",
         "Z_bb", "Z_cc", "Z_qq",
         "H_bb", "H_cc", "H_qq", "H_gg", "H_ww4q", "H_ww2q1l",
+        // v1's own single catch-all background label (see qcdLabelV1()) -
+        // NOT one of the v2 QCD_* flavors above, which v1 never assigns
+        "QCD_all",
     };
 };
 
