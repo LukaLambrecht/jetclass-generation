@@ -37,12 +37,84 @@ MG5_PATH=${MG5_PATH:-/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2}
 DELPHES_PATH=/eos/user/l/llambrec/jetclass/delphes
 
 ## some env variables are required by the softwares
-LHAPDFCONFIG=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF/lhapdf.conf
-LHAPDF_DATA_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF
-PYTHIA8DATA=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/pythia8/share/Pythia8/xmldoc
+# (all actually `export`ed, unlike before - previously these were plain
+# shell-local assignments, invisible to run_gen.sh/mg5_aMC/py8_main's own
+# child processes; harmless for PYTHIA8DATA/LHAPDFCONFIG, which those tools
+# can also resolve via their own build-time-baked-in fallback paths, but not
+# for MG5's *python* LHAPDF interface below, which has no such fallback -
+# see PYTHONPATH/LD_LIBRARY_PATH's own comment for what that broke)
+export LHAPDFCONFIG=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF/lhapdf.conf
+export LHAPDF_DATA_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF
+export PYTHIA8DATA=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/pythia8/share/Pythia8/xmldoc
+# MG5's own *python* LHAPDF interface (used to resolve an explicit `lhaid`
+# in mg5_step2_templ.dat, e.g. jetclass2/train_higgs2p's lhaid 315000 ->
+# NNPDF31_nnlo_as_0118_mc_hessian_pdfas) is a separate thing from the
+# LHAPDF_DATA_PATH-based C++ interface above - it needs `import lhapdf` to
+# succeed, which needs both the compiled extension module's own directory on
+# PYTHONPATH and libLHAPDF.so findable via LD_LIBRARY_PATH. Without these
+# (the previous state), MG5 printed a "Failed to access python version of
+# LHAPDF" warning and silently fell back to whatever default PDF set is
+# bundled inside its own freshly generated proc/lib/PDFsets/ (NNPDF31_lo_as_0118,
+# NOT the requested set) instead of erroring - found by cross-checking
+# generate_events' own log output against the process' own lhaid.
+export PYTHONPATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/lib64/python3.9/site-packages:$PYTHONPATH
+export LD_LIBRARY_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/lib:$LD_LIBRARY_PATH
 
 ## fixed configuration
 GENCFG_PATH=$(realpath gen_configs)
+
+# Per-batch generation timeout/retry, in seconds - guards against a single
+# pathological (mass, pT_min) or pT_hat draw hanging the whole job. Found
+# the hard way: jetclass2/train_higgs2p production jobs stuck for 90+
+# minutes on ONE batch (confirmed via condor_ssh_to_job - the shower
+# process pegged at ~99% CPU, /proc/<pid>/wchan == 0 i.e. genuinely
+# spinning in user-space, not I/O-blocked, with byte-identical stdout the
+# whole time - not a slow-but-real event, an actual hang), across several
+# DIFFERENT random parameter draws, so it's some general kinematic regime
+# Pythia8's shower/hadronization can get stuck on, not one specific bad
+# point. A "healthy" batch takes ~1 minute (measured); 900s (15x that) is
+# generous headroom for genuinely slow-but-real batches while still
+# bounding a hung one to a small fraction of the job's total wall time.
+GEN_TIMEOUT_SEC=${GEN_TIMEOUT_SEC:-900}
+GEN_MAX_ATTEMPTS=${GEN_MAX_ATTEMPTS:-5}
+
+# Runs `./run_gen.sh $1` (cwd: proc_base) with the timeout/retry policy
+# above. Each retry re-invokes run_gen.sh from scratch, which re-samples a
+# FRESH random (mass,pT_min)/pT_hat draw itself (see run_gen_default.sh/
+# gen_configs/*/run_gen.sh's own `shuf -n 1 ...`) - so a retry isn't just
+# "try the same hang again", it's a real second chance at a different draw.
+# `setsid` gives the attempt its OWN process group (pgid == its own pid,
+# captured via $!) so a timeout can reliably SIGKILL the WHOLE subprocess
+# tree (run_gen.sh -> generate_events -> MG5aMC_PY8_interface/py8_main, none
+# of which `exec` down into the next stage) via `pkill -g` - not just
+# run_gen.sh's own bash process, which would otherwise leave the actual
+# hung worker process orphaned and still spinning on the shared node.
+# `pkill -g <that exact pgid>` is safe to use blindly (no risk of killing a
+# different concurrent job's own legitimate process on a shared worker
+# node) specifically because it's scoped to this one setsid-created group,
+# not matched by command name (which IS shared across concurrent jobs -
+# every job runs the literal same "MG5aMC_PY8_interface py8.dat").
+# On exhausting GEN_MAX_ATTEMPTS, gives up and returns nonzero - the caller
+# (the batch loop below) already tolerates a batch producing no usable
+# events.hepmc (events_delphes.root just doesn't get moved forward for that
+# one batch), so the job still completes with a very slightly reduced
+# yield instead of hanging for its entire wall-time budget.
+run_gen_with_timeout() {
+    local nevent_gen=$1 attempt rc
+    for ((attempt=1; attempt<=GEN_MAX_ATTEMPTS; attempt++)); do
+        setsid timeout -k 30 "${GEN_TIMEOUT_SEC}s" env MG5_PATH="$MG5_PATH" GENCFG_PATH="$GENCFG_PATH" ./run_gen.sh "$nevent_gen" &
+        local pgid=$!
+        wait $pgid
+        rc=$?
+        pkill -KILL -g $pgid 2>/dev/null
+        if [ $rc -eq 0 ]; then
+            return 0
+        fi
+        echo "WARNING: run_gen.sh attempt $attempt/$GEN_MAX_ATTEMPTS failed or timed out (rc=$rc, limit ${GEN_TIMEOUT_SEC}s) - retrying with a fresh random draw" >&2
+    done
+    echo "ERROR: run_gen.sh failed $GEN_MAX_ATTEMPTS times in a row - giving up on this batch (events.hepmc likely missing/stale; the batch's events_delphes.root simply won't be produced, see caller)" >&2
+    return 1
+}
 
 card_file_for_name() {
     case "$1" in
@@ -171,7 +243,7 @@ for ((i=0; i<nbatch; i++)); do
 
     # generate GEN events once per batch - shared across all Delphes cards
     rm -f events.hepmc
-    MG5_PATH=$MG5_PATH GENCFG_PATH=$GENCFG_PATH ./run_gen.sh $NEVENT_GEN
+    run_gen_with_timeout $NEVENT_GEN
 
     # run each requested Delphes card on the same events.hepmc
     ln -sf $DELPHES_PATH/MinBias_100k.pileup .
