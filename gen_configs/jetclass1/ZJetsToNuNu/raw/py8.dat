@@ -1,12 +1,27 @@
 !
 ! Pythia8 cmd card for JetClass-I-style (v1) ZJetsToNuNu.
-! This sample is MLM-matched (0 and 1 extra partons at ME level, see
-! ickkw=1 / xqcut=30 in mg5_step2_templ.dat). JetMatching:qCut is meant
-! to auto-fill from the LHE/MadGraph banner via JetMatching:setMad=on,
-! but (like Main:numberOfEvents=-1 elsewhere) this Pythia8 build rejects
-! -1 as out-of-range for qCut/nJetMax before setMad gets a chance to run,
-! causing a hang. Set them explicitly instead, matching run_card's
-! xqcut=30.0 and the "0 or 1 extra parton" process definition.
+! This sample is MLM-matched (p p > ve ve~ j @0, p p > ve ve~ j j @1 - see
+! mg5_step2_templ.dat/proc_card_mg5.dat), ickkw=1/xqcut=30 in run_card.
+! JetMatching:qCut is meant to auto-fill from the LHE/MadGraph banner via
+! JetMatching:setMad=on, but (like Main:numberOfEvents=-1 elsewhere) this
+! Pythia8 build rejects -1 as out-of-range for qCut/nJetMax before setMad
+! gets a chance to run, causing a hang. Set them explicitly instead:
+! qCut matches run_card's xqcut=30.0. nJetMax is the TOTAL light-parton
+! count of the highest-multiplicity sample (2, from the "j j" @1 process) -
+! NOT the number of partons beyond the baseline (1) as a previous version
+! of this comment/value assumed. JetMatching:exclusive defaults to 2
+! (Pythia8Plugins/JetMatching.h/JetMatching.xml): per event, "nJet <
+! nJetMax" -> exclusive matching, else inclusive - with nJetMax wrongly
+! set to 1, the 2-parton ("code 1") sample had nJet(2) < nJetMax(1) always
+! false, so it never got the inclusive-mode treatment a highest-multiplicity
+! sample needs and was vetoed at a ~0% acceptance rate (verified directly:
+! Pythia8's own "Number of events ... Accepted" breakdown by user
+! classification code, generating from this gridpack standalone) - silently
+! discarding the entire higher-particle-multiplicity population and
+! explaining the resulting nparticles-per-jet deficit against central
+! JetClass. With nJetMax=2, code-1 acceptance went from 0% to ~41% in the
+! same test. See validation/compare-to-central-jetclass/ for the
+! before/after comparison this was diagnosed from.
 !
 Main:numberOfEvents      = -1
 HEPMCoutput:file         = events.hepmc
@@ -20,7 +35,7 @@ JetMatching:merge=on
 JetMatching:setMad=on
 JetMatching:qCut=30.0
 JetMatching:doShowerKt=off
-JetMatching:nJetMax=1
+JetMatching:nJetMax=2
 HEPMCoutput:scaling=1.0000000000e+09
 Check:epTolErr=1.0000000000e-02
 !
