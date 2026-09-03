@@ -38,6 +38,17 @@
 #   thresholds (EnergyMin/EnergySignificanceMin) are left at their offline
 #   values.
 #
+#   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to 1 GeV
+#   (not copied from the offline card's 200/120 GeV, unlike every other
+#   untouched module) - a structural requirement, not a measurement: the
+#   offline<->HLT jet-matching ntuplizer (delphes_analyzers/makeNtuplesPaired.C)
+#   needs Delphes to actually construct/write a jet that degraded below the
+#   offline analysis threshold, rather than silently dropping it here first -
+#   see generate_hlt_card.py's own module docstring. JetEnergyScalePUPPIAK8's
+#   ScaleFormula covers this newly-reachable low-pT region by extending the
+#   lowest measured bin's value downward (see format_piecewise_table() in
+#   delphes_formula.py), not a phantom zero.
+#
 # To regenerate after new data or a change to the offline card:
 #   python hlteff/derive_curves.py       # only if the input data changed
 #   python hlteff/generate_hlt_card.py
@@ -159,7 +170,7 @@ module Efficiency ChargedHadronTrackingEfficiency {
 
   # tracking efficiency formula for charged hadrons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.00389854) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.00389854) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.00418639) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.00487981) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.152472) +
@@ -182,7 +193,7 @@ module Efficiency ChargedHadronTrackingEfficiency {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.18908) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.199274) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201925) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.00517116) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.00517116) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.00629553) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.00689184) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0760607) +
@@ -220,7 +231,7 @@ module Efficiency ElectronTrackingEfficiency {
 
   # tracking efficiency formula for electrons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0) +
@@ -243,7 +254,7 @@ module Efficiency ElectronTrackingEfficiency {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0) +
@@ -281,7 +292,7 @@ module Efficiency MuonTrackingEfficiency {
 
   # tracking efficiency formula for muons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0) +
@@ -304,7 +315,7 @@ module Efficiency MuonTrackingEfficiency {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.0863489) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.0491925) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.0153861) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0) +
@@ -343,7 +354,7 @@ module MomentumSmearing ChargedHadronMomentumSmearing {
   # resolution formula for charged hadrons
   # based on arXiv:1405.6569
   set ResolutionFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.100665) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.100665) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.100666) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.100667) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.10067) +
@@ -366,7 +377,7 @@ module MomentumSmearing ChargedHadronMomentumSmearing {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.902224) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (1.4072) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (2.55219) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.253805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.253805) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.253806) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.253808) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.253812) +
@@ -405,7 +416,7 @@ module MomentumSmearing ElectronMomentumSmearing {
   # resolution formula for electrons
   # based on arXiv:1405.6569
   set ResolutionFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.0500007) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.0500007) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.0500022) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.0500052) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.0500104) +
@@ -428,7 +439,7 @@ module MomentumSmearing ElectronMomentumSmearing {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.893899) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (1.40339) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (2.55049) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.150001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.150001) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.150002) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.150006) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.150012) +
@@ -466,7 +477,7 @@ module MomentumSmearing MuonMomentumSmearing {
 
   # resolution formula for muons
   set ResolutionFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.0150815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.0150815) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.0150815) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.0150816) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.0150817) +
@@ -489,7 +500,7 @@ module MomentumSmearing MuonMomentumSmearing {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.0821923) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.125969) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.226228) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.0250001) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.0250001) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.0250002) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.0250004) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0250009) +
@@ -548,7 +559,7 @@ module TrackSmearing TrackSmearing {
   set PhiResolutionFormula { 0.0 }
   # taken from arXiv:1405.6569 fig. 15
   set D0ResolutionFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (0.358774) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.358774) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.426383) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.393543) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.147484) +
@@ -571,7 +582,7 @@ module TrackSmearing TrackSmearing {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.157729) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.155722) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.177801) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.59825) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.59825) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.800247) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.688017) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.288314) +
@@ -596,7 +607,7 @@ module TrackSmearing TrackSmearing {
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.181009)
   }
   set DZResolutionFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.1 && pt <= 0.2) * (1.46642) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (1.46642) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (1.49935) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (1.48315) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.19554) +
@@ -619,7 +630,7 @@ module TrackSmearing TrackSmearing {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.208372) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.216005) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201508) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.1 && pt <= 0.2) * (0.113281) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.113281) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (2.071) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (1.44375) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (1.20504) +
@@ -1935,7 +1946,7 @@ module FastJetFinder FastJetFinderPUPPIAK8 {
   set SymmetryCutSoftDrop 0.1
   set R0SoftDrop 0.8
 
-  set JetPTMin 200.0
+  set JetPTMin 1
 }
 
 module FastJetFinder FastJetFinderPUPPIAK15 {
@@ -1965,7 +1976,7 @@ module FastJetFinder FastJetFinderPUPPIAK15 {
   set SymmetryCutSoftDrop 0.1
   set R0SoftDrop 1.5
 
-  set JetPTMin 120.0
+  set JetPTMin 1
 }
 
 ##################
@@ -1978,7 +1989,7 @@ module EnergyScale JetEnergyScalePUPPIAK8 {
 
  # scale formula for jets
   set ScaleFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 200 && pt <= 250) * (1.02948) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 250) * (1.02948) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 300) * (1.02298) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 300 && pt <= 400) * (1.01411) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 500) * (1.00739) +
@@ -1989,7 +2000,7 @@ module EnergyScale JetEnergyScalePUPPIAK8 {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1500 && pt <= 2000) * (0.990758) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2000 && pt <= 3000) * (0.989641) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3000) * (0.988095) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 200 && pt <= 250) * (1.09579) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 250) * (1.09579) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 300) * (1.07237) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 300 && pt <= 400) * (1.04741) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 500) * (1.02741) +

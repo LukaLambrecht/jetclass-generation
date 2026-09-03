@@ -141,6 +141,29 @@ def extract_scalar(text, module_name, var_name):
     return float(m2.group(1))
 
 
+def replace_scalar(text, module_name, var_name, new_value):
+    '''
+    Return `text` with a plain scalar assignment (e.g. `set JetPTMin 200.0`,
+    see extract_scalar's own docstring for the "plain" vs brace-enclosed
+    distinction) inside module `module_name` replaced by `new_value`.
+    '''
+    module_pat = re.compile(
+        r'^\s*module\s+\S+\s+' + re.escape(module_name) + r'\s*\{', re.MULTILINE)
+    m = module_pat.search(text)
+    if not m:
+        raise ValueError('module {} not found'.format(module_name))
+    module_open = m.end() - 1
+    module_body, _ = _match_braces(text, module_open)
+    body_no_comments = re.sub(r'#[^\n]*', lambda mm: ' ' * len(mm.group(0)), module_body)
+
+    m2 = re.search(r'set\s+' + re.escape(var_name) + r'\s+([0-9.eE+-]+)', body_no_comments)
+    if not m2:
+        raise ValueError('scalar {} not found in module {}'.format(var_name, module_name))
+    val_start = module_open + 1 + m2.start(1)
+    val_end = module_open + 1 + m2.end(1)
+    return text[:val_start] + '{:.6g}'.format(new_value) + text[val_end:]
+
+
 def format_piecewise_table(eta_edges, pt_edges, values, var_prefix=''):
     '''
     Build a Delphes-style piecewise-constant EfficiencyFormula/ResolutionFormula
@@ -150,6 +173,19 @@ def format_piecewise_table(eta_edges, pt_edges, values, var_prefix=''):
     instead of typed by hand.
 
     `var_prefix` is prepended to each generated line for indentation.
+
+    The lowest and highest pT bins are both open-ended (`pt <= hi` / `pt >
+    lo`, no lower/upper bound at all), so the table has no gap: a pt outside
+    [pt_edges[0], pt_edges[-1]) still lands in the nearest bin's condition
+    and gets that bin's value, rather than matching nothing and silently
+    evaluating to 0 (the previous behavior below the lowest edge specifically -
+    harmless everywhere this was only ever evaluated within the measured
+    range, e.g. PT_EDGES already starts near 0, but a real gap for
+    JET_PT_EDGES, whose lowest edge (200 GeV) is a baseline *selection* of
+    the input data, not a physical floor - a jet genuinely evaluated below
+    it, e.g. after relaxing an HLT card's own FastJetFinder JetPTMin so
+    degraded jets aren't dropped before ever reaching this formula, would
+    otherwise get scaled by a phantom factor of exactly 0).
     '''
     n_eta = len(eta_edges) - 1
     n_pt = len(pt_edges) - 1
@@ -161,6 +197,8 @@ def format_piecewise_table(eta_edges, pt_edges, values, var_prefix=''):
             pt_lo, pt_hi = pt_edges[ip], pt_edges[ip + 1]
             if ip == n_pt - 1:
                 pt_cond = '(pt > {:g})'.format(pt_lo)
+            elif ip == 0:
+                pt_cond = '(pt <= {:g})'.format(pt_hi)
             else:
                 pt_cond = '(pt > {:g} && pt <= {:g})'.format(pt_lo, pt_hi)
             value = values[ie][ip]

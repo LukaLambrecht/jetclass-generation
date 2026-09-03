@@ -8,7 +8,11 @@ JOBNUM=$4
 # "onlyFatJet" (default) or "onlyFatJet,onlyFatJetHLT". The same generated
 # events are reused for every card - only the detector-level reconstruction
 # step is repeated per card, producing its own events_delphes_*.root and
-# ntuple_*.root under a per-card subdirectory.
+# ntuple_*.root under a per-card subdirectory. An entry can also be an
+# offline+HLT PAIR joined by "+" (e.g. "onlyFatJet+onlyFatJetHLT") - jet-
+# matched into ONE combined ntuple instead of two independent ones, so an
+# offline jet's own HLT reconstruction is directly recoverable - see
+# delphes_analyzers/makeNtuplesPaired.C's own docstring.
 DELPHES_CARD_NAMES=${5:-onlyFatJet}
 # optional 6th arg: output directory, in place of the default below - lets a
 # one-off/exploratory run (e.g. a timing scan) be pointed at a completely
@@ -87,7 +91,31 @@ copy_to_eos() {
     return 1
 }
 
-IFS=',' read -ra CARD_NAMES <<< "$DELPHES_CARD_NAMES"
+# DELPHES_CARD_NAMES is comma-separated; each entry is either a single card
+# name ("onlyFatJet") or an offline+HLT PAIR joined by "+"
+# ("onlyFatJet+onlyFatJetHLT") - a pair is jet-matched into ONE combined
+# ntuple (delphes_analyzers/makeNtuplesPaired.C) instead of two independent
+# per-card ntuples with no correspondence between an offline jet and "its"
+# HLT jet - see makeNtuplesPaired.C's own docstring for why that
+# correspondence matters and how it's built. OUTPUT_UNITS keeps the raw
+# entries (drives the ntuplizing loop below); CARD_NAMES is the flat,
+# deduplicated list of every individual Delphes card actually needed (a
+# name used standalone AND as half of a pair, e.g. testing both an
+# independent "onlyFatJet" output and a paired one, only runs Delphes for
+# it once) - unchanged from before for the per-batch Delphes-running loop
+# and the per-card merge step, both still keyed on individual card names.
+IFS=',' read -ra OUTPUT_UNITS <<< "$DELPHES_CARD_NAMES"
+declare -a CARD_NAMES
+declare -A SEEN_CARD
+for unit in "${OUTPUT_UNITS[@]}"; do
+    IFS='+' read -ra parts <<< "$unit"
+    for name in "${parts[@]}"; do
+        if [ -z "${SEEN_CARD[$name]}" ]; then
+            CARD_NAMES+=("$name")
+            SEEN_CARD[$name]=1
+        fi
+    done
+done
 declare -a CARD_PATHS
 for name in "${CARD_NAMES[@]}"; do
     CARD_PATHS+=("$(realpath delphes_cards)/$(card_file_for_name "$name")")
@@ -182,45 +210,74 @@ esac
 
 # produce ntuples from the Delphes output
 # run in an isolated per-job copy of delphes_analyzers so that ACLiC's compilation
-# (triggered by the "++" in makeNtuples.C++) doesn't race with other concurrent jobs
-# compiling into the same shared delphes_analyzers/ directory
+# (triggered by the "++" in makeNtuples.C++/makeNtuplesPaired.C++) doesn't race
+# with other concurrent jobs compiling into the same shared delphes_analyzers/ dir
 mkdir -p $WORKDIR/analyzer
-cp $ANALYZER_PATH/EventData.h $ANALYZER_PATH/FatJetMatching.h $ANALYZER_PATH/ParticleID.h $ANALYZER_PATH/ParticleInfo.h $ANALYZER_PATH/makeNtuples.C $WORKDIR/analyzer/
+cp $ANALYZER_PATH/EventData.h $ANALYZER_PATH/FatJetMatching.h $ANALYZER_PATH/ParticleID.h $ANALYZER_PATH/ParticleInfo.h \
+   $ANALYZER_PATH/makeNtuples.C $ANALYZER_PATH/makeNtuplesPaired.C $WORKDIR/analyzer/
 
+# merge each individual card's own per-batch files into one - keyed on the
+# flat, deduplicated CARD_NAMES (unchanged from before this file split into
+# OUTPUT_UNITS/CARD_NAMES - see their own comment above), independent of
+# whether a card is used standalone or as half of a pair below
 for name in "${CARD_NAMES[@]}"; do
-    # combine all root files for this card - still entirely on local scratch
     if [ $nbatch -eq 1 ]; then
         mv $WORKDIR/$name/events_delphes_0.root $WORKDIR/$name/events_delphes.root
     else
         hadd -f $WORKDIR/$name/events_delphes.root $WORKDIR/$name/*.root
     fi
+done
 
-    # ntuple from the LOCAL Delphes file, not (yet) the EOS copy - avoids
-    # reading it back over the network right after having just written it
-    LOCAL_NTUPLE_PATH=$WORKDIR/$name/ntuple_$JOBNUM.root
-    (
-        cd $WORKDIR/analyzer
-        source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
-        export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
-        root -b -q "makeNtuples.C++(\"$WORKDIR/$name/events_delphes.root\", \"$LOCAL_NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
-    )
+for unit in "${OUTPUT_UNITS[@]}"; do
+    IFS='+' read -ra parts <<< "$unit"
 
-    # only now, with both final files ready locally, copy them to EOS - the
-    # only per-job writes to EOS in this whole script (besides the mkdir -p).
-    # See copy_to_eos()'s own comment for why this isn't just a plain `mv`.
-    if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
-        copy_to_eos $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root || exit 1
+    if [ "${#parts[@]}" -eq 2 ]; then
+        # offline+HLT pair -> one matched ntuple (makeNtuplesPaired.C) - see
+        # OUTPUT_UNITS/CARD_NAMES's own comment above and
+        # delphes_analyzers/makeNtuplesPaired.C's own docstring
+        offline_name=${parts[0]}
+        hlt_name=${parts[1]}
+        mkdir -p $WORKDIR/$unit
+        LOCAL_NTUPLE_PATH=$WORKDIR/$unit/ntuple_$JOBNUM.root
+        (
+            cd $WORKDIR/analyzer
+            source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
+            export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
+            root -b -q "makeNtuplesPaired.C++(\"$WORKDIR/$offline_name/events_delphes.root\", \"$WORKDIR/$hlt_name/events_delphes.root\", \"$LOCAL_NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
+        )
+        if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+            copy_to_eos $WORKDIR/$offline_name/events_delphes.root $OUTPUT_PATH/$PROC/$unit/events_delphes_offline_$JOBNUM.root || exit 1
+            copy_to_eos $WORKDIR/$hlt_name/events_delphes.root $OUTPUT_PATH/$PROC/$unit/events_delphes_hlt_$JOBNUM.root || exit 1
+        fi
+        copy_to_eos $LOCAL_NTUPLE_PATH $OUTPUT_PATH/$PROC/$unit/ntuple_$JOBNUM.root || exit 1
+    else
+        # single card - unchanged from before
+        name=${parts[0]}
+        LOCAL_NTUPLE_PATH=$WORKDIR/$name/ntuple_$JOBNUM.root
+        (
+            cd $WORKDIR/analyzer
+            source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh
+            export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delphes/3.5.1pre09-9fe9c/x86_64-el9-gcc13-opt/include
+            root -b -q "makeNtuples.C++(\"$WORKDIR/$name/events_delphes.root\", \"$LOCAL_NTUPLE_PATH\", \"JetPUPPIAK8\", \"GenJetAK8\", true, false, $USE_V1_LABELS)"
+        )
+        if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+            copy_to_eos $WORKDIR/$name/events_delphes.root $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root || exit 1
+        fi
+        copy_to_eos $LOCAL_NTUPLE_PATH $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root || exit 1
     fi
-    copy_to_eos $LOCAL_NTUPLE_PATH $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root || exit 1
 done
 
 # (workspace cleanup happens via the EXIT trap set above, not here - so it
 # still runs even if something above exited early)
 
 echo -e "\033[1mJob done. Generated $NEVENT events for $PROC.\033[0m"
-for name in "${CARD_NAMES[@]}"; do
-    if [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
-        echo -e "\033[1m[$name] Delphes file path: $OUTPUT_PATH/$PROC/$name/events_delphes_$JOBNUM.root\033[0m"
+for unit in "${OUTPUT_UNITS[@]}"; do
+    IFS='+' read -ra parts <<< "$unit"
+    if [ "${#parts[@]}" -eq 2 ] && [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+        echo -e "\033[1m[$unit] Offline Delphes file path: $OUTPUT_PATH/$PROC/$unit/events_delphes_offline_$JOBNUM.root\033[0m"
+        echo -e "\033[1m[$unit] HLT Delphes file path: $OUTPUT_PATH/$PROC/$unit/events_delphes_hlt_$JOBNUM.root\033[0m"
+    elif [ "$KEEP_DELPHES_OUTPUT" = "true" ]; then
+        echo -e "\033[1m[$unit] Delphes file path: $OUTPUT_PATH/$PROC/$unit/events_delphes_$JOBNUM.root\033[0m"
     fi
-    echo -e "\033[1m[$name] Ntuple file path: $OUTPUT_PATH/$PROC/$name/ntuple_$JOBNUM.root\033[0m"
+    echo -e "\033[1m[$unit] Ntuple file path: $OUTPUT_PATH/$PROC/$unit/ntuple_$JOBNUM.root\033[0m"
 done

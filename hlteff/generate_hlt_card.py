@@ -54,6 +54,23 @@ hlteff/calorimeters/README.md. Everything else
 JetEnergyScalePUPPIAK15) is still genuinely untouched - see README.md
 ("Known limitations / not yet data-driven").
 
+FastJetFinderPUPPIAK8/AK15's own JetPTMin is lowered to --hlt-jet-pt-min
+(default 1.0 GeV, i.e. effectively "no cut" - see its own --help) instead of
+being copied unchanged from the offline card (200/120 GeV). This is not a
+data-driven measurement either, but a structural requirement for the
+offline<->HLT jet-matching workflow (delphes_analyzers/makeNtuplesPaired.C):
+that ntuplizer applies pT/eta selection to the OFFLINE jet only and keeps
+whatever HLT jet matches it regardless of the HLT jet's own pT - including
+one that fell below any nominal HLT threshold. If this card's own
+FastJetFinder silently never constructs/writes a jet that degraded below
+200/120 GeV in the first place, that distinction (HLT jet exists but is
+soft vs. HLT jet is genuinely gone) is lost before the ntuplizer ever sees
+it. JetEnergyScalePUPPIAK8's ScaleFormula is generated to cover this newly-
+reachable low-pT region sensibly (extending the lowest measured bin's value
+downward - see format_piecewise_table()'s own docstring) rather than the
+phantom-zero it would otherwise evaluate to below JET_PT_EDGES[0] (200 GeV,
+itself just this measurement's own data baseline, not a physical floor).
+
 Usage:
   python generate_hlt_card.py [--curves PATH] [--offline-card PATH]
                                [--output PATH] [--output-nopu PATH]
@@ -67,7 +84,7 @@ import argparse
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from delphes_formula import evaluate_formula, extract_formula_block, replace_formula_block, format_piecewise_table
+from delphes_formula import evaluate_formula, extract_formula_block, replace_formula_block, format_piecewise_table, replace_scalar
 from calo_grid import parse_regions, coarsen_regions, replace_grid
 
 HLTEFF_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -214,7 +231,8 @@ def apply_calo_plan_b(text, resolution_factor, calo_granularity_factor):
     return text
 
 
-def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor):
+def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor,
+                 hlt_jet_pt_min):
     src = curves['source']
     return '''\
 ##############################################################################
@@ -257,6 +275,17 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
 #   thresholds (EnergyMin/EnergySignificanceMin) are left at their offline
 #   values.
 #
+#   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to {hlt_jet_pt_min:g} GeV
+#   (not copied from the offline card's 200/120 GeV, unlike every other
+#   untouched module) - a structural requirement, not a measurement: the
+#   offline<->HLT jet-matching ntuplizer (delphes_analyzers/makeNtuplesPaired.C)
+#   needs Delphes to actually construct/write a jet that degraded below the
+#   offline analysis threshold, rather than silently dropping it here first -
+#   see generate_hlt_card.py's own module docstring. JetEnergyScalePUPPIAK8's
+#   ScaleFormula covers this newly-reachable low-pT region by extending the
+#   lowest measured bin's value downward (see format_piecewise_table() in
+#   delphes_formula.py), not a phantom zero.
+#
 # To regenerate after new data or a change to the offline card:
 #   python hlteff/derive_curves.py       # only if the input data changed
 #   python hlteff/generate_hlt_card.py
@@ -272,6 +301,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
         calo_resolution_degradation=calo_resolution_degradation,
         calo_granularity_factor=calo_granularity_factor,
         calo_granularity_factor_sq=calo_granularity_factor ** 2,
+        hlt_jet_pt_min=hlt_jet_pt_min,
     )
 
 
@@ -302,6 +332,15 @@ def main():
         help='ECal/HCal tower-grid coarsening factor, HAND-SET ("plan B", see hlteff/calorimeters/README.md -'
              ' a data-driven scan found no factor actually reproduces the measured effect): each tower'
              ' this many times wider in both eta and phi (need not be an integer; 1 = unchanged; default: 1.5)')
+    parser.add_argument('--hlt-jet-pt-min', type=float, default=1.0,
+        help='FastJetFinderPUPPIAK8/AK15 JetPTMin on the GENERATED (HLT) card, HAND-SET - NOT copied'
+             ' unchanged from the offline card (200/120 GeV) the way most modules are. Needs to be low'
+             ' enough that a genuinely degraded jet is still constructed/written by Delphes rather than'
+             ' silently dropped before the offline<->HLT jet-matching ntuplizer'
+             ' (delphes_analyzers/makeNtuplesPaired.C) ever sees it - see this module\'s own docstring.'
+             ' Default 1.0 GeV is effectively "no cut" (well below any realistic analysis threshold) while'
+             ' avoiding the degenerate JetPTMin=0 edge case; lower further only if jets keep vanishing'
+             ' below 1 GeV in practice, which should not happen for AK8/AK15 jets built from real activity.')
     args = parser.parse_args()
 
     with open(args.curves) as f:
@@ -358,8 +397,13 @@ def main():
     # --- ECal/HCal (hand-set "plan B", not data-driven - see function docstring) ---
     text = apply_calo_plan_b(text, args.calo_resolution_degradation, args.calo_granularity_factor)
 
+    # --- HLT jet-finder JetPTMin (hand-set, structural - see module docstring) ---
+    for module in ('FastJetFinderPUPPIAK8', 'FastJetFinderPUPPIAK15'):
+        text = replace_scalar(text, module, 'JetPTMin', args.hlt_jet_pt_min)
+
     header = make_header(args.curves, curves, args.offline_card,
-                          args.calo_resolution_degradation, args.calo_granularity_factor)
+                          args.calo_resolution_degradation, args.calo_granularity_factor,
+                          args.hlt_jet_pt_min)
     text = header + '\n' + text
 
     with open(args.output, 'w') as f:

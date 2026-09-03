@@ -7,6 +7,7 @@ testing/test-generation-time/*.txt
 
 # job directories
 condor
+condor_*
 
 # ROOT / ACLiC compiled artifacts (machine- and ROOT-version-specific;
 # regenerated automatically by `root -b -q 'macro.C++(...)'`)
