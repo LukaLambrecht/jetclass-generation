@@ -30,6 +30,13 @@ Usage:
   # one results file per process, e.g. timing_results_HToBB.txt, timing_results_HToCC.txt, ...
   python3 run_timing_scan.py --procs HToBB,HToCC,HToGG,HToWW2Q1L,HToWW4Q,TTBar,TTBarLep,WToQQ,ZJetsToNuNu,ZToQQ \\
       --nevents 10,20,50,100,200,500,1000,2000,5000,10000
+
+  # jetclass2 processes work the same way - bare "train_*" names are enough
+  # (see normalize_proc()); --card should match whatever card the real
+  # production actually uses (jetclass2's own production runs "onlyFatJet",
+  # WITH pileup, unlike jetclass1's DEFAULT_CARD "onlyFatJetNoPU" here)
+  python3 run_timing_scan.py --procs train_qcd,train_higgs2p --card onlyFatJet \\
+      --nevents 10,20,50,100,200,500,1000,2000,5000,10000
 '''
 
 import os
@@ -58,14 +65,35 @@ NTUPLE_TREE_NAME = 'tree'  # see makeNtuples.C: one entry per jet
 
 
 def normalize_proc(proc):
-    '''Accept "HToGG", "jetclass1/HToGG", or "jetclass1/HToGG/precompiled" - return (short, full)
-    where short="HToGG" (used for filenames/job names) and full="jetclass1/HToGG/precompiled"
-    (run.sh's PROC positional arg 1).'''
-    parts = [p for p in proc.split('/') if p not in ('jetclass1', 'precompiled', '')]
-    if len(parts) != 1:
+    '''
+    Accepts either family:
+      - jetclass1: "HToGG", "jetclass1/HToGG", or "jetclass1/HToGG/precompiled"
+      - jetclass2: "train_qcd", "jetclass2/train_qcd"
+    Returns (short, full) where short (e.g. "HToGG"/"train_qcd") is used for
+    filenames/job names and full is run.sh's own PROC positional arg 1 -
+    "jetclass1/<short>/precompiled" for jetclass1 (the gridpack-based mode
+    this scan has always used - see download_gridpack.py), or plain
+    "jetclass2/<short>" for jetclass2 (no precompiled/raw split there at
+    all - every gen_configs/jetclass2/* process is one flat directory).
+
+    A BARE name with no jetclass1/jetclass2 prefix is disambiguated by
+    gen_configs/'s own naming convention: every jetclass2 process directory
+    is named train_* (train_qcd, train_higgs2p, train_higgspm2p, ...); no
+    jetclass1 process is - so "train_qcd" alone is enough to infer jetclass2,
+    matching how --procs is written elsewhere in this repo (e.g. run_condor.py
+    examples).
+    '''
+    parts = [p for p in proc.split('/') if p and p != 'precompiled']
+    if parts and parts[0] in ('jetclass1', 'jetclass2'):
+        family, rest = parts[0], parts[1:]
+    else:
+        rest = parts
+        family = 'jetclass2' if rest and rest[0].startswith('train_') else 'jetclass1'
+    if len(rest) != 1:
         raise ValueError('could not parse a single process name out of {!r}'.format(proc))
-    short = parts[0]
-    return short, 'jetclass1/{}/precompiled'.format(short)
+    short = rest[0]
+    full = 'jetclass1/{}/precompiled'.format(short) if family == 'jetclass1' else 'jetclass2/{}'.format(short)
+    return short, full
 
 
 def count_njets_command(ntuple_path):
@@ -108,8 +136,9 @@ if __name__ == '__main__':
         description='Submit one condor job per (process, NEVENT) pair, timing the full run.sh chain for each.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--procs', default=DEFAULT_PROCS,
-        help='comma-separated processes to test, e.g. HToBB,HToCC,TTBar'
-             ' (bare name, jetclass1/<name>, or jetclass1/<name>/precompiled all accepted)')
+        help='comma-separated processes to test, e.g. HToBB,HToCC,TTBar or train_qcd,train_higgs2p'
+             ' - jetclass1 (bare name, jetclass1/<name>, or jetclass1/<name>/precompiled) and'
+             ' jetclass2 (bare train_* name, or jetclass2/<name>) both accepted, see normalize_proc()')
     parser.add_argument('--nevents', default=DEFAULT_NEVENTS,
         help='comma-separated NEVENT values to test, one job each, per process')
     parser.add_argument('--card', default=DEFAULT_CARD,
