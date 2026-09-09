@@ -116,6 +116,46 @@ run_gen_with_timeout() {
     return 1
 }
 
+# Per-card Delphes-reconstruction timeout, in seconds - the same class of
+# hang risk run_gen_with_timeout() above guards against, just on the
+# detector-sim side instead of the generation side. Found the hard way:
+# adding the offline+HLT card PAIR (DELPHES_CARD_NAMES like
+# "onlyFatJet+onlyFatJetHLT") doubled the DelphesHepMC2 work per batch (one
+# run per card), and 8 of 70 train_higgs2p jobs in that first paired
+# production then ran the FULL HTCondor "workday" wall-time budget (8h)
+# before being killed by SYSTEM_PERIODIC_REMOVE - producing ZERO output,
+# since run.sh only copies to EOS once, at the very end - while every
+# surrounding job finished in under 2h. DelphesHepMC2 was the only
+# completely unbounded step left in the per-batch loop.
+#
+# Unlike run_gen_with_timeout(), a timed-out DelphesHepMC2 call is NOT
+# retried: it reconstructs the SAME already-generated events.hepmc, so a
+# hang triggered by specific event content would just repeat identically -
+# there's no "fresh random draw" to retry into like run_gen.sh has. A
+# timeout here is instead treated exactly like any other DelphesHepMC2
+# failure already was: this batch's contribution for that card is skipped
+# (events_delphes_$i.root simply isn't produced), the same small,
+# already-tolerated yield reduction a failed run_gen.sh attempt causes.
+DELPHES_TIMEOUT_SEC=${DELPHES_TIMEOUT_SEC:-900}
+
+# Runs DelphesHepMC2 under the timeout above, with the same setsid+pkill -g
+# process-group-kill approach as run_gen_with_timeout() (see its own comment
+# for why plain `timeout` alone isn't enough to reliably kill the whole
+# subprocess tree). No retry loop here - see DELPHES_TIMEOUT_SEC's own
+# comment for why retrying wouldn't help.
+run_delphes_with_timeout() {
+    local card_path=$1 out=$2 in=$3 rc
+    setsid timeout -k 30 "${DELPHES_TIMEOUT_SEC}s" $DELPHES_PATH/DelphesHepMC2 "$card_path" "$out" "$in" &
+    local pgid=$!
+    wait $pgid
+    rc=$?
+    pkill -KILL -g $pgid 2>/dev/null
+    if [ $rc -ne 0 ]; then
+        echo "WARNING: DelphesHepMC2 (card $(basename "$card_path")) failed or timed out (rc=$rc, limit ${DELPHES_TIMEOUT_SEC}s) - skipping this batch for this card" >&2
+    fi
+    return $rc
+}
+
 card_file_for_name() {
     case "$1" in
         onlyFatJet)        echo "delphes_card_CMS_JetClassII_onlyFatJet.tcl" ;;
@@ -233,10 +273,47 @@ for ((i=0; i<nbatch; i++)); do
     cd $WORKDIR
     if [ ! -d "proc_base" ]; then
         mkdir proc_base
-        cp -r $GENCFG_PATH/$PROC/* proc_base/
+        # Retry+verify these two copies before proceeding - same reasoning as
+        # copy_to_eos() below, just in the other direction (EOS -> local
+        # scratch instead of local scratch -> EOS): EOS's FUSE mount can
+        # spuriously fail a `cp` mid-read too, not just a `mkdir`/`mv` under
+        # load. Found the hard way: an unchecked "cp: error reading
+        # '.../run_gen_default.sh': Input/output error" once left
+        # proc_base/run_gen.sh missing for an entire job - every one of its
+        # 10 batches then failed to generate anything, yet the job still
+        # exited 0 and copied an EMPTY ntuple to EOS as if it were real
+        # output (found via print_njets.py's per-label diagnostics: one job's
+        # ntuple among ~170 others had exactly 0 jets - nothing in the job's
+        # own logging/exit code flagged it). Checking "at least one file
+        # landed" (mirroring validate_proc()'s own check in run_condor.py)
+        # rather than `cp`'s exit code alone, since a partially-failed `cp -r`
+        # can still exit 0 having copied only some of the files.
+        for attempt in 1 2 3 4 5; do
+            cp -r $GENCFG_PATH/$PROC/* proc_base/
+            if [ -n "$(ls -A proc_base 2>/dev/null)" ]; then
+                break
+            fi
+            echo "WARNING: copying gen_configs/$PROC into proc_base failed or produced nothing (attempt $attempt/5) - retrying" >&2
+            sleep $((attempt * 3))
+        done
+        if [ -z "$(ls -A proc_base 2>/dev/null)" ]; then
+            echo "ERROR: giving up copying gen_configs/$PROC into proc_base after 5 attempts - proc_base is empty" >&2
+            exit 1
+        fi
         # if genpack does not have a run_gen.sh, use the default
         if [ ! -f "proc_base/run_gen.sh" ]; then
-            cp $GENCFG_PATH/run_gen_default.sh proc_base/run_gen.sh
+            for attempt in 1 2 3 4 5; do
+                cp $GENCFG_PATH/run_gen_default.sh proc_base/run_gen.sh
+                if [ -s "proc_base/run_gen.sh" ]; then
+                    break
+                fi
+                echo "WARNING: copying run_gen_default.sh failed or produced an empty file (attempt $attempt/5) - retrying" >&2
+                sleep $((attempt * 3))
+            done
+            if [ ! -s "proc_base/run_gen.sh" ]; then
+                echo "ERROR: giving up copying run_gen_default.sh after 5 attempts - proc_base/run_gen.sh missing/empty" >&2
+                exit 1
+            fi
         fi
     fi
     cd $WORKDIR/proc_base
@@ -252,7 +329,7 @@ for ((i=0; i<nbatch; i++)); do
         path=${CARD_PATHS[$idx]}
         mkdir -p $WORKDIR/$name
         rm -f events_delphes.root
-        $DELPHES_PATH/DelphesHepMC2 $path events_delphes.root events.hepmc
+        run_delphes_with_timeout $path events_delphes.root events.hepmc
         if [ $? -eq 0 ]; then
             mv events_delphes.root $WORKDIR/$name/events_delphes_$i.root
         fi

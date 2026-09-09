@@ -81,7 +81,7 @@ import numpy as np
 import uproot
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
-REPO_DIR = os.path.dirname(THISDIR)
+REPO_DIR = os.path.dirname(os.path.dirname(THISDIR))  # testing/test-hlt-production/ is two levels below the repo root
 
 GENCFG_PATH = os.path.join(REPO_DIR, 'gen_configs')
 DELPHES_CARDS_DIR = os.path.join(REPO_DIR, 'delphes_cards')
