@@ -45,12 +45,18 @@ warning is printed - this can happen at very high pT where statistics run
 out, or for electrons (see README "Notable findings").
 
 ECal/HCal ResolutionFormula are set to (offline formula) *
---calo-resolution-degradation (default 1.5, i.e. a 50% degradation), and
-both modules' tower grids are additionally coarsened by
---calo-granularity-factor (default 1.5, in both eta and phi) - hand-set
-assumptions, not measurements; see apply_calo_plan_b() and
-hlteff/calorimeters/README.md. Everything else
-(PUPPI itself, TrackPileUpSubtractor.ZVertexResolution,
+--calo-resolution-degradation (default 1.1, i.e. a 10% degradation; 1.0
+keeps the offline resolution), and both modules' tower grids can additionally
+be coarsened by --calo-granularity-factor (default 1.0, i.e. offline
+granularity, no coarsening) - hand-set assumptions, not measurements; see
+apply_calo_plan_b() and hlteff/calorimeters/README.md.
+
+Charged/Electron/Muon TrackingEfficiency are additionally hard-set to 0 in
+every pT bin entirely below --charged-eff-pt-floor (default 0.5 GeV), all
+|eta| - a hand override of the data-driven curves, which return a small
+nonzero efficiency there that is not trusted.
+
+Everything else (PUPPI itself, TrackPileUpSubtractor.ZVertexResolution,
 JetEnergyScalePUPPIAK15) is still genuinely untouched - see README.md
 ("Known limitations / not yet data-driven").
 
@@ -231,9 +237,59 @@ def apply_calo_plan_b(text, resolution_factor, calo_granularity_factor):
     return text
 
 
+def _wrap_comment(text, width=76, indent='#   '):
+    '''Word-wrap `text` for a Tcl "#"-comment block. Returns the lines joined
+    by "\\n<indent>", with NO leading indent and no trailing newline - the
+    header template supplies the first line's own "#   ".'''
+    words, lines, cur = text.split(), [], ''
+    for w in words:
+        cand = (cur + ' ' + w).strip()
+        if cur and len(indent) + len(cand) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return ('\n' + indent).join(lines)
+
+
 def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor,
-                 hlt_jet_pt_min):
+                 hlt_jet_pt_min, charged_eff_pt_floor):
     src = curves['source']
+
+    if charged_eff_pt_floor > 0:
+        charged_eff_note = '#   ' + _wrap_comment(
+            'Charged/Electron/Muon TrackingEfficiency are additionally HARD-SET to 0 in every '
+            'pT bin entirely below {:g} GeV, all |eta| (--charged-eff-pt-floor) - a hand override, '
+            'not data-driven: the measured curves return a small nonzero efficiency there that '
+            'is not trusted.'.format(charged_eff_pt_floor)) + '\n#\n'
+    else:
+        charged_eff_note = ''
+
+    calo_sentences = []
+    if calo_resolution_degradation != 1:
+        calo_sentences.append(
+            'ECal/HCal ResolutionFormula are hand-set to (offline formula) * {:g} ("plan B": '
+            'data-driven closure checks found the matched-pair approach does not work for '
+            'calorimeters the way it does for tracking - see hlteff/calorimeters/README.md - '
+            'so this is a documented placeholder assumption, not a measurement).'.format(
+                calo_resolution_degradation))
+    else:
+        calo_sentences.append('ECal/HCal ResolutionFormula are left UNCHANGED at their offline values.')
+    if calo_granularity_factor != 1:
+        calo_sentences.append(
+            'Both modules\' tower grids are additionally coarsened by a factor {g:g} in both '
+            'eta and phi (each tower {g:g}x wider in each dimension, {g2:g}x the area) - also a '
+            'hand-set assumption (a data-driven granularity scan found no coarsening factor '
+            'actually reproduces the measured effect, see hlteff/calorimeters/README.md).'.format(
+                g=calo_granularity_factor, g2=calo_granularity_factor ** 2))
+    else:
+        calo_sentences.append('Both modules\' tower grids are left at their offline granularity.')
+    calo_sentences.append(
+        'Both ECal/HCal thresholds (EnergyMin/EnergySignificanceMin) are left at their offline values.')
+    calo_paragraph = _wrap_comment(' '.join(calo_sentences))
+
     return '''\
 ##############################################################################
 # Approximate CMS Phase-2 HLT ("scouting")-like reconstruction - GENERATED,
@@ -260,20 +316,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
 #   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see
 #   README.md for why.
 #
-#   ECal/HCal ResolutionFormula are hand-set to (offline formula) *
-#   {calo_resolution_degradation:g} ("plan B": data-driven closure checks found the
-#   matched-pair approach doesn't work for calorimeters the way it does for
-#   tracking - see hlteff/calorimeters/README.md - so this is a documented
-#   placeholder assumption, not a measurement). Both modules' tower grids
-#   are additionally coarsened by a factor {calo_granularity_factor:g} in both eta and phi
-#   (each tower {calo_granularity_factor:g}x wider in each dimension, {calo_granularity_factor_sq:g}x the area) - also a
-#   hand-set assumption (a data-driven granularity scan found no coarsening
-#   factor actually reproduces the measured effect, see
-#   hlteff/calorimeters/README.md, but a modest coarsening is retained as a
-#   physically-motivated guess given degraded upstream tracking efficiency
-#   independently increases the neutral-hadron rate). Both ECal/HCal
-#   thresholds (EnergyMin/EnergySignificanceMin) are left at their offline
-#   values.
+{charged_eff_note}#   {calo_paragraph}
 #
 #   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to {hlt_jet_pt_min:g} GeV
 #   (not copied from the offline card's 200/120 GeV, unlike every other
@@ -298,9 +341,8 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
         dr_max=src['dr_max'],
         input_dir=src['input_dir'],
         files=', '.join(os.path.basename(f) for f in src['files']),
-        calo_resolution_degradation=calo_resolution_degradation,
-        calo_granularity_factor=calo_granularity_factor,
-        calo_granularity_factor_sq=calo_granularity_factor ** 2,
+        charged_eff_note=charged_eff_note,
+        calo_paragraph=calo_paragraph,
         hlt_jet_pt_min=hlt_jet_pt_min,
     )
 
@@ -324,14 +366,20 @@ def main():
     parser.add_argument('--max-sigma-dz', type=float, default=2.0,
         help='same as --max-sigma, in mm, for the DZ (dz) impact-parameter measurement'
              ' (looser than dxy by default: dz genuinely has a wider physical spread; default: 2.0)')
-    parser.add_argument('--calo-resolution-degradation', type=float, default=1.5,
+    parser.add_argument('--calo-resolution-degradation', type=float, default=1.1,
         help='ECal/HCal ResolutionFormula HAND-SET multiplier ("plan B", not data-driven - see'
-             ' hlteff/calorimeters/README.md): HLT sigma = offline sigma * this (default: 1.5, i.e. a 50%%'
-             ' resolution degradation)')
-    parser.add_argument('--calo-granularity-factor', type=float, default=1.5,
+             ' hlteff/calorimeters/README.md): HLT sigma = offline sigma * this (default: 1.1, i.e. a 10%%'
+             ' resolution degradation; 1.0 = keep the offline resolution unchanged)')
+    parser.add_argument('--calo-granularity-factor', type=float, default=1.0,
         help='ECal/HCal tower-grid coarsening factor, HAND-SET ("plan B", see hlteff/calorimeters/README.md -'
              ' a data-driven scan found no factor actually reproduces the measured effect): each tower'
-             ' this many times wider in both eta and phi (need not be an integer; 1 = unchanged; default: 1.5)')
+             ' this many times wider in both eta and phi (need not be an integer; 1 = unchanged/offline'
+             ' granularity; default: 1.0)')
+    parser.add_argument('--charged-eff-pt-floor', type=float, default=0.5,
+        help='HARD OVERRIDE (not data-driven): force Charged/Electron/Muon TrackingEfficiency to exactly'
+             ' 0 in every pT bin that lies entirely below this value (GeV), for all |eta|. The data-driven'
+             ' curves return a small nonzero tracking efficiency below ~0.5 GeV that is not trusted;'
+             ' 0 disables this override (default: 0.5)')
     parser.add_argument('--hlt-jet-pt-min', type=float, default=1.0,
         help='FastJetFinderPUPPIAK8/AK15 JetPTMin on the GENERATED (HLT) card, HAND-SET - NOT copied'
              ' unchanged from the offline card (200/120 GeV) the way most modules are. Needs to be low'
@@ -360,6 +408,15 @@ def main():
         offline_formula = extract_formula_block(offline_text, module, 'EfficiencyFormula')
         table = build_ratio_table(data['efficiency_ratio'], data['n_offline'], offline_formula,
                                    eta_edges, pt_edges, args.min_count, '{} efficiency'.format(cat), clip=(0.0, 1.0))
+        # hard override (see --charged-eff-pt-floor): the data-driven method
+        # returns a small nonzero tracking efficiency below ~0.5 GeV that we
+        # don't trust - force it to exactly 0 in every pT bin entirely below
+        # the floor, for every eta bin.
+        if args.charged_eff_pt_floor > 0:
+            for ie in range(len(eta_edges) - 1):
+                for ip in range(len(pt_edges) - 1):
+                    if pt_edges[ip + 1] <= args.charged_eff_pt_floor + 1e-9:
+                        table[ie][ip] = 0.0
         new_formula = format_piecewise_table(eta_edges, pt_edges, table, var_prefix='  ')
         text = replace_formula_block(text, module, 'EfficiencyFormula', new_formula)
 
@@ -403,7 +460,7 @@ def main():
 
     header = make_header(args.curves, curves, args.offline_card,
                           args.calo_resolution_degradation, args.calo_granularity_factor,
-                          args.hlt_jet_pt_min)
+                          args.hlt_jet_pt_min, args.charged_eff_pt_floor)
     text = header + '\n' + text
 
     with open(args.output, 'w') as f:

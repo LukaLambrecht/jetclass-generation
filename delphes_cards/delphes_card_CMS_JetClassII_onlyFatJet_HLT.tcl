@@ -23,20 +23,19 @@
 #   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see
 #   README.md for why.
 #
-#   ECal/HCal ResolutionFormula are hand-set to (offline formula) *
-#   1.5 ("plan B": data-driven closure checks found the
-#   matched-pair approach doesn't work for calorimeters the way it does for
-#   tracking - see hlteff/calorimeters/README.md - so this is a documented
-#   placeholder assumption, not a measurement). Both modules' tower grids
-#   are additionally coarsened by a factor 1.5 in both eta and phi
-#   (each tower 1.5x wider in each dimension, 2.25x the area) - also a
-#   hand-set assumption (a data-driven granularity scan found no coarsening
-#   factor actually reproduces the measured effect, see
-#   hlteff/calorimeters/README.md, but a modest coarsening is retained as a
-#   physically-motivated guess given degraded upstream tracking efficiency
-#   independently increases the neutral-hadron rate). Both ECal/HCal
-#   thresholds (EnergyMin/EnergySignificanceMin) are left at their offline
-#   values.
+#   Charged/Electron/Muon TrackingEfficiency are additionally HARD-SET to 0
+#   in every pT bin entirely below 0.5 GeV, all |eta|
+#   (--charged-eff-pt-floor) - a hand override, not data-driven: the
+#   measured curves return a small nonzero efficiency there that is not
+#   trusted.
+#
+#   ECal/HCal ResolutionFormula are hand-set to (offline formula) * 1.1
+#   ("plan B": data-driven closure checks found the matched-pair approach
+#   does not work for calorimeters the way it does for tracking - see
+#   hlteff/calorimeters/README.md - so this is a documented placeholder
+#   assumption, not a measurement). Both modules' tower grids are left at
+#   their offline granularity. Both ECal/HCal thresholds
+#   (EnergyMin/EnergySignificanceMin) are left at their offline values.
 #
 #   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to 1 GeV
 #   (not copied from the offline card's 200/120 GeV, unlike every other
@@ -170,9 +169,9 @@ module Efficiency ChargedHadronTrackingEfficiency {
 
   # tracking efficiency formula for charged hadrons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0.00389854) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0.00418639) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0.00487981) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.152472) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.281638) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.42857) +
@@ -193,9 +192,9 @@ module Efficiency ChargedHadronTrackingEfficiency {
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.18908) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.199274) +
   (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201925) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0.00517116) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0.00629553) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0.00689184) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0760607) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.152179) +
   (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.215831) +
@@ -685,771 +684,44 @@ module SimpleCalorimeter ECal {
 
   # assume 0.02 x 0.02 resolution in eta,phi in the barrel |eta| < 1.5
 
-    set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -3.115412715
-  add PhiBins -3.089232776
-  add PhiBins -3.063052837
-  add PhiBins -3.036872898
-  add PhiBins -3.01069296
-  add PhiBins -2.984513021
-  add PhiBins -2.958333082
-  add PhiBins -2.932153143
-  add PhiBins -2.905973205
-  add PhiBins -2.879793266
-  add PhiBins -2.853613327
-  add PhiBins -2.827433388
-  add PhiBins -2.801253449
-  add PhiBins -2.775073511
-  add PhiBins -2.748893572
-  add PhiBins -2.722713633
-  add PhiBins -2.696533694
-  add PhiBins -2.670353756
-  add PhiBins -2.644173817
-  add PhiBins -2.617993878
-  add PhiBins -2.591813939
-  add PhiBins -2.565634
-  add PhiBins -2.539454062
-  add PhiBins -2.513274123
-  add PhiBins -2.487094184
-  add PhiBins -2.460914245
-  add PhiBins -2.434734307
-  add PhiBins -2.408554368
-  add PhiBins -2.382374429
-  add PhiBins -2.35619449
-  add PhiBins -2.330014551
-  add PhiBins -2.303834613
-  add PhiBins -2.277654674
-  add PhiBins -2.251474735
-  add PhiBins -2.225294796
-  add PhiBins -2.199114858
-  add PhiBins -2.172934919
-  add PhiBins -2.14675498
-  add PhiBins -2.120575041
-  add PhiBins -2.094395102
-  add PhiBins -2.068215164
-  add PhiBins -2.042035225
-  add PhiBins -2.015855286
-  add PhiBins -1.989675347
-  add PhiBins -1.963495408
-  add PhiBins -1.93731547
-  add PhiBins -1.911135531
-  add PhiBins -1.884955592
-  add PhiBins -1.858775653
-  add PhiBins -1.832595715
-  add PhiBins -1.806415776
-  add PhiBins -1.780235837
-  add PhiBins -1.754055898
-  add PhiBins -1.727875959
-  add PhiBins -1.701696021
-  add PhiBins -1.675516082
-  add PhiBins -1.649336143
-  add PhiBins -1.623156204
-  add PhiBins -1.596976266
-  add PhiBins -1.570796327
-  add PhiBins -1.544616388
-  add PhiBins -1.518436449
-  add PhiBins -1.49225651
-  add PhiBins -1.466076572
-  add PhiBins -1.439896633
-  add PhiBins -1.413716694
-  add PhiBins -1.387536755
-  add PhiBins -1.361356817
-  add PhiBins -1.335176878
-  add PhiBins -1.308996939
-  add PhiBins -1.282817
-  add PhiBins -1.256637061
-  add PhiBins -1.230457123
-  add PhiBins -1.204277184
-  add PhiBins -1.178097245
-  add PhiBins -1.151917306
-  add PhiBins -1.125737368
-  add PhiBins -1.099557429
-  add PhiBins -1.07337749
-  add PhiBins -1.047197551
-  add PhiBins -1.021017612
-  add PhiBins -0.9948376736
-  add PhiBins -0.9686577349
-  add PhiBins -0.9424777961
-  add PhiBins -0.9162978573
-  add PhiBins -0.8901179185
-  add PhiBins -0.8639379797
-  add PhiBins -0.837758041
-  add PhiBins -0.8115781022
-  add PhiBins -0.7853981634
-  add PhiBins -0.7592182246
-  add PhiBins -0.7330382858
-  add PhiBins -0.7068583471
-  add PhiBins -0.6806784083
-  add PhiBins -0.6544984695
-  add PhiBins -0.6283185307
-  add PhiBins -0.6021385919
-  add PhiBins -0.5759586532
-  add PhiBins -0.5497787144
-  add PhiBins -0.5235987756
-  add PhiBins -0.4974188368
-  add PhiBins -0.471238898
-  add PhiBins -0.4450589593
-  add PhiBins -0.4188790205
-  add PhiBins -0.3926990817
-  add PhiBins -0.3665191429
-  add PhiBins -0.3403392041
-  add PhiBins -0.3141592654
-  add PhiBins -0.2879793266
-  add PhiBins -0.2617993878
-  add PhiBins -0.235619449
-  add PhiBins -0.2094395102
-  add PhiBins -0.1832595715
-  add PhiBins -0.1570796327
-  add PhiBins -0.1308996939
-  add PhiBins -0.1047197551
-  add PhiBins -0.07853981634
-  add PhiBins -0.05235987756
-  add PhiBins -0.02617993878
-  add PhiBins 0
-  add PhiBins 0.02617993878
-  add PhiBins 0.05235987756
-  add PhiBins 0.07853981634
-  add PhiBins 0.1047197551
-  add PhiBins 0.1308996939
-  add PhiBins 0.1570796327
-  add PhiBins 0.1832595715
-  add PhiBins 0.2094395102
-  add PhiBins 0.235619449
-  add PhiBins 0.2617993878
-  add PhiBins 0.2879793266
-  add PhiBins 0.3141592654
-  add PhiBins 0.3403392041
-  add PhiBins 0.3665191429
-  add PhiBins 0.3926990817
-  add PhiBins 0.4188790205
-  add PhiBins 0.4450589593
-  add PhiBins 0.471238898
-  add PhiBins 0.4974188368
-  add PhiBins 0.5235987756
-  add PhiBins 0.5497787144
-  add PhiBins 0.5759586532
-  add PhiBins 0.6021385919
-  add PhiBins 0.6283185307
-  add PhiBins 0.6544984695
-  add PhiBins 0.6806784083
-  add PhiBins 0.7068583471
-  add PhiBins 0.7330382858
-  add PhiBins 0.7592182246
-  add PhiBins 0.7853981634
-  add PhiBins 0.8115781022
-  add PhiBins 0.837758041
-  add PhiBins 0.8639379797
-  add PhiBins 0.8901179185
-  add PhiBins 0.9162978573
-  add PhiBins 0.9424777961
-  add PhiBins 0.9686577349
-  add PhiBins 0.9948376736
-  add PhiBins 1.021017612
-  add PhiBins 1.047197551
-  add PhiBins 1.07337749
-  add PhiBins 1.099557429
-  add PhiBins 1.125737368
-  add PhiBins 1.151917306
-  add PhiBins 1.178097245
-  add PhiBins 1.204277184
-  add PhiBins 1.230457123
-  add PhiBins 1.256637061
-  add PhiBins 1.282817
-  add PhiBins 1.308996939
-  add PhiBins 1.335176878
-  add PhiBins 1.361356817
-  add PhiBins 1.387536755
-  add PhiBins 1.413716694
-  add PhiBins 1.439896633
-  add PhiBins 1.466076572
-  add PhiBins 1.49225651
-  add PhiBins 1.518436449
-  add PhiBins 1.544616388
-  add PhiBins 1.570796327
-  add PhiBins 1.596976266
-  add PhiBins 1.623156204
-  add PhiBins 1.649336143
-  add PhiBins 1.675516082
-  add PhiBins 1.701696021
-  add PhiBins 1.727875959
-  add PhiBins 1.754055898
-  add PhiBins 1.780235837
-  add PhiBins 1.806415776
-  add PhiBins 1.832595715
-  add PhiBins 1.858775653
-  add PhiBins 1.884955592
-  add PhiBins 1.911135531
-  add PhiBins 1.93731547
-  add PhiBins 1.963495408
-  add PhiBins 1.989675347
-  add PhiBins 2.015855286
-  add PhiBins 2.042035225
-  add PhiBins 2.068215164
-  add PhiBins 2.094395102
-  add PhiBins 2.120575041
-  add PhiBins 2.14675498
-  add PhiBins 2.172934919
-  add PhiBins 2.199114858
-  add PhiBins 2.225294796
-  add PhiBins 2.251474735
-  add PhiBins 2.277654674
-  add PhiBins 2.303834613
-  add PhiBins 2.330014551
-  add PhiBins 2.35619449
-  add PhiBins 2.382374429
-  add PhiBins 2.408554368
-  add PhiBins 2.434734307
-  add PhiBins 2.460914245
-  add PhiBins 2.487094184
-  add PhiBins 2.513274123
-  add PhiBins 2.539454062
-  add PhiBins 2.565634
-  add PhiBins 2.591813939
-  add PhiBins 2.617993878
-  add PhiBins 2.644173817
-  add PhiBins 2.670353756
-  add PhiBins 2.696533694
-  add PhiBins 2.722713633
-  add PhiBins 2.748893572
-  add PhiBins 2.775073511
-  add PhiBins 2.801253449
-  add PhiBins 2.827433388
-  add PhiBins 2.853613327
-  add PhiBins 2.879793266
-  add PhiBins 2.905973205
-  add PhiBins 2.932153143
-  add PhiBins 2.958333082
-  add PhiBins 2.984513021
-  add PhiBins 3.01069296
-  add PhiBins 3.036872898
-  add PhiBins 3.063052837
-  add PhiBins 3.089232776
-  add PhiBins 3.115412715
-  add PhiBins 3.141592654
-  foreach eta {-1.479 -1.4529 -1.4268 -1.4007 -1.3746 -1.3485 -1.3224 -1.2963 -1.2702 -1.2441 -1.218 -1.1919 -1.1658 -1.1397 -1.1136 -1.0875 -1.0614 -1.0353 -1.0092 -0.9831 -0.957 -0.9309 -0.9048 -0.8787 -0.8526 -0.8265 -0.8004 -0.7743 -0.7482 -0.7221 -0.696 -0.6699 -0.6438 -0.6177 -0.5916 -0.5655 -0.5394 -0.5133 -0.4872 -0.4611 -0.435 -0.4089 -0.3828 -0.3567 -0.3306 -0.3045 -0.2784 -0.2523 -0.2262 -0.2001 -0.174 -0.1479 -0.1218 -0.0957 -0.0696 -0.0435 -0.0174 0.0087 0.0348 0.0609 0.087 0.1131 0.1392 0.1653 0.1914 0.2175 0.2436 0.2697 0.2958 0.3219 0.348 0.3741 0.4002 0.4263 0.4524 0.4785 0.5046 0.5307 0.5568 0.5829 0.609 0.6351 0.6612 0.6873 0.7134 0.7395 0.7656 0.7917 0.8178 0.8439 0.87 0.8961 0.9222 0.9483 0.9744 1.0005 1.0266 1.0527 1.0788 1.1049 1.131 1.1571 1.1832 1.2093 1.2354 1.2615 1.2876 1.3137 1.3398 1.3659 1.392 1.4181 1.4442 1.4703 1.4964} {
+  set PhiBins {}
+  for {set i -180} {$i <= 180} {incr i} {
+    add PhiBins [expr {$i * $pi/180.0}]
+  }
+
+  # 0.02 unit in eta up to eta = 1.5 (barrel)
+  for {set i -85} {$i <= 86} {incr i} {
+    set eta [expr {$i * 0.0174}]
     add EtaPhiBins $eta $PhiBins
   }
 
+  # assume 0.02 x 0.02 resolution in eta,phi in the endcaps 1.5 < |eta| < 3.0 (HGCAL- ECAL)
+
   set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -3.115412715
-  add PhiBins -3.089232776
-  add PhiBins -3.063052837
-  add PhiBins -3.036872898
-  add PhiBins -3.01069296
-  add PhiBins -2.984513021
-  add PhiBins -2.958333082
-  add PhiBins -2.932153143
-  add PhiBins -2.905973205
-  add PhiBins -2.879793266
-  add PhiBins -2.853613327
-  add PhiBins -2.827433388
-  add PhiBins -2.801253449
-  add PhiBins -2.775073511
-  add PhiBins -2.748893572
-  add PhiBins -2.722713633
-  add PhiBins -2.696533694
-  add PhiBins -2.670353756
-  add PhiBins -2.644173817
-  add PhiBins -2.617993878
-  add PhiBins -2.591813939
-  add PhiBins -2.565634
-  add PhiBins -2.539454062
-  add PhiBins -2.513274123
-  add PhiBins -2.487094184
-  add PhiBins -2.460914245
-  add PhiBins -2.434734307
-  add PhiBins -2.408554368
-  add PhiBins -2.382374429
-  add PhiBins -2.35619449
-  add PhiBins -2.330014551
-  add PhiBins -2.303834613
-  add PhiBins -2.277654674
-  add PhiBins -2.251474735
-  add PhiBins -2.225294796
-  add PhiBins -2.199114858
-  add PhiBins -2.172934919
-  add PhiBins -2.14675498
-  add PhiBins -2.120575041
-  add PhiBins -2.094395102
-  add PhiBins -2.068215164
-  add PhiBins -2.042035225
-  add PhiBins -2.015855286
-  add PhiBins -1.989675347
-  add PhiBins -1.963495408
-  add PhiBins -1.93731547
-  add PhiBins -1.911135531
-  add PhiBins -1.884955592
-  add PhiBins -1.858775653
-  add PhiBins -1.832595715
-  add PhiBins -1.806415776
-  add PhiBins -1.780235837
-  add PhiBins -1.754055898
-  add PhiBins -1.727875959
-  add PhiBins -1.701696021
-  add PhiBins -1.675516082
-  add PhiBins -1.649336143
-  add PhiBins -1.623156204
-  add PhiBins -1.596976266
-  add PhiBins -1.570796327
-  add PhiBins -1.544616388
-  add PhiBins -1.518436449
-  add PhiBins -1.49225651
-  add PhiBins -1.466076572
-  add PhiBins -1.439896633
-  add PhiBins -1.413716694
-  add PhiBins -1.387536755
-  add PhiBins -1.361356817
-  add PhiBins -1.335176878
-  add PhiBins -1.308996939
-  add PhiBins -1.282817
-  add PhiBins -1.256637061
-  add PhiBins -1.230457123
-  add PhiBins -1.204277184
-  add PhiBins -1.178097245
-  add PhiBins -1.151917306
-  add PhiBins -1.125737368
-  add PhiBins -1.099557429
-  add PhiBins -1.07337749
-  add PhiBins -1.047197551
-  add PhiBins -1.021017612
-  add PhiBins -0.9948376736
-  add PhiBins -0.9686577349
-  add PhiBins -0.9424777961
-  add PhiBins -0.9162978573
-  add PhiBins -0.8901179185
-  add PhiBins -0.8639379797
-  add PhiBins -0.837758041
-  add PhiBins -0.8115781022
-  add PhiBins -0.7853981634
-  add PhiBins -0.7592182246
-  add PhiBins -0.7330382858
-  add PhiBins -0.7068583471
-  add PhiBins -0.6806784083
-  add PhiBins -0.6544984695
-  add PhiBins -0.6283185307
-  add PhiBins -0.6021385919
-  add PhiBins -0.5759586532
-  add PhiBins -0.5497787144
-  add PhiBins -0.5235987756
-  add PhiBins -0.4974188368
-  add PhiBins -0.471238898
-  add PhiBins -0.4450589593
-  add PhiBins -0.4188790205
-  add PhiBins -0.3926990817
-  add PhiBins -0.3665191429
-  add PhiBins -0.3403392041
-  add PhiBins -0.3141592654
-  add PhiBins -0.2879793266
-  add PhiBins -0.2617993878
-  add PhiBins -0.235619449
-  add PhiBins -0.2094395102
-  add PhiBins -0.1832595715
-  add PhiBins -0.1570796327
-  add PhiBins -0.1308996939
-  add PhiBins -0.1047197551
-  add PhiBins -0.07853981634
-  add PhiBins -0.05235987756
-  add PhiBins -0.02617993878
-  add PhiBins 0
-  add PhiBins 0.02617993878
-  add PhiBins 0.05235987756
-  add PhiBins 0.07853981634
-  add PhiBins 0.1047197551
-  add PhiBins 0.1308996939
-  add PhiBins 0.1570796327
-  add PhiBins 0.1832595715
-  add PhiBins 0.2094395102
-  add PhiBins 0.235619449
-  add PhiBins 0.2617993878
-  add PhiBins 0.2879793266
-  add PhiBins 0.3141592654
-  add PhiBins 0.3403392041
-  add PhiBins 0.3665191429
-  add PhiBins 0.3926990817
-  add PhiBins 0.4188790205
-  add PhiBins 0.4450589593
-  add PhiBins 0.471238898
-  add PhiBins 0.4974188368
-  add PhiBins 0.5235987756
-  add PhiBins 0.5497787144
-  add PhiBins 0.5759586532
-  add PhiBins 0.6021385919
-  add PhiBins 0.6283185307
-  add PhiBins 0.6544984695
-  add PhiBins 0.6806784083
-  add PhiBins 0.7068583471
-  add PhiBins 0.7330382858
-  add PhiBins 0.7592182246
-  add PhiBins 0.7853981634
-  add PhiBins 0.8115781022
-  add PhiBins 0.837758041
-  add PhiBins 0.8639379797
-  add PhiBins 0.8901179185
-  add PhiBins 0.9162978573
-  add PhiBins 0.9424777961
-  add PhiBins 0.9686577349
-  add PhiBins 0.9948376736
-  add PhiBins 1.021017612
-  add PhiBins 1.047197551
-  add PhiBins 1.07337749
-  add PhiBins 1.099557429
-  add PhiBins 1.125737368
-  add PhiBins 1.151917306
-  add PhiBins 1.178097245
-  add PhiBins 1.204277184
-  add PhiBins 1.230457123
-  add PhiBins 1.256637061
-  add PhiBins 1.282817
-  add PhiBins 1.308996939
-  add PhiBins 1.335176878
-  add PhiBins 1.361356817
-  add PhiBins 1.387536755
-  add PhiBins 1.413716694
-  add PhiBins 1.439896633
-  add PhiBins 1.466076572
-  add PhiBins 1.49225651
-  add PhiBins 1.518436449
-  add PhiBins 1.544616388
-  add PhiBins 1.570796327
-  add PhiBins 1.596976266
-  add PhiBins 1.623156204
-  add PhiBins 1.649336143
-  add PhiBins 1.675516082
-  add PhiBins 1.701696021
-  add PhiBins 1.727875959
-  add PhiBins 1.754055898
-  add PhiBins 1.780235837
-  add PhiBins 1.806415776
-  add PhiBins 1.832595715
-  add PhiBins 1.858775653
-  add PhiBins 1.884955592
-  add PhiBins 1.911135531
-  add PhiBins 1.93731547
-  add PhiBins 1.963495408
-  add PhiBins 1.989675347
-  add PhiBins 2.015855286
-  add PhiBins 2.042035225
-  add PhiBins 2.068215164
-  add PhiBins 2.094395102
-  add PhiBins 2.120575041
-  add PhiBins 2.14675498
-  add PhiBins 2.172934919
-  add PhiBins 2.199114858
-  add PhiBins 2.225294796
-  add PhiBins 2.251474735
-  add PhiBins 2.277654674
-  add PhiBins 2.303834613
-  add PhiBins 2.330014551
-  add PhiBins 2.35619449
-  add PhiBins 2.382374429
-  add PhiBins 2.408554368
-  add PhiBins 2.434734307
-  add PhiBins 2.460914245
-  add PhiBins 2.487094184
-  add PhiBins 2.513274123
-  add PhiBins 2.539454062
-  add PhiBins 2.565634
-  add PhiBins 2.591813939
-  add PhiBins 2.617993878
-  add PhiBins 2.644173817
-  add PhiBins 2.670353756
-  add PhiBins 2.696533694
-  add PhiBins 2.722713633
-  add PhiBins 2.748893572
-  add PhiBins 2.775073511
-  add PhiBins 2.801253449
-  add PhiBins 2.827433388
-  add PhiBins 2.853613327
-  add PhiBins 2.879793266
-  add PhiBins 2.905973205
-  add PhiBins 2.932153143
-  add PhiBins 2.958333082
-  add PhiBins 2.984513021
-  add PhiBins 3.01069296
-  add PhiBins 3.036872898
-  add PhiBins 3.063052837
-  add PhiBins 3.089232776
-  add PhiBins 3.115412715
-  add PhiBins 3.141592654
-  foreach eta {-2.9406 -2.914341818 -2.888083636 -2.861825455 -2.835567273 -2.809309091 -2.783050909 -2.756792727 -2.730534545 -2.704276364 -2.678018182 -2.65176 -2.625501818 -2.599243636 -2.572985455 -2.546727273 -2.520469091 -2.494210909 -2.467952727 -2.441694545 -2.415436364 -2.389178182 -2.36292 -2.336661818 -2.310403636 -2.284145455 -2.257887273 -2.231629091 -2.205370909 -2.179112727 -2.152854545 -2.126596364 -2.100338182 -2.07408 -2.047821818 -2.021563636 -1.995305455 -1.969047273 -1.942789091 -1.916530909 -1.890272727 -1.864014545 -1.837756364 -1.811498182 -1.78524 -1.758981818 -1.732723636 -1.706465455 -1.680207273 -1.653949091 -1.627690909 -1.601432727 -1.575174545 -1.548916364 -1.522658182 -1.4964} {
+  for {set i -180} {$i <= 180} {incr i} {
+    add PhiBins [expr {$i * $pi/180.0}]
+  }
+
+  # 0.02 unit in eta up to eta = 3
+  for {set i 1} {$i <= 84} {incr i} {
+    set eta [expr { -2.958 + $i * 0.0174}]
     add EtaPhiBins $eta $PhiBins
   }
 
-  set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -3.115412715
-  add PhiBins -3.089232776
-  add PhiBins -3.063052837
-  add PhiBins -3.036872898
-  add PhiBins -3.01069296
-  add PhiBins -2.984513021
-  add PhiBins -2.958333082
-  add PhiBins -2.932153143
-  add PhiBins -2.905973205
-  add PhiBins -2.879793266
-  add PhiBins -2.853613327
-  add PhiBins -2.827433388
-  add PhiBins -2.801253449
-  add PhiBins -2.775073511
-  add PhiBins -2.748893572
-  add PhiBins -2.722713633
-  add PhiBins -2.696533694
-  add PhiBins -2.670353756
-  add PhiBins -2.644173817
-  add PhiBins -2.617993878
-  add PhiBins -2.591813939
-  add PhiBins -2.565634
-  add PhiBins -2.539454062
-  add PhiBins -2.513274123
-  add PhiBins -2.487094184
-  add PhiBins -2.460914245
-  add PhiBins -2.434734307
-  add PhiBins -2.408554368
-  add PhiBins -2.382374429
-  add PhiBins -2.35619449
-  add PhiBins -2.330014551
-  add PhiBins -2.303834613
-  add PhiBins -2.277654674
-  add PhiBins -2.251474735
-  add PhiBins -2.225294796
-  add PhiBins -2.199114858
-  add PhiBins -2.172934919
-  add PhiBins -2.14675498
-  add PhiBins -2.120575041
-  add PhiBins -2.094395102
-  add PhiBins -2.068215164
-  add PhiBins -2.042035225
-  add PhiBins -2.015855286
-  add PhiBins -1.989675347
-  add PhiBins -1.963495408
-  add PhiBins -1.93731547
-  add PhiBins -1.911135531
-  add PhiBins -1.884955592
-  add PhiBins -1.858775653
-  add PhiBins -1.832595715
-  add PhiBins -1.806415776
-  add PhiBins -1.780235837
-  add PhiBins -1.754055898
-  add PhiBins -1.727875959
-  add PhiBins -1.701696021
-  add PhiBins -1.675516082
-  add PhiBins -1.649336143
-  add PhiBins -1.623156204
-  add PhiBins -1.596976266
-  add PhiBins -1.570796327
-  add PhiBins -1.544616388
-  add PhiBins -1.518436449
-  add PhiBins -1.49225651
-  add PhiBins -1.466076572
-  add PhiBins -1.439896633
-  add PhiBins -1.413716694
-  add PhiBins -1.387536755
-  add PhiBins -1.361356817
-  add PhiBins -1.335176878
-  add PhiBins -1.308996939
-  add PhiBins -1.282817
-  add PhiBins -1.256637061
-  add PhiBins -1.230457123
-  add PhiBins -1.204277184
-  add PhiBins -1.178097245
-  add PhiBins -1.151917306
-  add PhiBins -1.125737368
-  add PhiBins -1.099557429
-  add PhiBins -1.07337749
-  add PhiBins -1.047197551
-  add PhiBins -1.021017612
-  add PhiBins -0.9948376736
-  add PhiBins -0.9686577349
-  add PhiBins -0.9424777961
-  add PhiBins -0.9162978573
-  add PhiBins -0.8901179185
-  add PhiBins -0.8639379797
-  add PhiBins -0.837758041
-  add PhiBins -0.8115781022
-  add PhiBins -0.7853981634
-  add PhiBins -0.7592182246
-  add PhiBins -0.7330382858
-  add PhiBins -0.7068583471
-  add PhiBins -0.6806784083
-  add PhiBins -0.6544984695
-  add PhiBins -0.6283185307
-  add PhiBins -0.6021385919
-  add PhiBins -0.5759586532
-  add PhiBins -0.5497787144
-  add PhiBins -0.5235987756
-  add PhiBins -0.4974188368
-  add PhiBins -0.471238898
-  add PhiBins -0.4450589593
-  add PhiBins -0.4188790205
-  add PhiBins -0.3926990817
-  add PhiBins -0.3665191429
-  add PhiBins -0.3403392041
-  add PhiBins -0.3141592654
-  add PhiBins -0.2879793266
-  add PhiBins -0.2617993878
-  add PhiBins -0.235619449
-  add PhiBins -0.2094395102
-  add PhiBins -0.1832595715
-  add PhiBins -0.1570796327
-  add PhiBins -0.1308996939
-  add PhiBins -0.1047197551
-  add PhiBins -0.07853981634
-  add PhiBins -0.05235987756
-  add PhiBins -0.02617993878
-  add PhiBins 0
-  add PhiBins 0.02617993878
-  add PhiBins 0.05235987756
-  add PhiBins 0.07853981634
-  add PhiBins 0.1047197551
-  add PhiBins 0.1308996939
-  add PhiBins 0.1570796327
-  add PhiBins 0.1832595715
-  add PhiBins 0.2094395102
-  add PhiBins 0.235619449
-  add PhiBins 0.2617993878
-  add PhiBins 0.2879793266
-  add PhiBins 0.3141592654
-  add PhiBins 0.3403392041
-  add PhiBins 0.3665191429
-  add PhiBins 0.3926990817
-  add PhiBins 0.4188790205
-  add PhiBins 0.4450589593
-  add PhiBins 0.471238898
-  add PhiBins 0.4974188368
-  add PhiBins 0.5235987756
-  add PhiBins 0.5497787144
-  add PhiBins 0.5759586532
-  add PhiBins 0.6021385919
-  add PhiBins 0.6283185307
-  add PhiBins 0.6544984695
-  add PhiBins 0.6806784083
-  add PhiBins 0.7068583471
-  add PhiBins 0.7330382858
-  add PhiBins 0.7592182246
-  add PhiBins 0.7853981634
-  add PhiBins 0.8115781022
-  add PhiBins 0.837758041
-  add PhiBins 0.8639379797
-  add PhiBins 0.8901179185
-  add PhiBins 0.9162978573
-  add PhiBins 0.9424777961
-  add PhiBins 0.9686577349
-  add PhiBins 0.9948376736
-  add PhiBins 1.021017612
-  add PhiBins 1.047197551
-  add PhiBins 1.07337749
-  add PhiBins 1.099557429
-  add PhiBins 1.125737368
-  add PhiBins 1.151917306
-  add PhiBins 1.178097245
-  add PhiBins 1.204277184
-  add PhiBins 1.230457123
-  add PhiBins 1.256637061
-  add PhiBins 1.282817
-  add PhiBins 1.308996939
-  add PhiBins 1.335176878
-  add PhiBins 1.361356817
-  add PhiBins 1.387536755
-  add PhiBins 1.413716694
-  add PhiBins 1.439896633
-  add PhiBins 1.466076572
-  add PhiBins 1.49225651
-  add PhiBins 1.518436449
-  add PhiBins 1.544616388
-  add PhiBins 1.570796327
-  add PhiBins 1.596976266
-  add PhiBins 1.623156204
-  add PhiBins 1.649336143
-  add PhiBins 1.675516082
-  add PhiBins 1.701696021
-  add PhiBins 1.727875959
-  add PhiBins 1.754055898
-  add PhiBins 1.780235837
-  add PhiBins 1.806415776
-  add PhiBins 1.832595715
-  add PhiBins 1.858775653
-  add PhiBins 1.884955592
-  add PhiBins 1.911135531
-  add PhiBins 1.93731547
-  add PhiBins 1.963495408
-  add PhiBins 1.989675347
-  add PhiBins 2.015855286
-  add PhiBins 2.042035225
-  add PhiBins 2.068215164
-  add PhiBins 2.094395102
-  add PhiBins 2.120575041
-  add PhiBins 2.14675498
-  add PhiBins 2.172934919
-  add PhiBins 2.199114858
-  add PhiBins 2.225294796
-  add PhiBins 2.251474735
-  add PhiBins 2.277654674
-  add PhiBins 2.303834613
-  add PhiBins 2.330014551
-  add PhiBins 2.35619449
-  add PhiBins 2.382374429
-  add PhiBins 2.408554368
-  add PhiBins 2.434734307
-  add PhiBins 2.460914245
-  add PhiBins 2.487094184
-  add PhiBins 2.513274123
-  add PhiBins 2.539454062
-  add PhiBins 2.565634
-  add PhiBins 2.591813939
-  add PhiBins 2.617993878
-  add PhiBins 2.644173817
-  add PhiBins 2.670353756
-  add PhiBins 2.696533694
-  add PhiBins 2.722713633
-  add PhiBins 2.748893572
-  add PhiBins 2.775073511
-  add PhiBins 2.801253449
-  add PhiBins 2.827433388
-  add PhiBins 2.853613327
-  add PhiBins 2.879793266
-  add PhiBins 2.905973205
-  add PhiBins 2.932153143
-  add PhiBins 2.958333082
-  add PhiBins 2.984513021
-  add PhiBins 3.01069296
-  add PhiBins 3.036872898
-  add PhiBins 3.063052837
-  add PhiBins 3.089232776
-  add PhiBins 3.115412715
-  add PhiBins 3.141592654
-  foreach eta {1.5138 1.540058182 1.566316364 1.592574545 1.618832727 1.645090909 1.671349091 1.697607273 1.723865455 1.750123636 1.776381818 1.80264 1.828898182 1.855156364 1.881414545 1.907672727 1.933930909 1.960189091 1.986447273 2.012705455 2.038963636 2.065221818 2.09148 2.117738182 2.143996364 2.170254545 2.196512727 2.222770909 2.249029091 2.275287273 2.301545455 2.327803636 2.354061818 2.38032 2.406578182 2.432836364 2.459094545 2.485352727 2.511610909 2.537869091 2.564127273 2.590385455 2.616643636 2.642901818 2.66916 2.695418182 2.721676364 2.747934545 2.774192727 2.800450909 2.826709091 2.852967273 2.879225455 2.905483636 2.931741818 2.958} {
+  for {set i 1} {$i <= 84} {incr i} {
+    set eta [expr { 1.4964 + $i * 0.0174}]
     add EtaPhiBins $eta $PhiBins
   }
 
+  # take present CMS granularity for HF
+
+  # 0.175 x (0.175 - 0.35) resolution in eta,phi in the HF 3.0 < |eta| < 5.0
   set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -2.879793266
-  add PhiBins -2.617993878
-  add PhiBins -2.35619449
-  add PhiBins -2.094395102
-  add PhiBins -1.832595715
-  add PhiBins -1.570796327
-  add PhiBins -1.308996939
-  add PhiBins -1.047197551
-  add PhiBins -0.7853981634
-  add PhiBins -0.5235987756
-  add PhiBins -0.2617993878
-  add PhiBins 0
-  add PhiBins 0.2617993878
-  add PhiBins 0.5235987756
-  add PhiBins 0.7853981634
-  add PhiBins 1.047197551
-  add PhiBins 1.308996939
-  add PhiBins 1.570796327
-  add PhiBins 1.832595715
-  add PhiBins 2.094395102
-  add PhiBins 2.35619449
-  add PhiBins 2.617993878
-  add PhiBins 2.879793266
-  add PhiBins 3.141592654
-  foreach eta {-5 -4.6 -4.325 -4.05 -3.775 -3.5 -3.225 -2.958 3.125 3.375 3.625 3.875 4.125 4.375 4.625 5} {
+  for {set i -18} {$i <= 18} {incr i} {
+    add PhiBins [expr {$i * $pi/18.0}]
+  }
+
+  foreach eta {-5 -4.7 -4.525 -4.35 -4.175 -4 -3.825 -3.65 -3.475 -3.3 -3.125 -2.958 3.125 3.3 3.475 3.65 3.825 4 4.175 4.35 4.525 4.7 5} {
     add EtaPhiBins $eta $PhiBins
   }
 
@@ -1482,7 +754,7 @@ module SimpleCalorimeter ECal {
   set ResolutionFormula {
 ((abs(eta) <= 1.5) * (1+0.64*eta^2) * sqrt(energy^2*0.008^2 + energy*0.11^2 + 0.40^2) +
                              (abs(eta) > 1.5 && abs(eta) <= 2.5) * (2.16 + 5.6*(abs(eta)-2)^2) * sqrt(energy^2*0.008^2 + energy*0.11^2 + 0.40^2) +
-                             (abs(eta) > 2.5 && abs(eta) <= 5.0) * sqrt(energy^2*0.107^2 + energy*2.08^2)) * 1.5
+                             (abs(eta) > 2.5 && abs(eta) <= 5.0) * sqrt(energy^2*0.107^2 + energy*2.08^2)) * 1.1
   }
 
 }
@@ -1514,105 +786,29 @@ module SimpleCalorimeter HCal {
   # the list ends with the higher edged of the last tower
 
   # 5 degrees towers
-    set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -3.01069296
-  add PhiBins -2.879793266
-  add PhiBins -2.748893572
-  add PhiBins -2.617993878
-  add PhiBins -2.487094184
-  add PhiBins -2.35619449
-  add PhiBins -2.225294796
-  add PhiBins -2.094395102
-  add PhiBins -1.963495408
-  add PhiBins -1.832595715
-  add PhiBins -1.701696021
-  add PhiBins -1.570796327
-  add PhiBins -1.439896633
-  add PhiBins -1.308996939
-  add PhiBins -1.178097245
-  add PhiBins -1.047197551
-  add PhiBins -0.9162978573
-  add PhiBins -0.7853981634
-  add PhiBins -0.6544984695
-  add PhiBins -0.5235987756
-  add PhiBins -0.3926990817
-  add PhiBins -0.2617993878
-  add PhiBins -0.1308996939
-  add PhiBins 0
-  add PhiBins 0.1308996939
-  add PhiBins 0.2617993878
-  add PhiBins 0.3926990817
-  add PhiBins 0.5235987756
-  add PhiBins 0.6544984695
-  add PhiBins 0.7853981634
-  add PhiBins 0.9162978573
-  add PhiBins 1.047197551
-  add PhiBins 1.178097245
-  add PhiBins 1.308996939
-  add PhiBins 1.439896633
-  add PhiBins 1.570796327
-  add PhiBins 1.701696021
-  add PhiBins 1.832595715
-  add PhiBins 1.963495408
-  add PhiBins 2.094395102
-  add PhiBins 2.225294796
-  add PhiBins 2.35619449
-  add PhiBins 2.487094184
-  add PhiBins 2.617993878
-  add PhiBins 2.748893572
-  add PhiBins 2.879793266
-  add PhiBins 3.01069296
-  add PhiBins 3.141592654
-  foreach eta {-1.566 -1.43724 -1.30848 -1.17972 -1.05096 -0.9222 -0.79344 -0.66468 -0.53592 -0.40716 -0.2784 -0.14964 -0.02088 0.10788 0.23664 0.3654 0.49416 0.62292 0.75168 0.88044 1.0092 1.13796 1.26672 1.39548 1.52424 1.653} {
+  set PhiBins {}
+  for {set i -36} {$i <= 36} {incr i} {
+    add PhiBins [expr {$i * $pi/36.0}]
+  }
+  foreach eta {-1.566 -1.479 -1.392 -1.305 -1.218 -1.131 -1.044 -0.957 -0.87 -0.783 -0.696 -0.609 -0.522 -0.435 -0.348 -0.261 -0.174 -0.087 0 0.087 0.174 0.261 0.348 0.435 0.522 0.609 0.696 0.783 0.87 0.957 1.044 1.131 1.218 1.305 1.392 1.479 1.566 1.653} {
     add EtaPhiBins $eta $PhiBins
   }
 
+  # 10 degrees towers
   set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -2.879793266
-  add PhiBins -2.617993878
-  add PhiBins -2.35619449
-  add PhiBins -2.094395102
-  add PhiBins -1.832595715
-  add PhiBins -1.570796327
-  add PhiBins -1.308996939
-  add PhiBins -1.047197551
-  add PhiBins -0.7853981634
-  add PhiBins -0.5235987756
-  add PhiBins -0.2617993878
-  add PhiBins 0
-  add PhiBins 0.2617993878
-  add PhiBins 0.5235987756
-  add PhiBins 0.7853981634
-  add PhiBins 1.047197551
-  add PhiBins 1.308996939
-  add PhiBins 1.570796327
-  add PhiBins 1.832595715
-  add PhiBins 2.094395102
-  add PhiBins 2.35619449
-  add PhiBins 2.617993878
-  add PhiBins 2.879793266
-  add PhiBins 3.141592654
-  foreach eta {-4.35 -4.0875 -3.825 -3.5625 -3.3 -3.0375 -2.868 -2.575 -2.322 -2.1075 -1.93 -1.785 -1.653 1.74 1.88 2.043 2.247 2.5 2.759 2.95 3.2125 3.475 3.7375 4 4.2625 4.525} {
+  for {set i -18} {$i <= 18} {incr i} {
+    add PhiBins [expr {$i * $pi/18.0}]
+  }
+  foreach eta {-4.35 -4.175 -4 -3.825 -3.65 -3.475 -3.3 -3.125 -2.95 -2.868 -2.65 -2.5 -2.322 -2.172 -2.043 -1.93 -1.83 -1.74 -1.653 1.74 1.83 1.93 2.043 2.172 2.322 2.5 2.65 2.868 2.95 3.125 3.3 3.475 3.65 3.825 4 4.175 4.35 4.525} {
     add EtaPhiBins $eta $PhiBins
   }
 
+  # 20 degrees towers
   set PhiBins {}
-  add PhiBins -3.141592654
-  add PhiBins -2.617993878
-  add PhiBins -2.094395102
-  add PhiBins -1.570796327
-  add PhiBins -1.047197551
-  add PhiBins -0.5235987756
-  add PhiBins 0
-  add PhiBins 0.5235987756
-  add PhiBins 1.047197551
-  add PhiBins 1.570796327
-  add PhiBins 2.094395102
-  add PhiBins 2.617993878
-  add PhiBins 3.141592654
-  foreach eta {-5 -4.525 4.7 5} {
+  for {set i -9} {$i <= 9} {incr i} {
+    add PhiBins [expr {$i * $pi/9.0}]
+  }
+  foreach eta {-5 -4.7 -4.525 4.7 5} {
     add EtaPhiBins $eta $PhiBins
   }
 
@@ -1639,7 +835,7 @@ module SimpleCalorimeter HCal {
   # set HCalResolutionFormula {resolution formula as a function of eta and energy}
   set ResolutionFormula {
 ((abs(eta) <= 3.0) * sqrt(energy^2*0.050^2 + energy*1.50^2) +
-                             (abs(eta) > 3.0 && abs(eta) <= 5.0) * sqrt(energy^2*0.130^2 + energy*2.70^2)) * 1.5
+                             (abs(eta) > 3.0 && abs(eta) <= 5.0) * sqrt(energy^2*0.130^2 + energy*2.70^2)) * 1.1
   }
 
 }
