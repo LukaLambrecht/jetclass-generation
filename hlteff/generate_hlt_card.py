@@ -56,7 +56,16 @@ every pT bin entirely below --charged-eff-pt-floor (default 0.5 GeV), all
 |eta| - a hand override of the data-driven curves, which return a small
 nonzero efficiency there that is not trusted.
 
-Everything else (PUPPI itself, TrackPileUpSubtractor.ZVertexResolution,
+PUPPI is copied through from the offline card untouched EXCEPT for
+RunPUPPIBase's own UseCharged flags, settable via --puppi-use-charged
+(default "true" = the offline card's own value, i.e. genuinely untouched).
+Setting it "false" scores PUPPI's alpha against ALL particles instead of
+leading-vertex CHARGED TRACKS only - a reference population the HLT tracking
+retuning above does not deplete - which largely removes the reconstructed
+neutral-hadron/photon-per-jet deficit this card otherwise has relative to
+real scouting data; see apply_puppi_use_charged() for the full reasoning.
+
+Everything else (the rest of PUPPI, TrackPileUpSubtractor.ZVertexResolution,
 JetEnergyScalePUPPIAK15) is still genuinely untouched - see README.md
 ("Known limitations / not yet data-driven").
 
@@ -83,6 +92,7 @@ Usage:
 '''
 
 import os
+import re
 import sys
 import json
 import argparse
@@ -237,6 +247,64 @@ def apply_calo_plan_b(text, resolution_factor, calo_granularity_factor):
     return text
 
 
+PUPPI_MODULE = 'RunPUPPIBase'
+
+
+def apply_puppi_use_charged(text, use_charged):
+    '''
+    Set RunPUPPIBase's own UseCharged flags (one per eta bin) on the generated HLT card.
+    PUPPI is otherwise copied through from the offline card untouched (see the module
+    docstring) - this is the ONE PUPPI setting the HLT card is allowed to differ in.
+
+    What it does, and why it is an HLT knob at all: with UseCharged true (the offline
+    card's own value) each candidate's PUPPI "alpha" is computed against LEADING-VERTEX
+    CHARGED TRACKS only, and the median/RMS calibration is built from pileup-charged
+    candidates only. That reference population is exactly what our HLT tracking
+    retuning depletes (~40% of charged tracks are lost), so jet-core NEUTRALS look
+    artificially isolated, score pileup-like, and get weighted to ~0 - measured as a
+    large deficit of reconstructed neutral hadrons/photons per jet relative to offline,
+    where real scouting data shows a large EXCESS (see validation/compare-hlt-to-offline/
+    plot_nparticles.py). With UseCharged false the alpha reference becomes ALL particles
+    instead, a population tracking losses do not deplete (neutrals are unaffected).
+
+    Only the flags inside the RunPUPPIBase module block are touched (the offline card is
+    the input and is never written), and the number of flags is preserved, since
+    RunPUPPI::Init() requires every per-eta-bin list to be the same length.
+    '''
+    module_pat = re.compile(r'^module\s+RunPUPPI\s+' + re.escape(PUPPI_MODULE) + r'\s*\{', re.MULTILINE)
+    m = module_pat.search(text)
+    if not m:
+        raise ValueError('module {} not found in the card'.format(PUPPI_MODULE))
+    depth, end = 0, None
+    for i in range(m.end() - 1, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end is None:
+        raise ValueError('module {}: unterminated block'.format(PUPPI_MODULE))
+
+    block = text[m.start():end]
+    line_pat = re.compile(r'^(\s*add\s+UseCharged\s+)(.*)$', re.MULTILINE)
+    matches = line_pat.findall(block)
+    if len(matches) != 1:
+        raise ValueError('module {}: expected exactly one "add UseCharged" line, found {}'.format(
+            PUPPI_MODULE, len(matches)))
+    prefix, values = matches[0]
+    wanted = 'true' if use_charged else 'false'
+    existing = values.split()
+    # no-op (byte-exact, preserving the offline card's own spacing) when the card
+    # already says what was asked for - so the default leaves the card untouched
+    if all(v == wanted for v in existing):
+        return text
+    new_line = prefix + ' '.join([wanted] * len(existing))
+    new_block = line_pat.sub(lambda _: new_line, block, count=1)
+    return text[:m.start()] + new_block + text[end:]
+
+
 def _wrap_comment(text, width=76, indent='#   '):
     '''Word-wrap `text` for a Tcl "#"-comment block. Returns the lines joined
     by "\\n<indent>", with NO leading indent and no trailing newline - the
@@ -255,8 +323,28 @@ def _wrap_comment(text, width=76, indent='#   '):
 
 
 def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor,
-                 hlt_jet_pt_min, charged_eff_pt_floor):
+                 hlt_jet_pt_min, charged_eff_pt_floor, puppi_use_charged):
     src = curves['source']
+
+    if puppi_use_charged:
+        # kept verbatim (not re-wrapped) so that generating with the default settings
+        # reproduces the pre-existing card byte-for-byte
+        puppi_note = ('#   PUPPI, jet clustering, softdrop, TrackPileUpSubtractor.ZVertexResolution,\n'
+                      '#   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see\n'
+                      '#   README.md for why.')
+    else:
+        puppi_note = '#   ' + _wrap_comment(
+            'RunPUPPIBase.UseCharged is set to FALSE (the offline card\'s own value is true) '
+            '- see --puppi-use-charged. This makes PUPPI score each candidate against ALL '
+            'particles rather than against leading-vertex CHARGED TRACKS only, because that '
+            'charged reference population is exactly what the HLT tracking retuning above '
+            'depletes, which otherwise drives reconstructed neutral hadrons/photons per jet '
+            'far BELOW offline when real scouting data shows them well above it. Jet '
+            'clustering, softdrop, TrackPileUpSubtractor.ZVertexResolution and '
+            'JetEnergyScalePUPPIAK15 remain UNCHANGED from the offline card - see README.md. '
+            'NOTE: JetEnergyScalePUPPIAK8 above was derived against the UseCharged=true '
+            'behaviour and has NOT been re-derived for this setting.')
+    puppi_note += '\n'
 
     if charged_eff_pt_floor > 0:
         charged_eff_note = '#   ' + _wrap_comment(
@@ -312,10 +400,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
 #   TrackSmearing D0/DZResolutionFormula): HLT(pt,eta) = sqrt(offline(pt,eta)^2
 #   + extra(pt,eta)^2), where extra is the additional smearing/spread
 #   measured for matched offline-scouting pairs in that bin.
-#   PUPPI, jet clustering, softdrop, TrackPileUpSubtractor.ZVertexResolution,
-#   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see
-#   README.md for why.
-#
+{puppi_note}#
 {charged_eff_note}#   {calo_paragraph}
 #
 #   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to {hlt_jet_pt_min:g} GeV
@@ -342,6 +427,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
         input_dir=src['input_dir'],
         files=', '.join(os.path.basename(f) for f in src['files']),
         charged_eff_note=charged_eff_note,
+        puppi_note=puppi_note,
         calo_paragraph=calo_paragraph,
         hlt_jet_pt_min=hlt_jet_pt_min,
     )
@@ -380,6 +466,14 @@ def main():
              ' 0 in every pT bin that lies entirely below this value (GeV), for all |eta|. The data-driven'
              ' curves return a small nonzero tracking efficiency below ~0.5 GeV that is not trusted;'
              ' 0 disables this override (default: 0.5)')
+    parser.add_argument('--puppi-use-charged', choices=['true', 'false'], default='true',
+        help='RunPUPPIBase UseCharged on the GENERATED (HLT) card - see apply_puppi_use_charged().'
+             ' "true" (default) leaves PUPPI exactly as the offline card has it, i.e. alpha scored'
+             ' against leading-vertex CHARGED TRACKS only; "false" scores against ALL particles'
+             ' instead, a reference population the HLT tracking retuning does not deplete, which'
+             ' largely removes the reconstructed neutral-hadron/photon deficit per jet. NOTE:'
+             ' JetEnergyScalePUPPIAK8 is derived assuming the "true" behaviour and is NOT'
+             ' re-derived when this is set to "false" (default: true)')
     parser.add_argument('--hlt-jet-pt-min', type=float, default=1.0,
         help='FastJetFinderPUPPIAK8/AK15 JetPTMin on the GENERATED (HLT) card, HAND-SET - NOT copied'
              ' unchanged from the offline card (200/120 GeV) the way most modules are. Needs to be low'
@@ -454,13 +548,17 @@ def main():
     # --- ECal/HCal (hand-set "plan B", not data-driven - see function docstring) ---
     text = apply_calo_plan_b(text, args.calo_resolution_degradation, args.calo_granularity_factor)
 
+    # --- PUPPI: the one setting the HLT card may differ in (see function docstring) ---
+    text = apply_puppi_use_charged(text, args.puppi_use_charged == 'true')
+
     # --- HLT jet-finder JetPTMin (hand-set, structural - see module docstring) ---
     for module in ('FastJetFinderPUPPIAK8', 'FastJetFinderPUPPIAK15'):
         text = replace_scalar(text, module, 'JetPTMin', args.hlt_jet_pt_min)
 
     header = make_header(args.curves, curves, args.offline_card,
                           args.calo_resolution_degradation, args.calo_granularity_factor,
-                          args.hlt_jet_pt_min, args.charged_eff_pt_floor)
+                          args.hlt_jet_pt_min, args.charged_eff_pt_floor,
+                          args.puppi_use_charged == 'true')
     text = header + '\n' + text
 
     with open(args.output, 'w') as f:

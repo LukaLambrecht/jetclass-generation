@@ -19,9 +19,17 @@
 #   TrackSmearing D0/DZResolutionFormula): HLT(pt,eta) = sqrt(offline(pt,eta)^2
 #   + extra(pt,eta)^2), where extra is the additional smearing/spread
 #   measured for matched offline-scouting pairs in that bin.
-#   PUPPI, jet clustering, softdrop, TrackPileUpSubtractor.ZVertexResolution,
-#   and JetEnergyScalePUPPIAK15 are UNCHANGED from the offline card - see
-#   README.md for why.
+#   RunPUPPIBase.UseCharged is set to FALSE (the offline card's own value is
+#   true) - see --puppi-use-charged. This makes PUPPI score each candidate
+#   against ALL particles rather than against leading-vertex CHARGED TRACKS
+#   only, because that charged reference population is exactly what the HLT
+#   tracking retuning above depletes, which otherwise drives reconstructed
+#   neutral hadrons/photons per jet far BELOW offline when real scouting
+#   data shows them well above it. Jet clustering, softdrop,
+#   TrackPileUpSubtractor.ZVertexResolution and JetEnergyScalePUPPIAK15
+#   remain UNCHANGED from the offline card - see README.md. NOTE:
+#   JetEnergyScalePUPPIAK8 above was derived against the UseCharged=true
+#   behaviour and has NOT been re-derived for this setting.
 #
 #   Charged/Electron/Muon TrackingEfficiency are additionally HARD-SET to 0
 #   in every pT bin entirely below 0.5 GeV, all |eta|
@@ -956,7 +964,7 @@ module RunPUPPI RunPUPPIBase {
   add NeutralMinEBin      0.2   0.2   
   add NeutralPtSlope      0.006 0.013
   add ApplyCHS            true  true  
-  add UseCharged          true  true  
+  add UseCharged          false false
   add ApplyLowPUCorr      true  true  
   add MetricId            5     5     
   add CombId              0     0  
