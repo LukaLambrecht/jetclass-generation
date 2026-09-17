@@ -37,20 +37,30 @@ end up in the QCD class alongside a train_qcd file's jets if you pool
 both; if that's not wanted for a given comparison, simply don't include
 that file in `files`.)
 
-Offline vs HLT correspondence and the actual per-jet particle counting both
+Offline vs HLT correspondence and the per-jet TOTAL particle counting both
 come from ntuple_io.load_nparticles() - the lightest read ntuple_io.py
-offers, since this script never needs any per-particle CONTENT, just how
+offers, since that plot never needs any per-particle CONTENT, just how
 many there are per jet ("ours" has this precomputed as a flat branch
-already; fullsim needs one small branch per underlying collection).
+already; fullsim needs one small branch per underlying collection). The
+PER-TYPE plots (below) additionally read the five per-particle type flags
+via ntuple_io.load_particles(), which normalizes them onto the same
+part_is*/hlt_part_is* names for both schemas - a heavier read (jagged
+per-particle branches), collapsed to per-jet integer counts immediately.
 
-Output: one multi-axes ("small multiples") figure, 2 rows x 5 columns,
-all 10 classes together:
-  nparticles_offline_vs_hlt_all_classes.png
+Output (see --plots to produce only one kind):
+  - "total": one multi-axes ("small multiples") figure, 2 rows x 5 columns,
+    all 10 classes together, TOTAL particles per jet:
+      nparticles_offline_vs_hlt_all_classes.png
+  - "types": one figure PER JET CLASS, 1 row x 5 columns - one panel per
+    particle type (charged hadron / neutral hadron / photon / electron /
+    muon, see PARTICLE_TYPES), each comparing Offline vs HLT for that type
+    only, with each panel's own Offline/HLT means and their ratio:
+      nparticles_by_type_<class>.png
 
 Usage:
   # our own paired (onlyFatJet+onlyFatJetHLT) production - every process pooled together
   python3 plot_nparticles.py \\
-      '/eos/user/l/llambrec/jetclass/output_jetclass2_5M/jetclass2/*/onlyFatJet+onlyFatJetHLT/ntuple_*.root'
+      '/eos/user/l/llambrec/jetclass/output_jetclass2_10M_20260910/jetclass2/*/onlyFatJet+onlyFatJetHLT/ntuple_*.root'
 
   # the real FullSim/scouting reference dataset instead
   python3 plot_nparticles.py \\
@@ -60,6 +70,9 @@ Usage:
 
   # a subset of classes / capped statistics
   python3 plot_nparticles.py 'FILES...' --classes QCD,X_bb,X_cc --max-jets 200000
+
+  # only the per-type figures (skip the total-particles grid, and its extra read)
+  python3 plot_nparticles.py 'FILES...' --plots types
 '''
 
 import os
@@ -69,6 +82,7 @@ import argparse
 
 import numpy as np
 import uproot
+import awkward as ak
 import matplotlib.pyplot as plt
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
@@ -115,6 +129,22 @@ CLASS_SUFFIXES = {
     'X_tauhtaul': {'tauhtaue', 'tauhtaum'}, 'X_tauhtauh': {'tauhtauh'},
 }
 CLASSES = ['QCD', 'X_bb', 'X_cc', 'X_ss', 'X_qq', 'X_gg', 'X_ee', 'X_mm', 'X_tauhtaul', 'X_tauhtauh']
+
+# The five particle types, as (display name, ntuple_io suffix) - one panel each in the
+# per-type figures. These are exactly ntuple_io.PARTICLE_SUFFIXES' own five is* flags,
+# which it normalizes onto the same part_is*/hlt_part_is* names for BOTH schemas (for
+# fullsim, offline's two underlying collections - cpfcandlt_* charged, npfcand_* neutral -
+# are concatenated per jet and the flags a given collection structurally can't carry are
+# zero-filled, so counting `flag != 0` is correct on either schema and either side).
+# Ordered by PF "interest" for the offline-vs-HLT comparison this script exists for
+# (the two neutral types first after charged hadrons), not by the suffix list's own order.
+PARTICLE_TYPES = [
+    ('Charged hadron', 'isChargedHadron'),
+    ('Neutral hadron', 'isNeutralHadron'),
+    ('Photon', 'isPhoton'),
+    ('Electron', 'isElectron'),
+    ('Muon', 'isMuon'),
+]
 
 
 def expand_files(patterns):
@@ -239,13 +269,82 @@ def read_all_classes(files, class_names, max_jets):
     return results
 
 
-def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched):
-    '''Same look as ../compare-to-central-jetclass2/plot_nparticles.py's own make_plot(),
-    Offline vs HLT instead of central vs ours, plus a jet-count/match-rate caption.'''
+def _as_numpy(arr):
+    '''ntuple_io returns awkward arrays for the "ours" schema's flat branches but plain
+    numpy for some of fullsim's synthesized ones (e.g. its always-True hlt_matched) -
+    normalize either to numpy without assuming which one a given field is.'''
+    return arr if isinstance(arr, np.ndarray) else ak.to_numpy(arr)
+
+
+def read_all_classes_by_type(files, class_names, max_jets):
+    '''
+    Per-PARTICLE-TYPE counterpart to read_all_classes(): same class bucketing (via
+    class_masks()), but counting particles of each PARTICLE_TYPES type separately
+    instead of just the per-jet total.
+
+    Needs real per-particle content, so this reads ntuple_io.load_particles() with only
+    the five type-flag suffixes (the heaviest thing this script does - jagged branches -
+    hence the separate --plots switch). Each jagged flag array is collapsed to a per-jet
+    integer count (`flag != 0` summed per jet) immediately, so the jagged data itself is
+    not held across the whole class loop.
+
+    Unmatched jets are excluded from the HLT counts for exactly the same reason as in
+    read_all_classes() (an unmatched row's hlt_part_* vectors are empty, which is not
+    the same as "HLT reconstructed a jet with 0 particles of this type") - note this
+    means the offline and HLT arrays within a panel have DIFFERENT lengths whenever
+    anything is unmatched, which is fine since each is histogrammed independently
+    (density=True) rather than compared per-jet.
+
+    Returns {class_name: {'njets': n, 'n_matched': m_or_None,
+                          'types': {type_name: (offline_counts, hlt_counts_or_None)}}}.
+    '''
+    masks, njets_total = class_masks(files, class_names)
+    suffixes = [suffix for _, suffix in PARTICLE_TYPES]
+    data = nio.load_particles(files, suffixes=suffixes, treename=TREE_NAME)
+    has_hlt = 'hlt_matched' in data
+
+    # jagged per-particle flags -> per-jet integer counts, once, up front
+    offline_counts = {suffix: _as_numpy(ak.sum(data['part_' + suffix] != 0, axis=1))
+                      for _, suffix in PARTICLE_TYPES}
+    hlt_counts = ({suffix: _as_numpy(ak.sum(data['hlt_part_' + suffix] != 0, axis=1))
+                   for _, suffix in PARTICLE_TYPES} if has_hlt else None)
+    matched_all = _as_numpy(data['hlt_matched']).astype(bool) if has_hlt else None
+    del data
+
+    if max_jets is not None and njets_total > max_jets:
+        masks = {name: m[:max_jets] for name, m in masks.items()}
+        offline_counts = {k: v[:max_jets] for k, v in offline_counts.items()}
+        if has_hlt:
+            hlt_counts = {k: v[:max_jets] for k, v in hlt_counts.items()}
+            matched_all = matched_all[:max_jets]
+
+    results = {}
+    for name in class_names:
+        mask = masks[name]
+        if has_hlt:
+            match_mask = matched_all[mask]
+            n_matched = int(match_mask.sum())
+        else:
+            match_mask, n_matched = None, None
+        per_type = {}
+        for type_name, suffix in PARTICLE_TYPES:
+            offline_vals = offline_counts[suffix][mask]
+            hlt_vals = hlt_counts[suffix][mask][match_mask] if has_hlt else None
+            per_type[type_name] = (offline_vals, hlt_vals)
+        njets = int(mask.sum())
+        results[name] = {'njets': njets, 'n_matched': n_matched, 'types': per_type}
+    return results
+
+
+def _draw_hist(ax, offline_vals, hlt_vals):
+    '''Draw the Offline (and, when present, HLT) step histograms of a per-jet integer
+    count on `ax`, on a shared integer binning covering both, log-y with headroom above
+    the tallest bin for the panel's own info text. Returns False if there was nothing to
+    draw at all (caller writes its own "no data" placeholder). Shared by make_plot() and
+    make_type_plot() so both figure kinds stay visually identical.'''
     both = np.concatenate([offline_vals, hlt_vals]) if hlt_vals is not None and len(hlt_vals) else offline_vals
     if len(both) == 0:
-        ax.text(0.5, 0.5, '{}: no data'.format(label), ha='center', va='center', transform=ax.transAxes)
-        return
+        return False
     hi = int(np.ceil(np.percentile(both, 99.5))) + 1
     bins = np.arange(-0.5, hi + 1.5, 1)
 
@@ -262,11 +361,20 @@ def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched):
         if len(counts):
             max_height = max(max_height, counts.max())
     ax.set_yscale('log')
-    ax.set_xlabel('Particles per jet')
     ax.set_ylabel('Number of jets (normalized)')
     if max_height > 0:
         bottom, _ = ax.get_ylim()
         ax.set_ylim(bottom, max_height * 25)
+    return True
+
+
+def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched):
+    '''Same look as ../compare-to-central-jetclass2/plot_nparticles.py's own make_plot(),
+    Offline vs HLT instead of central vs ours, plus a jet-count/match-rate caption.'''
+    if not _draw_hist(ax, offline_vals, hlt_vals):
+        ax.text(0.5, 0.5, '{}: no data'.format(label), ha='center', va='center', transform=ax.transAxes)
+        return
+    ax.set_xlabel('Particles per jet')
 
     info_lines = ['Jet class: {}'.format(label)]
     if n_matched is not None:
@@ -291,6 +399,54 @@ def make_grid(results, classes, outpath):
     for ax in axes[len(classes):]:
         ax.axis('off')
     fig.tight_layout()
+    fig.savefig(outpath, dpi=150)
+    plt.close(fig)
+    print('wrote {}'.format(outpath))
+
+
+def make_type_plot(ax, type_name, offline_vals, hlt_vals):
+    '''One panel of a per-type figure: the same Offline-vs-HLT step histograms
+    make_plot() draws, but for ONE particle type's per-jet count, captioned with that
+    type's own Offline/HLT means and their ratio - the number this whole comparison is
+    really about, readable straight off each panel instead of only from the printed
+    table.'''
+    if not _draw_hist(ax, offline_vals, hlt_vals):
+        ax.text(0.5, 0.5, '{}: no data'.format(type_name), ha='center', va='center', transform=ax.transAxes)
+        return
+    ax.set_xlabel('{}s per jet'.format(type_name))
+
+    info_lines = [type_name]
+    off_mean = offline_vals.mean() if len(offline_vals) else float('nan')
+    info_lines.append('Offline mean: {:.2f}'.format(off_mean))
+    if hlt_vals is not None:
+        hlt_mean = hlt_vals.mean() if len(hlt_vals) else float('nan')
+        ratio = hlt_mean / off_mean if off_mean else float('nan')
+        info_lines.append('HLT mean: {:.2f}  ({:.2f}x)'.format(hlt_mean, ratio))
+    for i, line in enumerate(info_lines):
+        ax.text(0.03, 0.95 - 0.07 * i, line, transform=ax.transAxes, ha='left', va='top', fontsize=14)
+    ax.legend(loc='upper right')
+
+
+def make_type_grid(class_name, entry, outpath):
+    '''One figure for ONE jet class: 1 row x 5 columns, one panel per PARTICLE_TYPES
+    type (see make_type_plot()), with the jet class itself (and its jet count/HLT match
+    rate - per class, so it belongs here rather than repeated in every panel) as the
+    figure title.'''
+    per_type, njets, n_matched = entry['types'], entry['njets'], entry['n_matched']
+    fig, axes = plt.subplots(1, len(PARTICLE_TYPES), figsize=(6 * len(PARTICLE_TYPES), 6.4))
+    axes = np.atleast_1d(axes).flatten()
+    for ax, (type_name, _) in zip(axes, PARTICLE_TYPES):
+        offline_vals, hlt_vals = per_type[type_name]
+        make_type_plot(ax, type_name, offline_vals, hlt_vals)
+
+    title = 'Jet class: {}'.format(class_name)
+    if n_matched is not None:
+        title += '   -   {} jets ({:.1f}% HLT matched)'.format(
+            njets, 100.0 * n_matched / njets if njets else 0)
+    else:
+        title += '   -   {} jets'.format(njets)
+    fig.suptitle(title, fontsize=18)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(outpath, dpi=150)
     plt.close(fig)
     print('wrote {}'.format(outpath))
@@ -323,6 +479,12 @@ if __name__ == '__main__':
              ' no cap (read everything available)')
     parser.add_argument('--outdir', default=DEFAULT_OUTDIR,
         help='directory to write plots into (default: {})'.format(DEFAULT_OUTDIR))
+    parser.add_argument('--plots', default='total,types',
+        help='which figures to make (comma-separated): "total" = the all-classes grid of'
+             ' TOTAL particles per jet; "types" = one per-particle-type figure per jet class.'
+             ' "types" needs a much heavier read (per-particle type flags, see'
+             ' read_all_classes_by_type()), so pass --plots total to skip it'
+             ' (default: total,types)')
     args = parser.parse_args()
 
     classes = [c.strip() for c in args.classes.split(',') if c.strip()]
@@ -331,18 +493,60 @@ if __name__ == '__main__':
         raise Exception('unknown class(es) {} - known classes: {}'.format(unknown, ', '.join(CLASSES)))
     max_jets = args.max_jets if args.max_jets and args.max_jets > 0 else None
 
+    plots = [p.strip() for p in args.plots.split(',') if p.strip()]
+    unknown_plots = [p for p in plots if p not in ('total', 'types')]
+    if unknown_plots:
+        raise Exception('unknown --plots value(s) {} - expected "total" and/or "types"'.format(unknown_plots))
+    if not plots:
+        raise Exception('--plots selected nothing to do - expected "total" and/or "types"')
+
     os.makedirs(args.outdir, exist_ok=True)
 
     files = expand_files(args.files)
-    results = read_all_classes(files, classes, max_jets)
 
-    header = '{:<16}{:<10}{:>10}{:>10}{:>10}{:>10}'.format(
-        'class', 'source', 'njets', 'mean', 'median', 'std')
-    print(header)
-    print('-' * len(header))
-    for name in classes:
-        offline_vals, hlt_vals, njets, n_matched = results[name]
-        print_stats(name, 'offline', offline_vals)
-        print_stats(name, 'hlt', hlt_vals)
+    if 'total' in plots:
+        results = read_all_classes(files, classes, max_jets)
 
-    make_grid(results, classes, os.path.join(args.outdir, 'nparticles_offline_vs_hlt_all_classes.png'))
+        header = '{:<16}{:<10}{:>10}{:>10}{:>10}{:>10}'.format(
+            'class', 'source', 'njets', 'mean', 'median', 'std')
+        print(header)
+        print('-' * len(header))
+        for name in classes:
+            offline_vals, hlt_vals, njets, n_matched = results[name]
+            print_stats(name, 'offline', offline_vals)
+            print_stats(name, 'hlt', hlt_vals)
+
+        make_grid(results, classes, os.path.join(args.outdir, 'nparticles_offline_vs_hlt_all_classes.png'))
+
+    if 'types' in plots:
+        by_type = read_all_classes_by_type(files, classes, max_jets)
+
+        # per-type table: the offline/HLT means and their ratio, the number this
+        # comparison is actually about, for every (class, particle type) pair
+        header = '{:<16}{:<18}{:>12}{:>12}{:>10}'.format(
+            'class', 'particle type', 'offline mean', 'hlt mean', 'hlt/off')
+        print()
+        print(header)
+        print('-' * len(header))
+        for name in classes:
+            entry = by_type[name]
+            if entry['njets'] == 0:
+                print('{:<16}{:<18}{:>12}'.format(name, '(all types)', 'no data'))
+                print()
+                continue
+            for type_name, _ in PARTICLE_TYPES:
+                offline_vals, hlt_vals = entry['types'][type_name]
+                off_mean = offline_vals.mean() if len(offline_vals) else float('nan')
+                if hlt_vals is None or len(hlt_vals) == 0:
+                    print('{:<16}{:<18}{:>12.3f}{:>12}{:>10}'.format(
+                        name, type_name, off_mean, 'n/a', 'n/a'))
+                    continue
+                hlt_mean = hlt_vals.mean()
+                ratio = hlt_mean / off_mean if off_mean else float('nan')
+                print('{:<16}{:<18}{:>12.3f}{:>12.3f}{:>10.3f}'.format(
+                    name, type_name, off_mean, hlt_mean, ratio))
+            print()
+
+        for name in classes:
+            make_type_grid(name, by_type[name],
+                           os.path.join(args.outdir, 'nparticles_by_type_{}.png'.format(name)))
