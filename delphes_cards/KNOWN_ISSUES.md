@@ -1,4 +1,4 @@
-# Known issues in the Delphes cards
+# Known issues in the Delphes cards (and the ntuples made from them)
 
 ## Soft charged-hadron momenta are replaced by the HCal energy (all JetClassII cards)
 
@@ -81,3 +81,47 @@ offline and HLT cards (for the HLT card: in the offline baseline it is generated
 from, then regenerate). Note that the exact string `"0.0"` is **not** a "no
 formula" option: it makes `TrackSmearing` read the resolution from a histogram
 file (`errors.root`) instead, and crashes when that file doesn't exist.
+
+## Impact parameters: units and sign differ from CMS FullSim (offline and HLT)
+
+**Status:** known, not changed (found 2026-09-18). Matters whenever a model or
+comparison mixes our ntuples with CMS (DNNTuples / ScoutingAK8) ones.
+
+Our `part_d0val`/`part_d0err`/`part_dzval`/`part_dzerr` (and the `hlt_part_*`
+versions) are Delphes' `D0`/`ErrorD0`/`DZ`/`ErrorDZ`, written unchanged
+(`delphes_analyzers/ParticleInfo.h`). Compared to FullSim's
+`cpfcandlt_dxy`/`cpfcandlt_dz` (offline) and `scoutpfcand_dxy`/`scoutpfcand_dz` (HLT):
+
+| | ours (Delphes) | FullSim (CMS) |
+|---|---|---|
+| units | **mm** (`ParticlePropagator.cc`: `D0 = d0 * 1.0E3`, positions in m) | **cm** |
+| transverse IP sign | `d0 = (x*py - y*px)/pt` (`ParticlePropagator.cc:298`) | `dxy = (-x*py + y*px)/pt` - **opposite sign** |
+| stored uncertainty | error (`*_d0err`, `*_dzerr`) | significance (`*_dxysig`, `*_dzsig`) |
+| dz reference | offline: primary vertex subtracted; HLT: see next section | primary vertex |
+
+Evidence:
+
+- Units: for charged hadrons in QCD jets (|eta|<1) our median |d0|, |dz| and
+  their errors are 6-12x FullSim's in every track-pT bin; dividing ours by 10
+  brings the errors to within ~10-20% of FullSim's. The unit-free significances
+  are comparable (median |d0/err| 0.7-0.8 ours vs 0.8-1.3 FullSim).
+- Sign: for a track from a decay displaced along the jet axis, CMS's convention
+  gives sign(dxy) = -sign(phi_track - phi_jet). Fraction of significantly
+  displaced charged hadrons (|IP significance| > 3 / > 10) with
+  sign(IP) == sign(phi_track - phi_jet):
+
+  | | FullSim | ours |
+  |---|---|---|
+  | QCD, offline | 0.31 / 0.25 | 0.70 / 0.73 |
+  | QCD, HLT | 0.39 / 0.32 | 0.69 / 0.73 |
+  | signal (H0HpHm / higgs2p), offline | 0.35 / 0.30 | 0.64 / 0.67 |
+  | signal, HLT | 0.44 / 0.40 | 0.65 / 0.68 |
+
+To bring ours onto the CMS convention: `dxy_cm = -part_d0val / 10`,
+`dz_cm = part_dzval / 10` (errors: `/ 10`, no sign flip). Central JetClass(-II)
+uses the same Delphes convention as ours (mm, Delphes sign), so ours is
+consistent with the central datasets as is.
+
+The transverse IP needs no vertex subtraction in Delphes: `PileUpMerger` places
+the hard-scatter vertex at x = y = 0 and only smears it in z (and t), so a `D0`
+measured from the origin is already measured from the primary vertex.

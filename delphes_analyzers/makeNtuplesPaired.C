@@ -224,6 +224,11 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
     TClonesArray *offlineBranchJet = offlineReader->UseBranch(jetBranch);
     TClonesArray *offlineBranchGenJet = offlineReader->UseBranch(genjetBranch);
 
+    // the HLT run's OWN vertices: the offline and HLT Delphes runs are seeded
+    // independently, so they place the primary vertex at different z for the
+    // same generated event - HLT dz must be taken w.r.t. this one, not the
+    // offline tree's
+    TClonesArray *hltBranchVertex = hltReader->UseBranch("Vertex");
     TClonesArray *hltBranchPFCand = hltReader->UseBranch("ParticleFlowCandidate");
     TClonesArray *hltBranchJet = hltReader->UseBranch(jetBranch);
     // hltBranchPFCand is only read implicitly, via each matched HLT jet's
@@ -322,6 +327,17 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
             }
         }
         std::sort(particles.begin(), particles.end(), [](const auto &a, const auto &b) { return a.pt > b.pt; });
+
+        // dz w.r.t. the HLT primary vertex (see hltBranchVertex). d0 is NOT
+        // vertex-subtracted, on either side: Delphes' PileUpMerger places the
+        // hard-scatter vertex at x = y = 0 (only z/t are smeared), so D0 from
+        // the origin already is D0 from the primary vertex, while the Vertex
+        // branch's own X/Y are not a position (PileUpMerger fills them with
+        // sum(x)/sum(pt^2) over all particles, O(mm) garbage) - subtracting
+        // them would corrupt d0.
+        const Vertex *hltPv = (hltBranchVertex != nullptr && hltBranchVertex->GetEntriesFast() > 0)
+                                  ? ((Vertex *)hltBranchVertex->At(0)) : nullptr;
+
         data.intVars["hlt_jet_nparticles"] = particles.size();
         for (const auto &p : particles) {
             data.vfloatVars.at("hlt_part_px")->push_back(p.px);
@@ -332,7 +348,7 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
             data.vfloatVars.at("hlt_part_dphi")->push_back(deltaPhi(p.phi, hltJet->Phi));
             data.vfloatVars.at("hlt_part_d0val")->push_back(p.d0);
             data.vfloatVars.at("hlt_part_d0err")->push_back(p.d0err);
-            data.vfloatVars.at("hlt_part_dzval")->push_back(p.dz);
+            data.vfloatVars.at("hlt_part_dzval")->push_back((hltPv && p.dz != 0) ? (p.dz - hltPv->Z) : p.dz);
             data.vfloatVars.at("hlt_part_dzerr")->push_back(p.dzerr);
             data.vintVars.at("hlt_part_charge")->push_back(p.charge);
             data.vboolVars.at("hlt_part_isElectron")->push_back(p.pid == 11 || p.pid == -11);
