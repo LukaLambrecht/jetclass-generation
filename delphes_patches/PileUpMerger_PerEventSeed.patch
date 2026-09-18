@@ -1,0 +1,63 @@
+diff --git a/modules/PileUpMerger.cc b/modules/PileUpMerger.cc
+index da95cb1..a1d1f4e 100644
+--- a/modules/PileUpMerger.cc
++++ b/modules/PileUpMerger.cc
+@@ -82,6 +82,22 @@ void PileUpMerger::Init()
+   fOutputBeamSpotX = GetDouble("OutputBeamSpotX", 0.0);
+   fOutputBeamSpotY = GetDouble("OutputBeamSpotY", 0.0);
+ 
++  // opt-in (PerEventSeed, default false = unchanged behaviour): reseed gRandom
++  // at the start of every event from (global RandomSeed, event index). Two
++  // Delphes runs over the SAME input file with the SAME RandomSeed (e.g. an
++  // offline and an HLT card) then draw the same pile-up overlay and the same
++  // vertex position for every event, even though their detector modules
++  // consume different numbers of random numbers per event (which, with the
++  // default single seed at start-up, desynchronises the two runs from the
++  // second event on). Requires a nonzero RandomSeed (0 means time-based).
++  fPerEventSeed = GetBool("PerEventSeed", false);
++  fSeedBase = GetConfReader()->GetInt("::RandomSeed", 0);
++  fEventCounter = 0;
++  if(fPerEventSeed && fSeedBase == 0)
++  {
++    throw runtime_error("PileUpMerger: PerEventSeed requires a nonzero global RandomSeed");
++  }
++
+   // read vertex smearing formula
+ 
+   fFunction->Compile(GetString("VertexDistributionFormula", "0.0"));
+@@ -118,6 +134,19 @@ void PileUpMerger::Process()
+   Int_t numberOfEvents, event, numberOfParticles;
+   Long64_t allEntries, entry;
+   Candidate *candidate, *vertex;
++
++  if(fPerEventSeed)
++  {
++    // splitmix64 of (base, event index): distinct, well-mixed seeds even for
++    // nearby RandomSeed values; never 0 (TRandom3's "pick a random seed")
++    ULong64_t s = fSeedBase * 0x9E3779B97F4A7C15ULL + (ULong64_t)fEventCounter;
++    s = (s ^ (s >> 30)) * 0xBF58476D1CE4E5B9ULL;
++    s = (s ^ (s >> 27)) * 0x94D049BB133111EBULL;
++    s ^= (s >> 31);
++    UInt_t seed = (UInt_t)(s & 0xFFFFFFFFULL);
++    gRandom->SetSeed(seed == 0 ? 1 : seed);
++    ++fEventCounter;
++  }
+   DelphesFactory *factory;
+ 
+   const Double_t c_light = 2.99792458E8;
+diff --git a/modules/PileUpMerger.h b/modules/PileUpMerger.h
+index 00de339..8f88861 100644
+--- a/modules/PileUpMerger.h
++++ b/modules/PileUpMerger.h
+@@ -57,6 +57,11 @@ private:
+   Double_t fOutputBeamSpotX;
+   Double_t fOutputBeamSpotY;
+ 
++  // opt-in per-event reseeding of gRandom (see Init())
++  Bool_t fPerEventSeed;
++  ULong64_t fSeedBase;
++  Long64_t fEventCounter;
++
+   std::unique_ptr<DelphesTF2> fFunction; //!
+ 
+   std::unique_ptr<DelphesPileUpReader> fReader; //!

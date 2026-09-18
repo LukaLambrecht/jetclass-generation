@@ -327,6 +327,17 @@ for name in "${CARD_NAMES[@]}"; do
     CARD_PATHS+=("$(realpath delphes_cards)/$(card_file_for_name "$name")")
 done
 
+# Fail fast if a card asks for PileUpMerger's PerEventSeed but this Delphes
+# install isn't patched for it: an unpatched Delphes silently IGNORES unknown
+# parameters, so the offline and HLT runs would quietly go back to drawing
+# independent vertex positions/pile-up overlays. See
+# delphes_cards/KNOWN_ISSUES.md and delphes_patches/.
+if grep -qE '^\s*set PerEventSeed true' "${CARD_PATHS[@]}" && \
+   ! grep -aq "PerEventSeed requires a nonzero global RandomSeed" "$DELPHES_PATH/libDelphes.so"; then
+    echo "ERROR: a Delphes card sets PerEventSeed, but $DELPHES_PATH is not patched for it - apply delphes_patches/PileUpMerger_PerEventSeed.patch there and rebuild (see INSTALL.md)" >&2
+    exit 1
+fi
+
 ANALYZER_PATH=$(realpath delphes_analyzers)
 OUTPUT_PATH=$(realpath $OUTPUT_PATH)
 
@@ -423,9 +434,21 @@ for ((i=0; i<nbatch; i++)); do
 
     # run each requested Delphes card on the same events.hepmc
     ln -sf $DELPHES_PATH/MinBias_100k.pileup .
+    # One random seed per batch, shared by every card of the batch (prepended
+    # to a per-batch copy of each card as the global RandomSeed). With the
+    # patched PileUpMerger's `PerEventSeed true` (see
+    # delphes_cards/KNOWN_ISSUES.md) this gives the offline and HLT runs of the
+    # same event the same vertex position and pile-up overlay, so the two only
+    # differ by detector effects. Random (not derived from PROC/JOBNUM) so that
+    # different productions don't reuse the same overlays; logged for
+    # reproducibility. Nonzero: Delphes treats RandomSeed 0 as time-based.
+    BATCH_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 2147483646 + 1 ))
+    echo "Batch $i: Delphes RandomSeed $BATCH_SEED"
+    mkdir -p $WORKDIR/seeded_cards
     for idx in "${!CARD_NAMES[@]}"; do
         name=${CARD_NAMES[$idx]}
-        path=${CARD_PATHS[$idx]}
+        path=$WORKDIR/seeded_cards/$(basename "${CARD_PATHS[$idx]}")
+        { echo "set RandomSeed $BATCH_SEED"; cat "${CARD_PATHS[$idx]}"; } > "$path"
         mkdir -p $WORKDIR/$name
         rm -f events_delphes.root
         run_delphes_with_timeout $path events_delphes.root events.hepmc

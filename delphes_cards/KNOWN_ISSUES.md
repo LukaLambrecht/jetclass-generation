@@ -97,7 +97,7 @@ versions) are Delphes' `D0`/`ErrorD0`/`DZ`/`ErrorDZ`, written unchanged
 | units | **mm** (`ParticlePropagator.cc`: `D0 = d0 * 1.0E3`, positions in m) | **cm** |
 | transverse IP sign | `d0 = (x*py - y*px)/pt` (`ParticlePropagator.cc:298`) | `dxy = (-x*py + y*px)/pt` - **opposite sign** |
 | stored uncertainty | error (`*_d0err`, `*_dzerr`) | significance (`*_dxysig`, `*_dzsig`) |
-| dz reference | offline: primary vertex subtracted; HLT: see next section | primary vertex |
+| dz reference | primary vertex (offline; HLT only in ntuples made after 2026-09-18, earlier paired productions have HLT dz w.r.t. the detector origin) | primary vertex |
 
 Evidence:
 
@@ -125,3 +125,74 @@ consistent with the central datasets as is.
 The transverse IP needs no vertex subtraction in Delphes: `PileUpMerger` places
 the hard-scatter vertex at x = y = 0 and only smears it in z (and t), so a `D0`
 measured from the origin is already measured from the primary vertex.
+
+## Required Delphes patch: per-event reseeding in `PileUpMerger` (`PerEventSeed`)
+
+**Status:** applied to our Delphes install on 2026-09-18 (on top of Delphes
+commit `fb4d95b`). **Must be re-applied on any fresh Delphes install** - see
+`INSTALL.md`.
+
+### Why
+
+The offline and HLT Delphes runs of a batch read the same `events.hepmc`, but
+stock Delphes seeds its global random generator only once, at start-up
+(`modules/Delphes.cc`, `gRandom->SetSeed(RandomSeed)`), and `PileUpMerger` -
+the first module of every event - draws the hard-scatter vertex position, the
+number of pile-up interactions, which minimum-bias events to overlay and their
+vertices from that one generator. Since the two cards' detector modules consume
+different numbers of random numbers per event, the two runs desynchronise from
+the second event on even with the same `RandomSeed` (with the previous default,
+no `RandomSeed`, they were independent from the first event on). So the same
+generated event got a different vertex and a different pile-up overlay offline
+and at HLT, and every offline-vs-HLT difference mixed detector effects with
+pile-up differences.
+
+### What the patch does
+
+`delphes_patches/PileUpMerger_PerEventSeed.patch` adds an opt-in parameter to
+`PileUpMerger` (default off = stock behaviour):
+
+```
+module PileUpMerger PileUpMerger {
+  ...
+  set PerEventSeed true
+}
+```
+
+When on, `PileUpMerger` reseeds `gRandom` at the start of every event with a
+hash of (global `RandomSeed`, event index), so two runs over the same input with
+the same `RandomSeed` get identical vertices and pile-up for every event (the
+detector modules then diverge within the event, as they should). It throws if
+`RandomSeed` is 0 (time-based), so a missing seed can't silently undo it.
+
+How it is used here:
+
+- `delphes_card_CMS_JetClassII_onlyFatJet.tcl` and `..._onlyFatJet_noPU.tcl`
+  set `PerEventSeed true`; the HLT cards inherit it via
+  `hlteff/generate_hlt_card.py`. (The `lite`/full/`JetClassI` cards don't.)
+- `run.sh` draws one random nonzero seed per batch, logs it
+  (`Batch <i>: Delphes RandomSeed <seed>`), and prepends it as
+  `set RandomSeed <seed>` to a per-batch copy of every card of that batch.
+- `run.sh` refuses to run (exit 1) if a card sets `PerEventSeed true` but
+  `$DELPHES_PATH/libDelphes.so` doesn't contain the patch: an **unpatched Delphes
+  silently ignores unknown parameters**, so without that check a fresh install
+  would quietly fall back to independent overlays.
+
+### Validation
+
+300 `jetclass2/train_qcd` events, offline vs HLT card, same `RandomSeed`:
+
+| | hard-vertex z equal | all vertex z equal | pile-up MET equal | first differing event |
+|---|---|---|---|---|
+| patched, `PerEventSeed true` | 100% | 100% | 100% | none |
+| patched, `PerEventSeed true`, noPU cards | 100% | 100% | 100% | none |
+| same seed, `PerEventSeed false` (stock behaviour) | 0.3% | 0.3% | 0.3% | event 1 |
+
+Hard-vertex z spread 53.9 mm (card formula: 53 mm), 50.9 vertices per event
+(MeanPileUp 50 + 1), all 300 events distinct. Full `run.sh` chain (200 events,
+2 batches, paired cards): every vertex identical between the offline and HLT
+Delphes outputs, different seeds and vertices per batch.
+
+Ntuples produced before this (all productions up to and including
+`output_jetclass2_10M_20260917_puppinocharged`) have independent vertices and
+pile-up overlays in their offline and HLT versions of each event.

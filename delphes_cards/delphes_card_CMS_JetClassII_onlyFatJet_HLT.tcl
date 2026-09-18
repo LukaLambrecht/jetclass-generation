@@ -139,6 +139,12 @@ module PileUpMerger PileUpMerger {
 
   # vertex smearing formula f(z,t) (z,t need to be respectively given in m,s)
   set VertexDistributionFormula {exp(-(t^2/160e-12^2/2))*exp(-(z^2/0.053^2/2))}
+  # reseed the random generator at the start of every event from (RandomSeed,
+  # event index) - requires the PATCHED PileUpMerger (see
+  # delphes_cards/KNOWN_ISSUES.md) and a nonzero global RandomSeed (set per
+  # batch by run.sh). Makes the offline and HLT runs over the same events.hepmc
+  # get the same vertex position and pile-up overlay for every event.
+  set PerEventSeed true
 
 
 }

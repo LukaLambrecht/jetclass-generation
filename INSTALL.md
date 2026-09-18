@@ -61,11 +61,26 @@ ln -s ../pythia8/lib/libpythia8.so MG5_aMC_vX.Y.Z/HEPTools/lib/libpythia8.so
 cp -r <downloaded 2HDM folder> MG5_aMC_vX.Y.Z/models/
 ```
 
-## 4. Build Delphes
+## 4. Build Delphes (with the `PileUpMerger` patch)
 
 ```bash
 git clone https://github.com/delphes/delphes.git
-cd delphes && make -j4 && cd ..
+cd delphes
+git apply /path/to/jetclass-generation/delphes_patches/PileUpMerger_PerEventSeed.patch
+make -j4 && cd ..
+```
+
+**Do not skip the patch.** The offline and HLT cards set `PerEventSeed true` in
+`PileUpMerger`, which makes the offline and HLT Delphes runs of the same event get the same
+vertex position and pile-up overlay (so they only differ by detector effects) - see
+`delphes_cards/KNOWN_ISSUES.md`, section "Required Delphes patch". Stock Delphes silently
+ignores the unknown parameter; `run.sh` therefore checks for the patch and refuses to run
+without it. The patch was made against Delphes commit `fb4d95b`; if `git apply` fails on a
+newer Delphes, re-apply the (small, self-contained) change to `modules/PileUpMerger.{h,cc}` by
+hand. To verify the build:
+
+```bash
+grep -ac "PerEventSeed requires a nonzero global RandomSeed" libDelphes.so   # should print 1
 ```
 
 ## 5. Link the pileup file
