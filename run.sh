@@ -107,6 +107,7 @@ run_gen_with_timeout() {
         wait $pgid
         rc=$?
         pkill -KILL -g $pgid 2>/dev/null
+        heartbeat
         if [ $rc -eq 0 ]; then
             return 0
         fi
@@ -150,10 +151,61 @@ run_delphes_with_timeout() {
     wait $pgid
     rc=$?
     pkill -KILL -g $pgid 2>/dev/null
+    heartbeat
     if [ $rc -ne 0 ]; then
         echo "WARNING: DelphesHepMC2 (card $(basename "$card_path")) failed or timed out (rc=$rc, limit ${DELPHES_TIMEOUT_SEC}s) - skipping this batch for this card" >&2
     fi
     return $rc
+}
+
+# Stall watchdog for the per-batch generation loop (startup included), in
+# seconds. The timeouts above can only bound a step whose processes can
+# actually be killed - a process blocked on an EOS FUSE read (uninterruptible
+# sleep) ignores even SIGKILL, so `timeout` never returns and neither does
+# the `wait` on it. Found the hard way: 24 of 140 jetclass2/train_higgs2p
+# jobs in the 20260917 production sat out the full 8h wall-time budget and
+# were killed by SYSTEM_PERIODIC_REMOVE with zero output, their memory
+# never growing past 15-50 MB (a healthy job reaches ~400 MB within 20 min)
+# - i.e. stuck before producing a single event, most likely in the first
+# batch's MG5 setup (which runs straight out of the MG5 install on EOS; qcd,
+# which doesn't, was unaffected), in the same evening EOS was also failing
+# writes (see copy_to_eos()). Every legitimate step between two heartbeat
+# calls is bounded by one of the timeouts above (<= 930s), so no heartbeat
+# for STALL_TIMEOUT_SEC means something is stuck beyond what they can kill:
+# the watchdog then aborts run.sh, so the job fails within the hour instead
+# of holding its slot for 8h. Only armed during the batch loop, not for the
+# final merge/ntupling/copy steps, whose durations aren't bounded this way.
+STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC:-1800}
+STALL_POLL_SEC=${STALL_POLL_SEC:-60}
+
+heartbeat() {
+    [ -n "$HEARTBEAT_FILE" ] && touch "$HEARTBEAT_FILE"
+}
+
+start_stall_watchdog() {
+    HEARTBEAT_FILE=$WORKDIR/.heartbeat
+    heartbeat
+    local main_pid=$$
+    (
+        set +x  # don't flood the job's stderr (run.sh runs under bash -x)
+        while sleep $STALL_POLL_SEC; do
+            local age=$(( $(date +%s) - $(stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null || echo 0) ))
+            if [ $age -gt $STALL_TIMEOUT_SEC ]; then
+                echo "ERROR: no progress for ${age}s (limit STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}s) - something is stuck beyond what the per-step timeouts can kill (most likely a read from EOS); aborting the job" >&2
+                kill -TERM $main_pid 2>/dev/null
+                sleep 10
+                kill -KILL $main_pid 2>/dev/null
+                exit 0
+            fi
+        done
+    ) &
+    WATCHDOG_PID=$!
+}
+
+stop_stall_watchdog() {
+    [ -n "$WATCHDOG_PID" ] && kill $WATCHDOG_PID 2>/dev/null
+    WATCHDOG_PID=""
+    HEARTBEAT_FILE=""
 }
 
 card_file_for_name() {
@@ -187,18 +239,60 @@ card_file_for_name() {
 # this way; see the README linked above). copy_to_eos() instead retries
 # with backoff and, if it still can't verify the file landed, exits nonzero
 # so the failure is loud and visible instead of silent.
+#
+# "Landed" means the EOS *server* holds exactly as many bytes as the local
+# source - not just that the file exists. Found the hard way: in the
+# 20260917 production 3 of 340 ntuples were left TRUNCATED on EOS (0.4-4.6
+# MB instead of ~60 MB, unreadable) by jobs that exited 0 - `mv` onto the
+# FUSE mount reported success and `[ -f ]` passed, while the upload behind
+# it failed (other jobs logged xrootd write timeouts to the same EOS disk
+# server in the same minutes). The mount's own `stat` can't be trusted for
+# this either (it can answer from its local write cache), so for /eos paths
+# the copy goes over xrootd directly (xrdcp, with an end-to-end adler32
+# checksum) and the size is read back from the server (xrdfs stat). The
+# FUSE `cp` + local `stat` is kept only as a fallback, for an attempt where
+# xrdcp itself fails (e.g. no xrootd credentials on some node) or for a
+# non-EOS OUTPUT_PATH. `cp` rather than `mv` so a failed/partial attempt
+# can be retried from the still-intact local source; a destination left
+# behind by the last failed attempt is removed, so a missing ntuple (not a
+# corrupt one) is what signals the failure.
+EOS_XRD_HOST=eosuser.cern.ch
+
+# Canonical xrootd path for a path on the EOS FUSE mount, or nothing (and
+# nonzero) if it isn't on EOS. `realpath` resolves /eos/user/l/llambrec to
+# the FUSE-only alias /eos/home-l/llambrec, which the xrootd server rejects
+# ("public access level restriction") - map it back.
+eos_xrd_path() {
+    case "$1" in
+        /eos/home-?/*) echo "/eos/user/${1:10:1}/${1:12}" ;;
+        /eos/user/*)   echo "$1" ;;
+        *)             return 1 ;;
+    esac
+}
+
 copy_to_eos() {
-    local src=$1 dst=$2 dstdir attempt
+    local src=$1 dst=$2 dstdir attempt expected got xrd_path
     dstdir=$(dirname "$dst")
+    expected=$(stat -c %s "$src")
+    xrd_path=$(eos_xrd_path "$dst")
     for attempt in 1 2 3 4 5; do
-        mkdir -p "$dstdir"
-        mv -f "$src" "$dst"
-        if [ -f "$dst" ]; then
+        got=""
+        if [ -n "$xrd_path" ] && command -v xrdcp >/dev/null && \
+           xrdcp -f -p -s --cksum adler32 "$src" "root://$EOS_XRD_HOST/$xrd_path"; then
+            got=$(xrdfs $EOS_XRD_HOST stat "$xrd_path" 2>/dev/null | awk '/^Size:/{print $2}')
+        else
+            [ -n "$xrd_path" ] && echo "WARNING: xrdcp to EOS failed (attempt $attempt/5) - falling back to the FUSE mount for this attempt" >&2
+            mkdir -p "$dstdir"
+            cp -f "$src" "$dst" && got=$(stat -c %s "$dst" 2>/dev/null)
+        fi
+        if [ "$got" = "$expected" ]; then
+            rm -f "$src"
             return 0
         fi
-        echo "WARNING: copy to EOS failed (attempt $attempt/5): $src -> $dst" >&2
+        echo "WARNING: copy to EOS failed or incomplete (attempt $attempt/5, ${got:-no} of $expected bytes): $src -> $dst" >&2
         sleep $((attempt * 3))
     done
+    rm -f "$dst"
     echo "ERROR: giving up copying to EOS after 5 attempts: $src -> $dst" >&2
     return 1
 }
@@ -258,16 +352,20 @@ mkdir -p $WORKDIR
 # below) - not just the success path, so a failed job doesn't leave its
 # local scratch copy behind. Condor tears down per-job scratch regardless
 # once the job exits, but this also matters for a non-condor/local run.
-trap 'rm -rf "$WORKDIR"' EXIT
+trap 'stop_stall_watchdog; rm -rf "$WORKDIR"' EXIT
 
 cd $WORKDIR
 
 # generate delphes, in a batch of NEVENT_GEN
 nbatch=$((NEVENT / NEVENT_GEN))
 
+# see STALL_TIMEOUT_SEC's own comment - armed for the batch loop only
+start_stall_watchdog
+
 for ((i=0; i<nbatch; i++)); do
 
     echo "Batch: $i"
+    heartbeat
 
     # copy genpack if not exist
     cd $WORKDIR
@@ -316,6 +414,7 @@ for ((i=0; i<nbatch; i++)); do
             fi
         fi
     fi
+    heartbeat
     cd $WORKDIR/proc_base
 
     # generate GEN events once per batch - shared across all Delphes cards
@@ -347,6 +446,8 @@ for ((i=0; i<nbatch; i++)); do
     fi
 
 done
+
+stop_stall_watchdog
 
 mkdir -p $OUTPUT_PATH/$PROC
 
