@@ -196,3 +196,114 @@ Delphes outputs, different seeds and vertices per batch.
 Ntuples produced before this (all productions up to and including
 `output_jetclass2_10M_20260917_puppinocharged`) have independent vertices and
 pile-up overlays in their offline and HLT versions of each event.
+
+## HLT tracking efficiency should depend on the impact parameters (not yet implemented)
+
+**Status:** known, not implemented (found 2026-09-18). The current HLT card
+reproduces the *net* effect only approximately, see "What the HLT card does
+now" below.
+
+### What FullSim HLT (ScoutingAK8) actually does
+
+- Neither PUPPI nor CHS is applied: the scouting AK8 jets are reclustered in
+  the ntuple production (DNNTuples `dev/AK15Scout`,
+  `Ntupler/test/DeepNtuplizerAK8Scout.py`) from *all* scouting particles via
+  CMSSW's `PhysicsTools/NanoAOD/python/run3scouting_cff.py`
+  (`scoutingPFCandidate` with `CHS = cms.bool(False)`, then plain anti-kT
+  R=0.8). Scouting particles have pT > 0.6 GeV (`HLTScoutingPFProducer`).
+- Instead, the **HLT tracking itself** barely reconstructs tracks that are far
+  from the leading vertex, in z or in the transverse plane. HLT matching
+  efficiency of FullSim offline charged hadrons (QCD, not lost tracks,
+  pT > 1 GeV; match: same charge, dR < 0.02, |pT ratio - 1| < 0.3; IPs w.r.t.
+  the offline PV):
+
+  | offline track class | per jet | HLT-matched |
+  |---|---|---|
+  | prompt (\|dxy\| < 0.1 mm), \|dz\| < 1 mm | 19.2 | 84% |
+  | prompt, \|dz\| 1-10 mm | 0.16 | 52% |
+  | prompt, \|dz\| > 10 mm (pile-up-like) | 0.25 | 0.8% |
+  | \|dxy\| 0.1-1 mm | 2.4 | 47% |
+  | \|dxy\| 1-10 mm | 2.0 | 2.6% |
+  | \|dxy\| > 10 mm | 2.5 | 0.3% |
+  | by CMS association: `fromPV==3` / `2` / `1` / `0` | 16.9 / 4.7 / 4.7 / 0.2 | 86% / 53% / 3% / 85% |
+
+  i.e. HLT only finds tracks within roughly 1 cm of the leading vertex in z
+  (the pile-up vertex spread is ~5 cm, so most pile-up tracks are never
+  reconstructed - which *looks* like CHS although none is run), and almost no
+  tracks with more than ~1 mm transverse displacement. (Presumably HLT tracking
+  is seeded only around the leading pixel vertices; not verified against the
+  2024 HLT menu.) Consistently, FullSim HLT jets contain only 0.09 prompt
+  charged hadrons per jet with |dz| > 10 mm (pT > 0.5 GeV, jets 200-700 GeV),
+  vs 2.4 in a Delphes HLT variant without any pile-up track removal.
+- Scouting `dz`/`dxy` are w.r.t. the leading pixel vertex
+  (`HLTScoutingPFProducer.cc`: `dz = trk->dz(pv.position())`,
+  `pv = (*vertexCollection)[0]`, `vertexCollection = hltPixelVertices`).
+
+### What the HLT card does now
+
+The two effects above are emulated only indirectly:
+
+- **Tracks far from the PV in z (pile-up):** removed by the CHS step that is
+  built into our `RunPUPPI` (charged weights are hard-set to 1/0 from the
+  truth-based `TrackPileUpSubtractor` association, `ApplyCHS` being hardcoded to
+  true in `RunPUPPI.cc`), i.e. by running (a modified version of) PUPPI
+  instead of never reconstructing them in the first place. With
+  `ZVertexResolution {0.0001}` (0.1 mm) this removes essentially *all* pile-up
+  tracks, slightly more than HLT (which keeps pile-up within ~1 cm). PUPPI
+  additionally reweights/removes neutrals, which FullSim HLT does not do.
+- **Transversely displaced tracks:** not removed at all. Their HLT loss is only
+  absorbed into the flat (IP-independent) data-driven tracking efficiency:
+  `hlteff/derive_curves.py` measures n_matched / n_offline over *all* offline
+  `cpfcandlt` charged candidates, a population with many displaced tracks
+  (|dxy| > 0.1 mm: 7.8 per jet in FullSim offline vs 2.1 in our Delphes offline -
+  Delphes has no material interactions/conversions) plus 3.7 lost tracks per
+  jet. The resulting average (HLT/offline ~0.59) is therefore too low for
+  Delphes' mostly prompt tracks (prompt tracks: ~0.84 above 1 GeV), and there is
+  no IP dependence.
+
+For reference, HLT/offline ratios of mean per-jet counts (QCD; 300-event test,
+same vertex/pile-up in all runs) for HLT-card variants vs FullSim:
+
+| HLT variant | charged had. | neutral had. | photons | jet pT |
+|---|---|---|---|---|
+| current (PUPPI, `UseCharged false`) | 0.57 | 2.05 | 1.14 | 1.08 |
+| CHS only, no PUPPI | 0.57 | 2.98 | 1.45 | 1.13 |
+| no PUPPI, no CHS | 0.80 | 2.98 | 1.45 | 1.16 |
+| FullSim | 0.59 | 2.29 | 1.52 | 1.00 |
+
+(The test sample has lower jet pT than FullSim; in matching jet-pT bins
+FullSim's neutral-hadron ratio is 2.73 at 200-400 GeV and 2.48 at 400-700 GeV,
+so "CHS only" overshoots neutrals by ~10%.)
+
+### How it could be implemented (card-level, no Delphes source change)
+
+1. **Re-derive the tracking efficiency for prompt tracks only:** in
+   `hlteff/derive_curves.py`, restrict the offline denominator to
+   `cpfcandlt_isLostTrack == 0` and prompt tracks (e.g. |dxy| < 0.1 mm and
+   |dz| < 1 mm, or `fromPV >= 2`).
+2. **Add the transverse-IP dependence:** Delphes efficiency formulas can use
+   `d0` (`classes/DelphesFormula.cc` maps `d0`, `dz`, `ctgTheta`, `radius`), and
+   `D0` is already set by `ParticlePropagator`, which runs before the
+   `*TrackingEfficiency` modules. Multiply the prompt efficiency by a d0 factor
+   measured as above (roughly 1 / ~0.5 / ~0.03 / ~0 for |d0| < 0.1 / 0.1-1 /
+   1-10 / > 10 mm relative to prompt; re-measure in pT bins). Note Delphes
+   `D0` is in mm and has the opposite sign to CMS `dxy` (see the IP section);
+   use `abs(d0)`.
+3. **Emulate the z acceptance instead of CHS/PUPPI:** `dz` in the formula is the
+   *absolute* z of closest approach (not PV-relative), so it can't express "within
+   1 cm of the PV" directly. Instead widen `TrackPileUpSubtractor`'s
+   `ZVertexResolution` from `{0.0001}` (0.1 mm) to ~`{0.005}`-`{0.01}`
+   (5-10 mm; value in m), which removes (by truth) only pile-up tracks farther than
+   that from the PV, and cluster the HLT jets from
+   `TrackPileUpSubtractor/eflowTracks` + `ECal/eflowPhotons` +
+   `HCal/eflowNeutralHadrons` (one extra `Merger`; rewire
+   `FastJetFinderPUPPIAK8/AK15` and the `ParticleFlowCandidate` TreeWriter branch)
+   with no PUPPI.
+4. Then re-check the neutral hadron/photon ratios (fewer lost tracks means less
+   unsubtracted track energy ending up as neutrals, so the neutral excess
+   should drop), and re-derive `JetEnergyScalePUPPIAK8` (currently derived for
+   PUPPI jets; without PUPPI the HLT jet pT comes out ~13% high).
+
+Scratch scripts used for the numbers above (not in the repo):
+`compare.py` (per-type ratios per HLT variant) and `displacement.py`
+(HLT matching efficiency by track class).
