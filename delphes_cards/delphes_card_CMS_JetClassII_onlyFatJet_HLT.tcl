@@ -31,6 +31,31 @@
 #   JetEnergyScalePUPPIAK8 above was derived against the UseCharged=true
 #   behaviour and has NOT been re-derived for this setting.
 #
+#   IMPACT-PARAMETER-DEPENDENT tracking efficiency for chargedHadron/muon:
+#   the EfficiencyFormula is a (|eta|, pT, |d0|) table, offline(pt,eta) *
+#   ratio(eta,pt,d0), with the ratio from hlteff/curves_ip_qcd.json
+#   (hlteff/derive_ip_curves.py, generated 2026-09-18 16:55 UTC, 293373 QCD
+#   jets; denominator without lost and pile-up-like tracks), assuming the
+#   offline efficiency is uniform in d0; see derive_ip_curves.py and
+#   delphes_cards/KNOWN_ISSUES.md.
+#
+#   NO PUPPI and NO CHS for the HLT jets (as real scouting AK8 jets):
+#   FastJetFinderPUPPIAK8/AK15 and the ParticleFlowCandidate branch use
+#   HLTEFlowMerger/eflow = TrackPileUpSubtractor/eflowTracks with
+#   ZVertexResolution set to 2.5 mm, i.e. pile-up tracks farther than that
+#   from the primary vertex are dropped by truth - a stand-in for HLT
+#   tracking's limited z acceptance, which a Delphes formula cannot express,
+#   plus ECal photons and HCal neutral hadrons. Module/branch names keep
+#   "PUPPI" for compatibility. JetEnergyScalePUPPIAK8 was NOT re-derived for
+#   this. All HLT candidates with reconstructed pT below 0.6 GeV are dropped
+#   first (HLTEFlowPtFilter), as in the scouting producer.
+#
+#   JetEnergyScalePUPPIAK8 is additionally multiplied by per-HLT-jet-pT
+#   factors (0.829-0.924) from hlteff/jes_correction_nopuppi.json
+#   (hlteff/derive_hlt_jes_correction.py, generated 2026-09-19 12:19 UTC,
+#   26152 matched QCD jets), which bring our HLT/offline jet-pT ratio onto
+#   FullSim's for this card's settings.
+#
 #   Charged/Electron/Muon TrackingEfficiency are additionally HARD-SET to 0
 #   in every pT bin entirely below 0.5 GeV, all |eta|
 #   (--charged-eff-pt-floor) - a hand override, not data-driven: the
@@ -41,8 +66,12 @@
 #   ("plan B": data-driven closure checks found the matched-pair approach
 #   does not work for calorimeters the way it does for tracking - see
 #   hlteff/calorimeters/README.md - so this is a documented placeholder
-#   assumption, not a measurement). Both modules' tower grids are left at
-#   their offline granularity. Both ECal/HCal thresholds
+#   assumption, not a measurement). Both modules' tower grids are
+#   additionally coarsened by a factor 1.25 in both eta and phi (each tower
+#   1.25x wider in each dimension, 1.5625x the area) - also a hand-set
+#   assumption (a data-driven granularity scan found no coarsening factor
+#   actually reproduces the measured effect, see
+#   hlteff/calorimeters/README.md). Both ECal/HCal thresholds
 #   (EnergyMin/EnergySignificanceMin) are left at their offline values.
 #
 #   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to 1 GeV
@@ -89,6 +118,8 @@ set ExecutionPath {
   RecoPuFilter
   NeutralEFlowMerger
   EFlowMerger
+  HLTEFlowMerger
+  HLTEFlowPtFilter
 
   LeptonFilterNoLep
   LeptonFilterLep
@@ -183,52 +214,326 @@ module Efficiency ChargedHadronTrackingEfficiency {
 
   # tracking efficiency formula for charged hadrons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0.152472) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0.281638) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0.42857) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0.497586) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0.548724) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.588006) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.636903) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.675885) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.697767) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.696845) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.679896) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.639398) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.58028) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.507491) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.434112) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.344658) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.24641) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.18908) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.199274) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.201925) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0.0760607) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0.152179) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0.215831) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0.255465) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.294938) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.32839) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.375562) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.421514) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.450422) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.459572) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.459082) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.429001) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.376569) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.306094) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.236813) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.176684) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.138737) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.147379) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.147379) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.147379)
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) <= 0.1) * (0.263463) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.214696) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.168685) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.116591) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0278122) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.00907012) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.00607815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 10) * (0.00439565) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) <= 0.1) * (0.559561) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.448787) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.289541) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.174033) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0311472) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0106015) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 5 && abs(d0) <= 10) * (0.00745913) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 10) * (0.00559104) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) <= 0.1) * (0.84615) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.631846) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.371981) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.242851) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0468899) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0201276) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0121659) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 10) * (0.00815291) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) <= 0.1) * (0.866077) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.635859) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.415693) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.255557) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0520436) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0248513) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0142466) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 10) * (0.00858872) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) <= 0.1) * (0.862761) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.627711) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.462358) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.281421) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0677802) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 2 && abs(d0) <= 5) * (0.027408) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0198074) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 10) * (0.0110731) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) <= 0.1) * (0.858532) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.631471) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.487312) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.341784) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 1 && abs(d0) <= 2) * (0.10181) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0396314) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0273136) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 10) * (0.0142911) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) <= 0.1) * (0.85152) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.635904) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.502637) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.379277) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0933799) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0552568) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0376473) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 10) * (0.0191924) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) <= 0.1) * (0.836265) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.617781) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.486588) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.370736) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.11981) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0759185) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0498372) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 10) * (0.0268169) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) <= 0.1) * (0.81817) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.573781) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.467113) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.328982) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 1 && abs(d0) <= 2) * (0.133473) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0888323) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0658814) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 10) * (0.0342299) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) <= 0.1) * (0.788728) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.53106) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.429465) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.305974) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 1 && abs(d0) <= 2) * (0.146104) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 2 && abs(d0) <= 5) * (0.100174) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0695842) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 10) * (0.0425486) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) <= 0.1) * (0.747759) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.473365) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.394242) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.283603) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 1 && abs(d0) <= 2) * (0.159103) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 2 && abs(d0) <= 5) * (0.106416) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0804614) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 10) * (0.0441252) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) <= 0.1) * (0.692072) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.427361) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.351044) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.256217) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 1 && abs(d0) <= 2) * (0.141948) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 2 && abs(d0) <= 5) * (0.110598) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0764678) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 10) * (0.0514255) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) <= 0.1) * (0.623267) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.376892) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.323907) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.208503) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 1 && abs(d0) <= 2) * (0.135348) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 2 && abs(d0) <= 5) * (0.106105) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0841281) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 10) * (0.0601784) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) <= 0.1) * (0.544118) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.340969) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.286912) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.179565) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 1 && abs(d0) <= 2) * (0.141529) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 2 && abs(d0) <= 5) * (0.127941) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0851541) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 10) * (0.0738217) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) <= 0.1) * (0.465874) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.294768) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.239359) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.200643) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 1 && abs(d0) <= 2) * (0.13796) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 2 && abs(d0) <= 5) * (0.139943) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 5 && abs(d0) <= 10) * (0.145792) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 10) * (0.0915061) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) <= 0.1) * (0.367809) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.256922) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.229378) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.171669) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 1 && abs(d0) <= 2) * (0.196847) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 2 && abs(d0) <= 5) * (0.196891) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0856557) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 10) * (0.09375) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) <= 0.1) * (0.259153) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.197482) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.207791) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.213518) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 1 && abs(d0) <= 2) * (0.28178) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 2 && abs(d0) <= 5) * (0.255462) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 5 && abs(d0) <= 10) * (0.051752) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 10) * (0.140064) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) <= 0.1) * (0.192672) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.172291) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.198773) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.173358) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0577117) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0492953) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0393156) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 10) * (0.0295818) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) <= 0.1) * (0.193571) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.212687) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.234058) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0791631) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0600342) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0512791) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0408978) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 10) * (0.0307722) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) <= 0.1) * (0.215718) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.209103) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.264966) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0867312) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0657736) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0561815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0448077) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 10) * (0.0337141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) <= 0.1) * (0.186568) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.163081) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.141525) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.098882) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0422604) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0169705) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.00897853) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (abs(d0) > 10) * (0.00899287) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) <= 0.1) * (0.383838) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.314499) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.259459) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.134884) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0486556) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0152876) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0129014) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (abs(d0) > 10) * (0.0106368) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) <= 0.1) * (0.578346) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.449331) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.314002) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.195859) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0674563) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0306051) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0205947) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (abs(d0) > 10) * (0.0161486) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) <= 0.1) * (0.584226) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.458537) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.326418) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.192596) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0703972) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0370977) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0257114) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (abs(d0) > 10) * (0.0170269) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) <= 0.1) * (0.57879) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.455352) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.33349) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.212413) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0915426) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0452518) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 5 && abs(d0) <= 10) * (0.032678) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (abs(d0) > 10) * (0.0200805) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) <= 0.1) * (0.578278) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.461694) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.348754) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.240303) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 1 && abs(d0) <= 2) * (0.125809) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0530976) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0418383) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 10) * (0.0269554) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) <= 0.1) * (0.574892) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.474116) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.339526) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.276713) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 1 && abs(d0) <= 2) * (0.119483) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 2 && abs(d0) <= 5) * (0.076135) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0622426) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 10) * (0.0360525) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) <= 0.1) * (0.570484) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.465064) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.360441) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.246627) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.131208) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0950339) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0718112) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 10) * (0.0487026) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) <= 0.1) * (0.567355) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.426539) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.344331) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.23668) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 1 && abs(d0) <= 2) * (0.144257) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 2 && abs(d0) <= 5) * (0.115892) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0956954) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 10) * (0.065051) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) <= 0.1) * (0.549873) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.369159) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.31064) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.234981) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 1 && abs(d0) <= 2) * (0.149595) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 2 && abs(d0) <= 5) * (0.116763) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 5 && abs(d0) <= 10) * (0.102114) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 10) * (0.0820567) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) <= 0.1) * (0.525174) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.347727) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.297448) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.24849) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 1 && abs(d0) <= 2) * (0.158423) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 2 && abs(d0) <= 5) * (0.139119) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 5 && abs(d0) <= 10) * (0.101699) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 10) * (0.0751052) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) <= 0.1) * (0.479758) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.325187) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.259334) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.216126) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 1 && abs(d0) <= 2) * (0.146893) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 2 && abs(d0) <= 5) * (0.128246) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 5 && abs(d0) <= 10) * (0.117004) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 10) * (0.0762458) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) <= 0.1) * (0.415847) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.26487) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.218812) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.187402) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 1 && abs(d0) <= 2) * (0.152734) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 2 && abs(d0) <= 5) * (0.158913) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 5 && abs(d0) <= 10) * (0.132578) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 10) * (0.0840659) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) <= 0.1) * (0.331029) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.2567) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.219583) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.215) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 1 && abs(d0) <= 2) * (0.1768) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 2 && abs(d0) <= 5) * (0.153124) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 5 && abs(d0) <= 10) * (0.107992) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 10) * (0.101268) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) <= 0.1) * (0.250215) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.206061) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.163319) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.141691) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 1 && abs(d0) <= 2) * (0.122145) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 2 && abs(d0) <= 5) * (0.11731) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0827339) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 10) * (0.0775824) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) <= 0.1) * (0.177253) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.135764) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.112707) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.102405) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0882784) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0847838) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0597945) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 10) * (0.0560713) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) <= 0.1) * (0.134991) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.103054) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.0894516) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0812749) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0700635) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0672899) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0474568) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 10) * (0.0445018) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) <= 0.1) * (0.151213) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.113015) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.098098) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0891309) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0768358) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0737941) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0520439) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 10) * (0.0488034) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) <= 0.1) * (0.160686) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.113015) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.098098) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0891309) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0768358) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0737941) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0520439) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 10) * (0.0488034) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) <= 0.1) * (0.160686) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.113015) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.098098) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0891309) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0768358) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0737941) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0520439) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 10) * (0.0488034)
   }
 }
 
@@ -305,52 +610,236 @@ module Efficiency MuonTrackingEfficiency {
 
   # tracking efficiency formula for muons
   set EfficiencyFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 0.2) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.2 && pt <= 0.35) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.35 && pt <= 0.5) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.5 && pt <= 0.7) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.7 && pt <= 0.9) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 0.9 && pt <= 1.2) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.2 && pt <= 1.6) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1.6 && pt <= 2.2) * (0) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2.2 && pt <= 3) * (0.00534413) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (0.0250812) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (0.116503) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (0.118462) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (0.165281) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (0.162554) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (0.160227) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (0.170974) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (0.180642) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (0.192325) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (0.154785) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (0.131459) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (0.0863489) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (0.0491925) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (0.0153861) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 0.2) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.2 && pt <= 0.35) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.35 && pt <= 0.5) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.5 && pt <= 0.7) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.7 && pt <= 0.9) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 0.9 && pt <= 1.2) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.2 && pt <= 1.6) * (0) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1.6 && pt <= 2.2) * (0.000904059) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (0.0215759) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (0.0815772) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (0.0875) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (0.0986433) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (0.180179) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (0.249588) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (0.243805) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (0.189875)
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) <= 0.1) * (0.0393707) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.0640299) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.0855) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0362195) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0385714) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0138462) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 5 && abs(d0) <= 10) * (0.00795181) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 10) * (0.000991984) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) <= 0.1) * (0.23847) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.403723) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.34082) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.243769) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.116725) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0545669) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0474658) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 10) * (0.00549491) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) <= 0.1) * (0.359806) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.482308) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.358286) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.244588) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 1 && abs(d0) <= 2) * (0.1815) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0386719) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0108791) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 7 && pt <= 10) * (abs(d0) > 10) * (0.00470309) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) <= 0.1) * (0.655806) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.639474) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.540723) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.358696) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 1 && abs(d0) <= 2) * (0.192026) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 2 && abs(d0) <= 5) * (0.04125) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0120732) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 10 && pt <= 16) * (abs(d0) > 10) * (0.00432314) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) <= 0.1) * (0.69378) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.609661) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.53122) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.407278) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 1 && abs(d0) <= 2) * (0.107442) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0419788) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0266538) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 16 && pt <= 25) * (abs(d0) > 10) * (0.00831933) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) <= 0.1) * (0.608163) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.684973) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.55) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.365676) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 1 && abs(d0) <= 2) * (0.160541) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0368944) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 5 && abs(d0) <= 10) * (0.00846154) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 25 && pt <= 40) * (abs(d0) > 10) * (0.00798387) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) <= 0.1) * (0.607774) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.558462) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.495) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.326796) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 1 && abs(d0) <= 2) * (0.144118) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0740187) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 5 && abs(d0) <= 10) * (0.051176) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 40 && pt <= 65) * (abs(d0) > 10) * (0.0344882) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) <= 0.1) * (0.549474) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.462482) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.50325) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.297795) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 1 && abs(d0) <= 2) * (0.140241) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0691928) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 5 && abs(d0) <= 10) * (0.049799) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 65 && pt <= 100) * (abs(d0) > 10) * (0.0335602) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) <= 0.1) * (0.598923) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.494789) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.383514) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.301775) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 1 && abs(d0) <= 2) * (0.142115) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0701175) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0504645) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 100 && pt <= 160) * (abs(d0) > 10) * (0.0340087) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) <= 0.1) * (0.59625) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.534732) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.487212) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.326136) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 1 && abs(d0) <= 2) * (0.153587) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0757779) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0545384) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 160 && pt <= 250) * (abs(d0) > 10) * (0.0367541) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) <= 0.1) * (0.5976) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.506981) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.461927) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.309211) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 1 && abs(d0) <= 2) * (0.145617) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0718452) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 5 && abs(d0) <= 10) * (0.051708) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 400) * (abs(d0) > 10) * (0.0348467) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) <= 0.1) * (0.5856) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.4968) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.452652) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.303001) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 1 && abs(d0) <= 2) * (0.142693) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0704026) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0506697) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 650) * (abs(d0) > 10) * (0.0341469) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) <= 0.1) * (0.5856) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.4968) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.452652) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.303001) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.142693) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0704026) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0506697) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 10) * (0.0341469) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) <= 0.1) * (0.456066) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.386908) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.352525) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.235978) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.111129) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0548296) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0394616) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000) * (abs(d0) > 10) * (0.0265937) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) <= 0.1) * (0.0354217) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.0390551) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.0256516) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.0256516) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 1 && abs(d0) <= 2) * (0.0256516) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 2 && abs(d0) <= 5) * (0.0231824) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2.2 && pt <= 3) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0797874) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) <= 0.1) * (0.148905) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.15926) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.15926) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.15926) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 1 && abs(d0) <= 2) * (0.15926) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 2 && abs(d0) <= 5) * (0.15926) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 5 && abs(d0) <= 10) * (0.089127) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3 && pt <= 4.5) * (abs(d0) > 10) * (0.0198649) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) <= 0.1) * (0.16486) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.169491) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.169491) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.169491) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 1 && abs(d0) <= 2) * (0.169491) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 2 && abs(d0) <= 5) * (0.169491) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 4.5 && pt <= 7) * (abs(d0) > 5 && abs(d0) <= 10) * (0.0948526) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) <= 0.1) * (0.260177) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.224925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.224925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.224925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 1 && abs(d0) <= 2) * (0.224925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 2 && abs(d0) <= 5) * (0.224925) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 5 && abs(d0) <= 10) * (0.125876) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 7 && pt <= 10) * (abs(d0) > 10) * (0.0128009) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) <= 0.1) * (0.531215) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 1 && abs(d0) <= 2) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 2 && abs(d0) <= 5) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 5 && abs(d0) <= 10) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 10 && pt <= 16) * (abs(d0) > 10) * (0.463118) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) <= 0.1) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 1 && abs(d0) <= 2) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 2 && abs(d0) <= 5) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 5 && abs(d0) <= 10) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 16 && pt <= 25) * (abs(d0) > 10) * (0.590971) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) <= 0.1) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 1 && abs(d0) <= 2) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 2 && abs(d0) <= 5) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 5 && abs(d0) <= 10) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 25 && pt <= 40) * (abs(d0) > 10) * (0.557414) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 40 && pt <= 65) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 65 && pt <= 100) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 100 && pt <= 160) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 160 && pt <= 250) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 400) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 650) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) <= 0.1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 1000) * (abs(d0) > 10) * (0.528141) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) <= 0.1) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.1 && abs(d0) <= 0.2) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.2 && abs(d0) <= 0.5) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 0.5 && abs(d0) <= 1) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 1 && abs(d0) <= 2) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 2 && abs(d0) <= 5) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 5 && abs(d0) <= 10) * (0.411317) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000) * (abs(d0) > 10) * (0.411317)
   }
 }
 
@@ -698,44 +1187,920 @@ module SimpleCalorimeter ECal {
 
   # assume 0.02 x 0.02 resolution in eta,phi in the barrel |eta| < 1.5
 
-  set PhiBins {}
-  for {set i -180} {$i <= 180} {incr i} {
-    add PhiBins [expr {$i * $pi/180.0}]
-  }
-
-  # 0.02 unit in eta up to eta = 1.5 (barrel)
-  for {set i -85} {$i <= 86} {incr i} {
-    set eta [expr {$i * 0.0174}]
+    set PhiBins {}
+  add PhiBins -3.141592654
+  add PhiBins -3.119776038
+  add PhiBins -3.097959422
+  add PhiBins -3.076142807
+  add PhiBins -3.054326191
+  add PhiBins -3.032509575
+  add PhiBins -3.01069296
+  add PhiBins -2.988876344
+  add PhiBins -2.967059728
+  add PhiBins -2.945243113
+  add PhiBins -2.923426497
+  add PhiBins -2.901609881
+  add PhiBins -2.879793266
+  add PhiBins -2.85797665
+  add PhiBins -2.836160034
+  add PhiBins -2.814343419
+  add PhiBins -2.792526803
+  add PhiBins -2.770710188
+  add PhiBins -2.748893572
+  add PhiBins -2.727076956
+  add PhiBins -2.705260341
+  add PhiBins -2.683443725
+  add PhiBins -2.661627109
+  add PhiBins -2.639810494
+  add PhiBins -2.617993878
+  add PhiBins -2.596177262
+  add PhiBins -2.574360647
+  add PhiBins -2.552544031
+  add PhiBins -2.530727415
+  add PhiBins -2.5089108
+  add PhiBins -2.487094184
+  add PhiBins -2.465277568
+  add PhiBins -2.443460953
+  add PhiBins -2.421644337
+  add PhiBins -2.399827721
+  add PhiBins -2.378011106
+  add PhiBins -2.35619449
+  add PhiBins -2.334377875
+  add PhiBins -2.312561259
+  add PhiBins -2.290744643
+  add PhiBins -2.268928028
+  add PhiBins -2.247111412
+  add PhiBins -2.225294796
+  add PhiBins -2.203478181
+  add PhiBins -2.181661565
+  add PhiBins -2.159844949
+  add PhiBins -2.138028334
+  add PhiBins -2.116211718
+  add PhiBins -2.094395102
+  add PhiBins -2.072578487
+  add PhiBins -2.050761871
+  add PhiBins -2.028945255
+  add PhiBins -2.00712864
+  add PhiBins -1.985312024
+  add PhiBins -1.963495408
+  add PhiBins -1.941678793
+  add PhiBins -1.919862177
+  add PhiBins -1.898045562
+  add PhiBins -1.876228946
+  add PhiBins -1.85441233
+  add PhiBins -1.832595715
+  add PhiBins -1.810779099
+  add PhiBins -1.788962483
+  add PhiBins -1.767145868
+  add PhiBins -1.745329252
+  add PhiBins -1.723512636
+  add PhiBins -1.701696021
+  add PhiBins -1.679879405
+  add PhiBins -1.658062789
+  add PhiBins -1.636246174
+  add PhiBins -1.614429558
+  add PhiBins -1.592612942
+  add PhiBins -1.570796327
+  add PhiBins -1.548979711
+  add PhiBins -1.527163095
+  add PhiBins -1.50534648
+  add PhiBins -1.483529864
+  add PhiBins -1.461713249
+  add PhiBins -1.439896633
+  add PhiBins -1.418080017
+  add PhiBins -1.396263402
+  add PhiBins -1.374446786
+  add PhiBins -1.35263017
+  add PhiBins -1.330813555
+  add PhiBins -1.308996939
+  add PhiBins -1.287180323
+  add PhiBins -1.265363708
+  add PhiBins -1.243547092
+  add PhiBins -1.221730476
+  add PhiBins -1.199913861
+  add PhiBins -1.178097245
+  add PhiBins -1.156280629
+  add PhiBins -1.134464014
+  add PhiBins -1.112647398
+  add PhiBins -1.090830782
+  add PhiBins -1.069014167
+  add PhiBins -1.047197551
+  add PhiBins -1.025380936
+  add PhiBins -1.00356432
+  add PhiBins -0.9817477042
+  add PhiBins -0.9599310886
+  add PhiBins -0.9381144729
+  add PhiBins -0.9162978573
+  add PhiBins -0.8944812416
+  add PhiBins -0.872664626
+  add PhiBins -0.8508480103
+  add PhiBins -0.8290313947
+  add PhiBins -0.807214779
+  add PhiBins -0.7853981634
+  add PhiBins -0.7635815477
+  add PhiBins -0.7417649321
+  add PhiBins -0.7199483164
+  add PhiBins -0.6981317008
+  add PhiBins -0.6763150851
+  add PhiBins -0.6544984695
+  add PhiBins -0.6326818538
+  add PhiBins -0.6108652382
+  add PhiBins -0.5890486225
+  add PhiBins -0.5672320069
+  add PhiBins -0.5454153912
+  add PhiBins -0.5235987756
+  add PhiBins -0.5017821599
+  add PhiBins -0.4799655443
+  add PhiBins -0.4581489286
+  add PhiBins -0.436332313
+  add PhiBins -0.4145156973
+  add PhiBins -0.3926990817
+  add PhiBins -0.370882466
+  add PhiBins -0.3490658504
+  add PhiBins -0.3272492347
+  add PhiBins -0.3054326191
+  add PhiBins -0.2836160034
+  add PhiBins -0.2617993878
+  add PhiBins -0.2399827721
+  add PhiBins -0.2181661565
+  add PhiBins -0.1963495408
+  add PhiBins -0.1745329252
+  add PhiBins -0.1527163095
+  add PhiBins -0.1308996939
+  add PhiBins -0.1090830782
+  add PhiBins -0.0872664626
+  add PhiBins -0.06544984695
+  add PhiBins -0.0436332313
+  add PhiBins -0.02181661565
+  add PhiBins 0
+  add PhiBins 0.02181661565
+  add PhiBins 0.0436332313
+  add PhiBins 0.06544984695
+  add PhiBins 0.0872664626
+  add PhiBins 0.1090830782
+  add PhiBins 0.1308996939
+  add PhiBins 0.1527163095
+  add PhiBins 0.1745329252
+  add PhiBins 0.1963495408
+  add PhiBins 0.2181661565
+  add PhiBins 0.2399827721
+  add PhiBins 0.2617993878
+  add PhiBins 0.2836160034
+  add PhiBins 0.3054326191
+  add PhiBins 0.3272492347
+  add PhiBins 0.3490658504
+  add PhiBins 0.370882466
+  add PhiBins 0.3926990817
+  add PhiBins 0.4145156973
+  add PhiBins 0.436332313
+  add PhiBins 0.4581489286
+  add PhiBins 0.4799655443
+  add PhiBins 0.5017821599
+  add PhiBins 0.5235987756
+  add PhiBins 0.5454153912
+  add PhiBins 0.5672320069
+  add PhiBins 0.5890486225
+  add PhiBins 0.6108652382
+  add PhiBins 0.6326818538
+  add PhiBins 0.6544984695
+  add PhiBins 0.6763150851
+  add PhiBins 0.6981317008
+  add PhiBins 0.7199483164
+  add PhiBins 0.7417649321
+  add PhiBins 0.7635815477
+  add PhiBins 0.7853981634
+  add PhiBins 0.807214779
+  add PhiBins 0.8290313947
+  add PhiBins 0.8508480103
+  add PhiBins 0.872664626
+  add PhiBins 0.8944812416
+  add PhiBins 0.9162978573
+  add PhiBins 0.9381144729
+  add PhiBins 0.9599310886
+  add PhiBins 0.9817477042
+  add PhiBins 1.00356432
+  add PhiBins 1.025380936
+  add PhiBins 1.047197551
+  add PhiBins 1.069014167
+  add PhiBins 1.090830782
+  add PhiBins 1.112647398
+  add PhiBins 1.134464014
+  add PhiBins 1.156280629
+  add PhiBins 1.178097245
+  add PhiBins 1.199913861
+  add PhiBins 1.221730476
+  add PhiBins 1.243547092
+  add PhiBins 1.265363708
+  add PhiBins 1.287180323
+  add PhiBins 1.308996939
+  add PhiBins 1.330813555
+  add PhiBins 1.35263017
+  add PhiBins 1.374446786
+  add PhiBins 1.396263402
+  add PhiBins 1.418080017
+  add PhiBins 1.439896633
+  add PhiBins 1.461713249
+  add PhiBins 1.483529864
+  add PhiBins 1.50534648
+  add PhiBins 1.527163095
+  add PhiBins 1.548979711
+  add PhiBins 1.570796327
+  add PhiBins 1.592612942
+  add PhiBins 1.614429558
+  add PhiBins 1.636246174
+  add PhiBins 1.658062789
+  add PhiBins 1.679879405
+  add PhiBins 1.701696021
+  add PhiBins 1.723512636
+  add PhiBins 1.745329252
+  add PhiBins 1.767145868
+  add PhiBins 1.788962483
+  add PhiBins 1.810779099
+  add PhiBins 1.832595715
+  add PhiBins 1.85441233
+  add PhiBins 1.876228946
+  add PhiBins 1.898045562
+  add PhiBins 1.919862177
+  add PhiBins 1.941678793
+  add PhiBins 1.963495408
+  add PhiBins 1.985312024
+  add PhiBins 2.00712864
+  add PhiBins 2.028945255
+  add PhiBins 2.050761871
+  add PhiBins 2.072578487
+  add PhiBins 2.094395102
+  add PhiBins 2.116211718
+  add PhiBins 2.138028334
+  add PhiBins 2.159844949
+  add PhiBins 2.181661565
+  add PhiBins 2.203478181
+  add PhiBins 2.225294796
+  add PhiBins 2.247111412
+  add PhiBins 2.268928028
+  add PhiBins 2.290744643
+  add PhiBins 2.312561259
+  add PhiBins 2.334377875
+  add PhiBins 2.35619449
+  add PhiBins 2.378011106
+  add PhiBins 2.399827721
+  add PhiBins 2.421644337
+  add PhiBins 2.443460953
+  add PhiBins 2.465277568
+  add PhiBins 2.487094184
+  add PhiBins 2.5089108
+  add PhiBins 2.530727415
+  add PhiBins 2.552544031
+  add PhiBins 2.574360647
+  add PhiBins 2.596177262
+  add PhiBins 2.617993878
+  add PhiBins 2.639810494
+  add PhiBins 2.661627109
+  add PhiBins 2.683443725
+  add PhiBins 2.705260341
+  add PhiBins 2.727076956
+  add PhiBins 2.748893572
+  add PhiBins 2.770710188
+  add PhiBins 2.792526803
+  add PhiBins 2.814343419
+  add PhiBins 2.836160034
+  add PhiBins 2.85797665
+  add PhiBins 2.879793266
+  add PhiBins 2.901609881
+  add PhiBins 2.923426497
+  add PhiBins 2.945243113
+  add PhiBins 2.967059728
+  add PhiBins 2.988876344
+  add PhiBins 3.01069296
+  add PhiBins 3.032509575
+  add PhiBins 3.054326191
+  add PhiBins 3.076142807
+  add PhiBins 3.097959422
+  add PhiBins 3.119776038
+  add PhiBins 3.141592654
+  foreach eta {-1.479 -1.457281752 -1.435563504 -1.413845255 -1.392127007 -1.370408759 -1.348690511 -1.326972263 -1.305254015 -1.283535766 -1.261817518 -1.24009927 -1.218381022 -1.196662774 -1.174944526 -1.153226277 -1.131508029 -1.109789781 -1.088071533 -1.066353285 -1.044635036 -1.022916788 -1.00119854 -0.979480292 -0.9577620438 -0.9360437956 -0.9143255474 -0.8926072993 -0.8708890511 -0.8491708029 -0.8274525547 -0.8057343066 -0.7840160584 -0.7622978102 -0.740579562 -0.7188613139 -0.6971430657 -0.6754248175 -0.6537065693 -0.6319883212 -0.610270073 -0.5885518248 -0.5668335766 -0.5451153285 -0.5233970803 -0.5016788321 -0.4799605839 -0.4582423358 -0.4365240876 -0.4148058394 -0.3930875912 -0.3713693431 -0.3496510949 -0.3279328467 -0.3062145985 -0.2844963504 -0.2627781022 -0.241059854 -0.2193416058 -0.1976233577 -0.1759051095 -0.1541868613 -0.1324686131 -0.110750365 -0.08903211679 -0.06731386861 -0.04559562044 -0.02387737226 -0.002159124088 0.01955912409 0.04127737226 0.06299562044 0.08471386861 0.1064321168 0.128150365 0.1498686131 0.1715868613 0.1933051095 0.2150233577 0.2367416058 0.258459854 0.2801781022 0.3018963504 0.3236145985 0.3453328467 0.3670510949 0.3887693431 0.4104875912 0.4322058394 0.4539240876 0.4756423358 0.4973605839 0.5190788321 0.5407970803 0.5625153285 0.5842335766 0.6059518248 0.627670073 0.6493883212 0.6711065693 0.6928248175 0.7145430657 0.7362613139 0.757979562 0.7796978102 0.8014160584 0.8231343066 0.8448525547 0.8665708029 0.8882890511 0.9100072993 0.9317255474 0.9534437956 0.9751620438 0.996880292 1.01859854 1.040316788 1.062035036 1.083753285 1.105471533 1.127189781 1.148908029 1.170626277 1.192344526 1.214062774 1.235781022 1.25749927 1.279217518 1.300935766 1.322654015 1.344372263 1.366090511 1.387808759 1.409527007 1.431245255 1.452963504 1.474681752 1.4964} {
     add EtaPhiBins $eta $PhiBins
   }
 
-  # assume 0.02 x 0.02 resolution in eta,phi in the endcaps 1.5 < |eta| < 3.0 (HGCAL- ECAL)
-
   set PhiBins {}
-  for {set i -180} {$i <= 180} {incr i} {
-    add PhiBins [expr {$i * $pi/180.0}]
-  }
-
-  # 0.02 unit in eta up to eta = 3
-  for {set i 1} {$i <= 84} {incr i} {
-    set eta [expr { -2.958 + $i * 0.0174}]
+  add PhiBins -3.141592654
+  add PhiBins -3.119776038
+  add PhiBins -3.097959422
+  add PhiBins -3.076142807
+  add PhiBins -3.054326191
+  add PhiBins -3.032509575
+  add PhiBins -3.01069296
+  add PhiBins -2.988876344
+  add PhiBins -2.967059728
+  add PhiBins -2.945243113
+  add PhiBins -2.923426497
+  add PhiBins -2.901609881
+  add PhiBins -2.879793266
+  add PhiBins -2.85797665
+  add PhiBins -2.836160034
+  add PhiBins -2.814343419
+  add PhiBins -2.792526803
+  add PhiBins -2.770710188
+  add PhiBins -2.748893572
+  add PhiBins -2.727076956
+  add PhiBins -2.705260341
+  add PhiBins -2.683443725
+  add PhiBins -2.661627109
+  add PhiBins -2.639810494
+  add PhiBins -2.617993878
+  add PhiBins -2.596177262
+  add PhiBins -2.574360647
+  add PhiBins -2.552544031
+  add PhiBins -2.530727415
+  add PhiBins -2.5089108
+  add PhiBins -2.487094184
+  add PhiBins -2.465277568
+  add PhiBins -2.443460953
+  add PhiBins -2.421644337
+  add PhiBins -2.399827721
+  add PhiBins -2.378011106
+  add PhiBins -2.35619449
+  add PhiBins -2.334377875
+  add PhiBins -2.312561259
+  add PhiBins -2.290744643
+  add PhiBins -2.268928028
+  add PhiBins -2.247111412
+  add PhiBins -2.225294796
+  add PhiBins -2.203478181
+  add PhiBins -2.181661565
+  add PhiBins -2.159844949
+  add PhiBins -2.138028334
+  add PhiBins -2.116211718
+  add PhiBins -2.094395102
+  add PhiBins -2.072578487
+  add PhiBins -2.050761871
+  add PhiBins -2.028945255
+  add PhiBins -2.00712864
+  add PhiBins -1.985312024
+  add PhiBins -1.963495408
+  add PhiBins -1.941678793
+  add PhiBins -1.919862177
+  add PhiBins -1.898045562
+  add PhiBins -1.876228946
+  add PhiBins -1.85441233
+  add PhiBins -1.832595715
+  add PhiBins -1.810779099
+  add PhiBins -1.788962483
+  add PhiBins -1.767145868
+  add PhiBins -1.745329252
+  add PhiBins -1.723512636
+  add PhiBins -1.701696021
+  add PhiBins -1.679879405
+  add PhiBins -1.658062789
+  add PhiBins -1.636246174
+  add PhiBins -1.614429558
+  add PhiBins -1.592612942
+  add PhiBins -1.570796327
+  add PhiBins -1.548979711
+  add PhiBins -1.527163095
+  add PhiBins -1.50534648
+  add PhiBins -1.483529864
+  add PhiBins -1.461713249
+  add PhiBins -1.439896633
+  add PhiBins -1.418080017
+  add PhiBins -1.396263402
+  add PhiBins -1.374446786
+  add PhiBins -1.35263017
+  add PhiBins -1.330813555
+  add PhiBins -1.308996939
+  add PhiBins -1.287180323
+  add PhiBins -1.265363708
+  add PhiBins -1.243547092
+  add PhiBins -1.221730476
+  add PhiBins -1.199913861
+  add PhiBins -1.178097245
+  add PhiBins -1.156280629
+  add PhiBins -1.134464014
+  add PhiBins -1.112647398
+  add PhiBins -1.090830782
+  add PhiBins -1.069014167
+  add PhiBins -1.047197551
+  add PhiBins -1.025380936
+  add PhiBins -1.00356432
+  add PhiBins -0.9817477042
+  add PhiBins -0.9599310886
+  add PhiBins -0.9381144729
+  add PhiBins -0.9162978573
+  add PhiBins -0.8944812416
+  add PhiBins -0.872664626
+  add PhiBins -0.8508480103
+  add PhiBins -0.8290313947
+  add PhiBins -0.807214779
+  add PhiBins -0.7853981634
+  add PhiBins -0.7635815477
+  add PhiBins -0.7417649321
+  add PhiBins -0.7199483164
+  add PhiBins -0.6981317008
+  add PhiBins -0.6763150851
+  add PhiBins -0.6544984695
+  add PhiBins -0.6326818538
+  add PhiBins -0.6108652382
+  add PhiBins -0.5890486225
+  add PhiBins -0.5672320069
+  add PhiBins -0.5454153912
+  add PhiBins -0.5235987756
+  add PhiBins -0.5017821599
+  add PhiBins -0.4799655443
+  add PhiBins -0.4581489286
+  add PhiBins -0.436332313
+  add PhiBins -0.4145156973
+  add PhiBins -0.3926990817
+  add PhiBins -0.370882466
+  add PhiBins -0.3490658504
+  add PhiBins -0.3272492347
+  add PhiBins -0.3054326191
+  add PhiBins -0.2836160034
+  add PhiBins -0.2617993878
+  add PhiBins -0.2399827721
+  add PhiBins -0.2181661565
+  add PhiBins -0.1963495408
+  add PhiBins -0.1745329252
+  add PhiBins -0.1527163095
+  add PhiBins -0.1308996939
+  add PhiBins -0.1090830782
+  add PhiBins -0.0872664626
+  add PhiBins -0.06544984695
+  add PhiBins -0.0436332313
+  add PhiBins -0.02181661565
+  add PhiBins 0
+  add PhiBins 0.02181661565
+  add PhiBins 0.0436332313
+  add PhiBins 0.06544984695
+  add PhiBins 0.0872664626
+  add PhiBins 0.1090830782
+  add PhiBins 0.1308996939
+  add PhiBins 0.1527163095
+  add PhiBins 0.1745329252
+  add PhiBins 0.1963495408
+  add PhiBins 0.2181661565
+  add PhiBins 0.2399827721
+  add PhiBins 0.2617993878
+  add PhiBins 0.2836160034
+  add PhiBins 0.3054326191
+  add PhiBins 0.3272492347
+  add PhiBins 0.3490658504
+  add PhiBins 0.370882466
+  add PhiBins 0.3926990817
+  add PhiBins 0.4145156973
+  add PhiBins 0.436332313
+  add PhiBins 0.4581489286
+  add PhiBins 0.4799655443
+  add PhiBins 0.5017821599
+  add PhiBins 0.5235987756
+  add PhiBins 0.5454153912
+  add PhiBins 0.5672320069
+  add PhiBins 0.5890486225
+  add PhiBins 0.6108652382
+  add PhiBins 0.6326818538
+  add PhiBins 0.6544984695
+  add PhiBins 0.6763150851
+  add PhiBins 0.6981317008
+  add PhiBins 0.7199483164
+  add PhiBins 0.7417649321
+  add PhiBins 0.7635815477
+  add PhiBins 0.7853981634
+  add PhiBins 0.807214779
+  add PhiBins 0.8290313947
+  add PhiBins 0.8508480103
+  add PhiBins 0.872664626
+  add PhiBins 0.8944812416
+  add PhiBins 0.9162978573
+  add PhiBins 0.9381144729
+  add PhiBins 0.9599310886
+  add PhiBins 0.9817477042
+  add PhiBins 1.00356432
+  add PhiBins 1.025380936
+  add PhiBins 1.047197551
+  add PhiBins 1.069014167
+  add PhiBins 1.090830782
+  add PhiBins 1.112647398
+  add PhiBins 1.134464014
+  add PhiBins 1.156280629
+  add PhiBins 1.178097245
+  add PhiBins 1.199913861
+  add PhiBins 1.221730476
+  add PhiBins 1.243547092
+  add PhiBins 1.265363708
+  add PhiBins 1.287180323
+  add PhiBins 1.308996939
+  add PhiBins 1.330813555
+  add PhiBins 1.35263017
+  add PhiBins 1.374446786
+  add PhiBins 1.396263402
+  add PhiBins 1.418080017
+  add PhiBins 1.439896633
+  add PhiBins 1.461713249
+  add PhiBins 1.483529864
+  add PhiBins 1.50534648
+  add PhiBins 1.527163095
+  add PhiBins 1.548979711
+  add PhiBins 1.570796327
+  add PhiBins 1.592612942
+  add PhiBins 1.614429558
+  add PhiBins 1.636246174
+  add PhiBins 1.658062789
+  add PhiBins 1.679879405
+  add PhiBins 1.701696021
+  add PhiBins 1.723512636
+  add PhiBins 1.745329252
+  add PhiBins 1.767145868
+  add PhiBins 1.788962483
+  add PhiBins 1.810779099
+  add PhiBins 1.832595715
+  add PhiBins 1.85441233
+  add PhiBins 1.876228946
+  add PhiBins 1.898045562
+  add PhiBins 1.919862177
+  add PhiBins 1.941678793
+  add PhiBins 1.963495408
+  add PhiBins 1.985312024
+  add PhiBins 2.00712864
+  add PhiBins 2.028945255
+  add PhiBins 2.050761871
+  add PhiBins 2.072578487
+  add PhiBins 2.094395102
+  add PhiBins 2.116211718
+  add PhiBins 2.138028334
+  add PhiBins 2.159844949
+  add PhiBins 2.181661565
+  add PhiBins 2.203478181
+  add PhiBins 2.225294796
+  add PhiBins 2.247111412
+  add PhiBins 2.268928028
+  add PhiBins 2.290744643
+  add PhiBins 2.312561259
+  add PhiBins 2.334377875
+  add PhiBins 2.35619449
+  add PhiBins 2.378011106
+  add PhiBins 2.399827721
+  add PhiBins 2.421644337
+  add PhiBins 2.443460953
+  add PhiBins 2.465277568
+  add PhiBins 2.487094184
+  add PhiBins 2.5089108
+  add PhiBins 2.530727415
+  add PhiBins 2.552544031
+  add PhiBins 2.574360647
+  add PhiBins 2.596177262
+  add PhiBins 2.617993878
+  add PhiBins 2.639810494
+  add PhiBins 2.661627109
+  add PhiBins 2.683443725
+  add PhiBins 2.705260341
+  add PhiBins 2.727076956
+  add PhiBins 2.748893572
+  add PhiBins 2.770710188
+  add PhiBins 2.792526803
+  add PhiBins 2.814343419
+  add PhiBins 2.836160034
+  add PhiBins 2.85797665
+  add PhiBins 2.879793266
+  add PhiBins 2.901609881
+  add PhiBins 2.923426497
+  add PhiBins 2.945243113
+  add PhiBins 2.967059728
+  add PhiBins 2.988876344
+  add PhiBins 3.01069296
+  add PhiBins 3.032509575
+  add PhiBins 3.054326191
+  add PhiBins 3.076142807
+  add PhiBins 3.097959422
+  add PhiBins 3.119776038
+  add PhiBins 3.141592654
+  foreach eta {-2.9406 -2.918718182 -2.896836364 -2.874954545 -2.853072727 -2.831190909 -2.809309091 -2.787427273 -2.765545455 -2.743663636 -2.721781818 -2.6999 -2.678018182 -2.656136364 -2.634254545 -2.612372727 -2.590490909 -2.568609091 -2.546727273 -2.524845455 -2.502963636 -2.481081818 -2.4592 -2.437318182 -2.415436364 -2.393554545 -2.371672727 -2.349790909 -2.327909091 -2.306027273 -2.284145455 -2.262263636 -2.240381818 -2.2185 -2.196618182 -2.174736364 -2.152854545 -2.130972727 -2.109090909 -2.087209091 -2.065327273 -2.043445455 -2.021563636 -1.999681818 -1.9778 -1.955918182 -1.934036364 -1.912154545 -1.890272727 -1.868390909 -1.846509091 -1.824627273 -1.802745455 -1.780863636 -1.758981818 -1.7371 -1.715218182 -1.693336364 -1.671454545 -1.649572727 -1.627690909 -1.605809091 -1.583927273 -1.562045455 -1.540163636 -1.518281818 -1.4964} {
     add EtaPhiBins $eta $PhiBins
   }
 
-  for {set i 1} {$i <= 84} {incr i} {
-    set eta [expr { 1.4964 + $i * 0.0174}]
+  set PhiBins {}
+  add PhiBins -3.141592654
+  add PhiBins -3.119776038
+  add PhiBins -3.097959422
+  add PhiBins -3.076142807
+  add PhiBins -3.054326191
+  add PhiBins -3.032509575
+  add PhiBins -3.01069296
+  add PhiBins -2.988876344
+  add PhiBins -2.967059728
+  add PhiBins -2.945243113
+  add PhiBins -2.923426497
+  add PhiBins -2.901609881
+  add PhiBins -2.879793266
+  add PhiBins -2.85797665
+  add PhiBins -2.836160034
+  add PhiBins -2.814343419
+  add PhiBins -2.792526803
+  add PhiBins -2.770710188
+  add PhiBins -2.748893572
+  add PhiBins -2.727076956
+  add PhiBins -2.705260341
+  add PhiBins -2.683443725
+  add PhiBins -2.661627109
+  add PhiBins -2.639810494
+  add PhiBins -2.617993878
+  add PhiBins -2.596177262
+  add PhiBins -2.574360647
+  add PhiBins -2.552544031
+  add PhiBins -2.530727415
+  add PhiBins -2.5089108
+  add PhiBins -2.487094184
+  add PhiBins -2.465277568
+  add PhiBins -2.443460953
+  add PhiBins -2.421644337
+  add PhiBins -2.399827721
+  add PhiBins -2.378011106
+  add PhiBins -2.35619449
+  add PhiBins -2.334377875
+  add PhiBins -2.312561259
+  add PhiBins -2.290744643
+  add PhiBins -2.268928028
+  add PhiBins -2.247111412
+  add PhiBins -2.225294796
+  add PhiBins -2.203478181
+  add PhiBins -2.181661565
+  add PhiBins -2.159844949
+  add PhiBins -2.138028334
+  add PhiBins -2.116211718
+  add PhiBins -2.094395102
+  add PhiBins -2.072578487
+  add PhiBins -2.050761871
+  add PhiBins -2.028945255
+  add PhiBins -2.00712864
+  add PhiBins -1.985312024
+  add PhiBins -1.963495408
+  add PhiBins -1.941678793
+  add PhiBins -1.919862177
+  add PhiBins -1.898045562
+  add PhiBins -1.876228946
+  add PhiBins -1.85441233
+  add PhiBins -1.832595715
+  add PhiBins -1.810779099
+  add PhiBins -1.788962483
+  add PhiBins -1.767145868
+  add PhiBins -1.745329252
+  add PhiBins -1.723512636
+  add PhiBins -1.701696021
+  add PhiBins -1.679879405
+  add PhiBins -1.658062789
+  add PhiBins -1.636246174
+  add PhiBins -1.614429558
+  add PhiBins -1.592612942
+  add PhiBins -1.570796327
+  add PhiBins -1.548979711
+  add PhiBins -1.527163095
+  add PhiBins -1.50534648
+  add PhiBins -1.483529864
+  add PhiBins -1.461713249
+  add PhiBins -1.439896633
+  add PhiBins -1.418080017
+  add PhiBins -1.396263402
+  add PhiBins -1.374446786
+  add PhiBins -1.35263017
+  add PhiBins -1.330813555
+  add PhiBins -1.308996939
+  add PhiBins -1.287180323
+  add PhiBins -1.265363708
+  add PhiBins -1.243547092
+  add PhiBins -1.221730476
+  add PhiBins -1.199913861
+  add PhiBins -1.178097245
+  add PhiBins -1.156280629
+  add PhiBins -1.134464014
+  add PhiBins -1.112647398
+  add PhiBins -1.090830782
+  add PhiBins -1.069014167
+  add PhiBins -1.047197551
+  add PhiBins -1.025380936
+  add PhiBins -1.00356432
+  add PhiBins -0.9817477042
+  add PhiBins -0.9599310886
+  add PhiBins -0.9381144729
+  add PhiBins -0.9162978573
+  add PhiBins -0.8944812416
+  add PhiBins -0.872664626
+  add PhiBins -0.8508480103
+  add PhiBins -0.8290313947
+  add PhiBins -0.807214779
+  add PhiBins -0.7853981634
+  add PhiBins -0.7635815477
+  add PhiBins -0.7417649321
+  add PhiBins -0.7199483164
+  add PhiBins -0.6981317008
+  add PhiBins -0.6763150851
+  add PhiBins -0.6544984695
+  add PhiBins -0.6326818538
+  add PhiBins -0.6108652382
+  add PhiBins -0.5890486225
+  add PhiBins -0.5672320069
+  add PhiBins -0.5454153912
+  add PhiBins -0.5235987756
+  add PhiBins -0.5017821599
+  add PhiBins -0.4799655443
+  add PhiBins -0.4581489286
+  add PhiBins -0.436332313
+  add PhiBins -0.4145156973
+  add PhiBins -0.3926990817
+  add PhiBins -0.370882466
+  add PhiBins -0.3490658504
+  add PhiBins -0.3272492347
+  add PhiBins -0.3054326191
+  add PhiBins -0.2836160034
+  add PhiBins -0.2617993878
+  add PhiBins -0.2399827721
+  add PhiBins -0.2181661565
+  add PhiBins -0.1963495408
+  add PhiBins -0.1745329252
+  add PhiBins -0.1527163095
+  add PhiBins -0.1308996939
+  add PhiBins -0.1090830782
+  add PhiBins -0.0872664626
+  add PhiBins -0.06544984695
+  add PhiBins -0.0436332313
+  add PhiBins -0.02181661565
+  add PhiBins 0
+  add PhiBins 0.02181661565
+  add PhiBins 0.0436332313
+  add PhiBins 0.06544984695
+  add PhiBins 0.0872664626
+  add PhiBins 0.1090830782
+  add PhiBins 0.1308996939
+  add PhiBins 0.1527163095
+  add PhiBins 0.1745329252
+  add PhiBins 0.1963495408
+  add PhiBins 0.2181661565
+  add PhiBins 0.2399827721
+  add PhiBins 0.2617993878
+  add PhiBins 0.2836160034
+  add PhiBins 0.3054326191
+  add PhiBins 0.3272492347
+  add PhiBins 0.3490658504
+  add PhiBins 0.370882466
+  add PhiBins 0.3926990817
+  add PhiBins 0.4145156973
+  add PhiBins 0.436332313
+  add PhiBins 0.4581489286
+  add PhiBins 0.4799655443
+  add PhiBins 0.5017821599
+  add PhiBins 0.5235987756
+  add PhiBins 0.5454153912
+  add PhiBins 0.5672320069
+  add PhiBins 0.5890486225
+  add PhiBins 0.6108652382
+  add PhiBins 0.6326818538
+  add PhiBins 0.6544984695
+  add PhiBins 0.6763150851
+  add PhiBins 0.6981317008
+  add PhiBins 0.7199483164
+  add PhiBins 0.7417649321
+  add PhiBins 0.7635815477
+  add PhiBins 0.7853981634
+  add PhiBins 0.807214779
+  add PhiBins 0.8290313947
+  add PhiBins 0.8508480103
+  add PhiBins 0.872664626
+  add PhiBins 0.8944812416
+  add PhiBins 0.9162978573
+  add PhiBins 0.9381144729
+  add PhiBins 0.9599310886
+  add PhiBins 0.9817477042
+  add PhiBins 1.00356432
+  add PhiBins 1.025380936
+  add PhiBins 1.047197551
+  add PhiBins 1.069014167
+  add PhiBins 1.090830782
+  add PhiBins 1.112647398
+  add PhiBins 1.134464014
+  add PhiBins 1.156280629
+  add PhiBins 1.178097245
+  add PhiBins 1.199913861
+  add PhiBins 1.221730476
+  add PhiBins 1.243547092
+  add PhiBins 1.265363708
+  add PhiBins 1.287180323
+  add PhiBins 1.308996939
+  add PhiBins 1.330813555
+  add PhiBins 1.35263017
+  add PhiBins 1.374446786
+  add PhiBins 1.396263402
+  add PhiBins 1.418080017
+  add PhiBins 1.439896633
+  add PhiBins 1.461713249
+  add PhiBins 1.483529864
+  add PhiBins 1.50534648
+  add PhiBins 1.527163095
+  add PhiBins 1.548979711
+  add PhiBins 1.570796327
+  add PhiBins 1.592612942
+  add PhiBins 1.614429558
+  add PhiBins 1.636246174
+  add PhiBins 1.658062789
+  add PhiBins 1.679879405
+  add PhiBins 1.701696021
+  add PhiBins 1.723512636
+  add PhiBins 1.745329252
+  add PhiBins 1.767145868
+  add PhiBins 1.788962483
+  add PhiBins 1.810779099
+  add PhiBins 1.832595715
+  add PhiBins 1.85441233
+  add PhiBins 1.876228946
+  add PhiBins 1.898045562
+  add PhiBins 1.919862177
+  add PhiBins 1.941678793
+  add PhiBins 1.963495408
+  add PhiBins 1.985312024
+  add PhiBins 2.00712864
+  add PhiBins 2.028945255
+  add PhiBins 2.050761871
+  add PhiBins 2.072578487
+  add PhiBins 2.094395102
+  add PhiBins 2.116211718
+  add PhiBins 2.138028334
+  add PhiBins 2.159844949
+  add PhiBins 2.181661565
+  add PhiBins 2.203478181
+  add PhiBins 2.225294796
+  add PhiBins 2.247111412
+  add PhiBins 2.268928028
+  add PhiBins 2.290744643
+  add PhiBins 2.312561259
+  add PhiBins 2.334377875
+  add PhiBins 2.35619449
+  add PhiBins 2.378011106
+  add PhiBins 2.399827721
+  add PhiBins 2.421644337
+  add PhiBins 2.443460953
+  add PhiBins 2.465277568
+  add PhiBins 2.487094184
+  add PhiBins 2.5089108
+  add PhiBins 2.530727415
+  add PhiBins 2.552544031
+  add PhiBins 2.574360647
+  add PhiBins 2.596177262
+  add PhiBins 2.617993878
+  add PhiBins 2.639810494
+  add PhiBins 2.661627109
+  add PhiBins 2.683443725
+  add PhiBins 2.705260341
+  add PhiBins 2.727076956
+  add PhiBins 2.748893572
+  add PhiBins 2.770710188
+  add PhiBins 2.792526803
+  add PhiBins 2.814343419
+  add PhiBins 2.836160034
+  add PhiBins 2.85797665
+  add PhiBins 2.879793266
+  add PhiBins 2.901609881
+  add PhiBins 2.923426497
+  add PhiBins 2.945243113
+  add PhiBins 2.967059728
+  add PhiBins 2.988876344
+  add PhiBins 3.01069296
+  add PhiBins 3.032509575
+  add PhiBins 3.054326191
+  add PhiBins 3.076142807
+  add PhiBins 3.097959422
+  add PhiBins 3.119776038
+  add PhiBins 3.141592654
+  foreach eta {1.5138 1.535681818 1.557563636 1.579445455 1.601327273 1.623209091 1.645090909 1.666972727 1.688854545 1.710736364 1.732618182 1.7545 1.776381818 1.798263636 1.820145455 1.842027273 1.863909091 1.885790909 1.907672727 1.929554545 1.951436364 1.973318182 1.9952 2.017081818 2.038963636 2.060845455 2.082727273 2.104609091 2.126490909 2.148372727 2.170254545 2.192136364 2.214018182 2.2359 2.257781818 2.279663636 2.301545455 2.323427273 2.345309091 2.367190909 2.389072727 2.410954545 2.432836364 2.454718182 2.4766 2.498481818 2.520363636 2.542245455 2.564127273 2.586009091 2.607890909 2.629772727 2.651654545 2.673536364 2.695418182 2.7173 2.739181818 2.761063636 2.782945455 2.804827273 2.826709091 2.848590909 2.870472727 2.892354545 2.914236364 2.936118182 2.958} {
     add EtaPhiBins $eta $PhiBins
   }
 
-  # take present CMS granularity for HF
-
-  # 0.175 x (0.175 - 0.35) resolution in eta,phi in the HF 3.0 < |eta| < 5.0
   set PhiBins {}
-  for {set i -18} {$i <= 18} {incr i} {
-    add PhiBins [expr {$i * $pi/18.0}]
-  }
-
-  foreach eta {-5 -4.7 -4.525 -4.35 -4.175 -4 -3.825 -3.65 -3.475 -3.3 -3.125 -2.958 3.125 3.3 3.475 3.65 3.825 4 4.175 4.35 4.525 4.7 5} {
+  add PhiBins -3.141592654
+  add PhiBins -2.924931091
+  add PhiBins -2.708269529
+  add PhiBins -2.491607967
+  add PhiBins -2.274946404
+  add PhiBins -2.058284842
+  add PhiBins -1.84162328
+  add PhiBins -1.624961717
+  add PhiBins -1.408300155
+  add PhiBins -1.191638593
+  add PhiBins -0.9749770304
+  add PhiBins -0.7583154681
+  add PhiBins -0.5416539058
+  add PhiBins -0.3249923435
+  add PhiBins -0.1083307812
+  add PhiBins 0.1083307812
+  add PhiBins 0.3249923435
+  add PhiBins 0.5416539058
+  add PhiBins 0.7583154681
+  add PhiBins 0.9749770304
+  add PhiBins 1.191638593
+  add PhiBins 1.408300155
+  add PhiBins 1.624961717
+  add PhiBins 1.84162328
+  add PhiBins 2.058284842
+  add PhiBins 2.274946404
+  add PhiBins 2.491607967
+  add PhiBins 2.708269529
+  add PhiBins 2.924931091
+  add PhiBins 3.141592654
+  foreach eta {-5 -4.661111111 -4.447222222 -4.233333333 -4.019444444 -3.805555556 -3.591666667 -3.377777778 -3.163888889 -2.958 3.125 3.34375 3.5625 3.78125 4 4.21875 4.4375 4.65625 5} {
     add EtaPhiBins $eta $PhiBins
   }
 
@@ -800,28 +2165,121 @@ module SimpleCalorimeter HCal {
   # the list ends with the higher edged of the last tower
 
   # 5 degrees towers
-  set PhiBins {}
-  for {set i -36} {$i <= 36} {incr i} {
-    add PhiBins [expr {$i * $pi/36.0}]
-  }
-  foreach eta {-1.566 -1.479 -1.392 -1.305 -1.218 -1.131 -1.044 -0.957 -0.87 -0.783 -0.696 -0.609 -0.522 -0.435 -0.348 -0.261 -0.174 -0.087 0 0.087 0.174 0.261 0.348 0.435 0.522 0.609 0.696 0.783 0.87 0.957 1.044 1.131 1.218 1.305 1.392 1.479 1.566 1.653} {
+    set PhiBins {}
+  add PhiBins -3.141592654
+  add PhiBins -3.033261872
+  add PhiBins -2.924931091
+  add PhiBins -2.81660031
+  add PhiBins -2.708269529
+  add PhiBins -2.599938748
+  add PhiBins -2.491607967
+  add PhiBins -2.383277185
+  add PhiBins -2.274946404
+  add PhiBins -2.166615623
+  add PhiBins -2.058284842
+  add PhiBins -1.949954061
+  add PhiBins -1.84162328
+  add PhiBins -1.733292499
+  add PhiBins -1.624961717
+  add PhiBins -1.516630936
+  add PhiBins -1.408300155
+  add PhiBins -1.299969374
+  add PhiBins -1.191638593
+  add PhiBins -1.083307812
+  add PhiBins -0.9749770304
+  add PhiBins -0.8666462493
+  add PhiBins -0.7583154681
+  add PhiBins -0.6499846869
+  add PhiBins -0.5416539058
+  add PhiBins -0.4333231246
+  add PhiBins -0.3249923435
+  add PhiBins -0.2166615623
+  add PhiBins -0.1083307812
+  add PhiBins 0
+  add PhiBins 0.1083307812
+  add PhiBins 0.2166615623
+  add PhiBins 0.3249923435
+  add PhiBins 0.4333231246
+  add PhiBins 0.5416539058
+  add PhiBins 0.6499846869
+  add PhiBins 0.7583154681
+  add PhiBins 0.8666462493
+  add PhiBins 0.9749770304
+  add PhiBins 1.083307812
+  add PhiBins 1.191638593
+  add PhiBins 1.299969374
+  add PhiBins 1.408300155
+  add PhiBins 1.516630936
+  add PhiBins 1.624961717
+  add PhiBins 1.733292499
+  add PhiBins 1.84162328
+  add PhiBins 1.949954061
+  add PhiBins 2.058284842
+  add PhiBins 2.166615623
+  add PhiBins 2.274946404
+  add PhiBins 2.383277185
+  add PhiBins 2.491607967
+  add PhiBins 2.599938748
+  add PhiBins 2.708269529
+  add PhiBins 2.81660031
+  add PhiBins 2.924931091
+  add PhiBins 3.033261872
+  add PhiBins 3.141592654
+  foreach eta {-1.566 -1.4587 -1.3514 -1.2441 -1.1368 -1.0295 -0.9222 -0.8149 -0.7076 -0.6003 -0.493 -0.3857 -0.2784 -0.1711 -0.0638 0.0435 0.1508 0.2581 0.3654 0.4727 0.58 0.6873 0.7946 0.9019 1.0092 1.1165 1.2238 1.3311 1.4384 1.5457 1.653} {
     add EtaPhiBins $eta $PhiBins
   }
 
-  # 10 degrees towers
   set PhiBins {}
-  for {set i -18} {$i <= 18} {incr i} {
-    add PhiBins [expr {$i * $pi/18.0}]
-  }
-  foreach eta {-4.35 -4.175 -4 -3.825 -3.65 -3.475 -3.3 -3.125 -2.95 -2.868 -2.65 -2.5 -2.322 -2.172 -2.043 -1.93 -1.83 -1.74 -1.653 1.74 1.83 1.93 2.043 2.172 2.322 2.5 2.65 2.868 2.95 3.125 3.3 3.475 3.65 3.825 4 4.175 4.35 4.525} {
+  add PhiBins -3.141592654
+  add PhiBins -2.924931091
+  add PhiBins -2.708269529
+  add PhiBins -2.491607967
+  add PhiBins -2.274946404
+  add PhiBins -2.058284842
+  add PhiBins -1.84162328
+  add PhiBins -1.624961717
+  add PhiBins -1.408300155
+  add PhiBins -1.191638593
+  add PhiBins -0.9749770304
+  add PhiBins -0.7583154681
+  add PhiBins -0.5416539058
+  add PhiBins -0.3249923435
+  add PhiBins -0.1083307812
+  add PhiBins 0.1083307812
+  add PhiBins 0.3249923435
+  add PhiBins 0.5416539058
+  add PhiBins 0.7583154681
+  add PhiBins 0.9749770304
+  add PhiBins 1.191638593
+  add PhiBins 1.408300155
+  add PhiBins 1.624961717
+  add PhiBins 1.84162328
+  add PhiBins 2.058284842
+  add PhiBins 2.274946404
+  add PhiBins 2.491607967
+  add PhiBins 2.708269529
+  add PhiBins 2.924931091
+  add PhiBins 3.141592654
+  foreach eta {-4.35 -4.125 -3.9 -3.675 -3.45 -3.225 -3 -2.868 -2.607142857 -2.398285714 -2.193428571 -2.026857143 -1.887142857 -1.765714286 -1.653 1.74 1.858571429 1.994571429 2.153571429 2.347428571 2.564285714 2.805714286 2.95 3.175 3.4 3.625 3.85 4.075 4.3 4.525} {
     add EtaPhiBins $eta $PhiBins
   }
 
-  # 20 degrees towers
   set PhiBins {}
-  for {set i -9} {$i <= 9} {incr i} {
-    add PhiBins [expr {$i * $pi/9.0}]
-  }
+  add PhiBins -3.141592654
+  add PhiBins -2.692793703
+  add PhiBins -2.243994753
+  add PhiBins -1.795195802
+  add PhiBins -1.346396852
+  add PhiBins -0.897597901
+  add PhiBins -0.4487989505
+  add PhiBins 0
+  add PhiBins 0.4487989505
+  add PhiBins 0.897597901
+  add PhiBins 1.346396852
+  add PhiBins 1.795195802
+  add PhiBins 2.243994753
+  add PhiBins 2.692793703
+  add PhiBins 3.141592654
   foreach eta {-5 -4.7 -4.525 4.7 5} {
     add EtaPhiBins $eta $PhiBins
   }
@@ -880,7 +2338,7 @@ module TrackPileUpSubtractor TrackPileUpSubtractor {
   set VertexInputArray PileUpMerger/vertices
   # assume perfect pile-up subtraction for tracks with |z| > fZVertexResolution
   # Z vertex resolution in m
-  set ZVertexResolution {0.0001}
+  set ZVertexResolution {0.0025}
 }
 
 ########################
@@ -918,6 +2376,19 @@ module Merger NeutralEFlowMerger {
 ####################
 # Energy flow merger
 ####################
+
+module Merger HLTEFlowMerger {
+  add InputArray TrackPileUpSubtractor/eflowTracks
+  add InputArray ECal/eflowPhotons
+  add InputArray HCal/eflowNeutralHadrons
+  set OutputArray eflow
+}
+
+module PdgCodeFilter HLTEFlowPtFilter {
+  set InputArray HLTEFlowMerger/eflow
+  set OutputArray eflow
+  set PTMin 0.6
+}
 
 module Merger EFlowMerger {
 # add InputArray InputArray
@@ -1131,7 +2602,7 @@ module Merger GenMissingET {
 
 module FastJetFinder FastJetFinderPUPPIAK8 {
 #  set InputArray TowerMerger/towers
-  set InputArray RunPUPPI/PuppiParticles
+  set InputArray HLTEFlowPtFilter/eflow
 
   set OutputArray jets
 
@@ -1161,7 +2632,7 @@ module FastJetFinder FastJetFinderPUPPIAK8 {
 
 module FastJetFinder FastJetFinderPUPPIAK15 {
 #  set InputArray TowerMerger/towers
-  set InputArray RunPUPPI/PuppiParticles
+  set InputArray HLTEFlowPtFilter/eflow
 
   set OutputArray jets
 
@@ -1199,28 +2670,28 @@ module EnergyScale JetEnergyScalePUPPIAK8 {
 
  # scale formula for jets
   set ScaleFormula {
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 250) * (1.02948) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 300) * (1.02298) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 300 && pt <= 400) * (1.01411) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 500) * (1.00739) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 500 && pt <= 650) * (1.00143) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 800) * (0.9968) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 800 && pt <= 1000) * (0.993623) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000 && pt <= 1500) * (0.990814) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1500 && pt <= 2000) * (0.990758) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2000 && pt <= 3000) * (0.989641) +
-  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3000) * (0.988095) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 250) * (1.09579) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 300) * (1.07237) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 300 && pt <= 400) * (1.04741) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 500) * (1.02741) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 500 && pt <= 650) * (1.01215) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 800) * (1.00068) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 800 && pt <= 1000) * (0.991693) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000 && pt <= 1500) * (0.986043) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1500 && pt <= 2000) * (0.986043) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2000 && pt <= 3000) * (0.986043) +
-  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3000) * (0.986043)
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt <= 250) * (0.895695) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 250 && pt <= 300) * (0.890044) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 300 && pt <= 400) * (0.840805) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 400 && pt <= 500) * (0.896875) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 500 && pt <= 650) * (0.900665) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 650 && pt <= 800) * (0.900086) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 800 && pt <= 1000) * (0.917291) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1000 && pt <= 1500) * (0.915995) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 1500 && pt <= 2000) * (0.912079) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 2000 && pt <= 3000) * (0.900176) +
+  (abs(eta) > 0 && abs(eta) <= 1.5) * (pt > 3000) * (0.886591) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt <= 250) * (0.95339) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 250 && pt <= 300) * (0.933019) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 300 && pt <= 400) * (0.868418) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 400 && pt <= 500) * (0.914701) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 500 && pt <= 650) * (0.910305) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 650 && pt <= 800) * (0.90359) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 800 && pt <= 1000) * (0.915509) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1000 && pt <= 1500) * (0.911584) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 1500 && pt <= 2000) * (0.907738) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 2000 && pt <= 3000) * (0.896902) +
+  (abs(eta) > 1.5 && abs(eta) <= 2.5) * (pt > 3000) * (0.884749)
   }
 }
 
@@ -1245,7 +2716,7 @@ module TreeWriter TreeWriter {
 # add Branch InputArray BranchName BranchClass
   add Branch Delphes/allParticles Particle GenParticle
 
-  add Branch RunPUPPI/PuppiParticles ParticleFlowCandidate ParticleFlowCandidate
+  add Branch HLTEFlowPtFilter/eflow ParticleFlowCandidate ParticleFlowCandidate
 
   add Branch GenJetFinderAK8/jets GenJetAK8 Jet
   add Branch GenJetFinderAK15/jets GenJetAK15 Jet

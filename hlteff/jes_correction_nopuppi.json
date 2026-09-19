@@ -1,0 +1,66 @@
+{
+ "note": "multiplicative correction to JetEnergyScalePUPPIAK8, per bin of the HLT jet pT (|eta|-inclusive), relative to the JES table of the HLT card the input ntuples were made with - see derive_hlt_jes_correction.py",
+ "generated_at": "2026-09-19 12:19 UTC",
+ "inputs": [
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c1/ntuple.root",
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c2/ntuple.root",
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c3/ntuple.root",
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c4/ntuple.root",
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c5/ntuple.root",
+  "/tmp/llambrec/claude-116295/-eos-home-l-llambrec-jetclass/d04b907d-97b4-45d0-b6af-d846fb6b08c7/scratchpad/jes/c6/ntuple.root"
+ ],
+ "n_matched_jets": 26152,
+ "jet_pt_edges": [
+  200.0,
+  250.0,
+  300.0,
+  400.0,
+  500.0,
+  650.0,
+  800.0,
+  1000.0,
+  1500.0,
+  2000.0,
+  3000.0,
+  5000.0
+ ],
+ "factors": [
+  0.8700500364083875,
+  0.8700500364083875,
+  0.8291092114510772,
+  0.8902976442196637,
+  0.8993759854876543,
+  0.9029753743112353,
+  0.9231780323298954,
+  0.9244877066385648,
+  0.9205870911285163,
+  0.9095978463512839,
+  0.8972730774911359
+ ],
+ "n_jets": [
+  140,
+  301,
+  893,
+  1339,
+  2488,
+  1441,
+  2413,
+  4458,
+  2522,
+  6546,
+  3611
+ ],
+ "measured": [
+  false,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true
+ ]
+}

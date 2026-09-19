@@ -197,11 +197,12 @@ Ntuples produced before this (all productions up to and including
 `output_jetclass2_10M_20260917_puppinocharged`) have independent vertices and
 pile-up overlays in their offline and HLT versions of each event.
 
-## HLT tracking efficiency should depend on the impact parameters (not yet implemented)
+## HLT tracking efficiency should depend on the impact parameters
 
-**Status:** known, not implemented (found 2026-09-18). The current HLT card
-reproduces the *net* effect only approximately, see "What the HLT card does
-now" below.
+**Status:** found 2026-09-18; **implemented 2026-09-19** in the HLT card used
+from `output_jetclass2_10M_20260919_nopuppi` on (see "Implemented version"
+at the end of this section). The subsections "What the HLT card does now"
+and "How it could be implemented" describe the state and plan before that.
 
 ### What FullSim HLT (ScoutingAK8) actually does
 
@@ -307,3 +308,75 @@ so "CHS only" overshoots neutrals by ~10%.)
 Scratch scripts used for the numbers above (not in the repo):
 `compare.py` (per-type ratios per HLT variant) and `displacement.py`
 (HLT matching efficiency by track class).
+
+### Implemented version (HLT card from 2026-09-19, `output_jetclass2_10M_20260919_nopuppi`)
+
+Generated with
+
+```
+python hlteff/generate_hlt_card.py --puppi-use-charged false \
+    --ip-curves hlteff/curves_ip_qcd.json --no-puppi --pu-track-z-window 2.5 \
+    --hlt-pf-pt-min 0.6 --calo-granularity-factor 1.25 \
+    --jes-correction hlteff/jes_correction_nopuppi.json
+```
+
+- `--ip-curves`: charged-hadron/muon efficiency in (|eta|, pT, |d0|) bins from
+  `hlteff/derive_ip_curves.py` (293k FullSim QCD jets; plots via
+  `hlteff/plot_ip_curves.py`).
+- `--no-puppi --pu-track-z-window 2.5`: HLT jets from all PF candidates, pile-up
+  tracks kept only within 2.5 mm of the PV (measured HLT z acceptance: a sharp
+  drop between 2 and 3 mm).
+- `--hlt-pf-pt-min 0.6`: every scouting candidate has pT >= 0.600 GeV.
+- `--calo-granularity-factor 1.25`: hand-tuned; brings the neutral-hadron
+  count change close to FullSim (scan of HCal/ECal thresholds and
+  granularity, 2026-09-19: HCal thresholds are unusable - raising them also
+  destroys charged hadrons through the track-rescale artifact above; ECal
+  thresholds cannot fix the jet-pT dependence of the photon excess).
+- `--jes-correction`: per-HLT-jet-pT factors (0.83-0.92) on
+  JetEnergyScalePUPPIAK8 from `hlteff/derive_hlt_jes_correction.py`
+  (12k QCD events), needed because of the offline PUPPI bug below.
+
+Validation on independent QCD events, HLT/offline per-jet change (jet pT
+200-400 / 400-700 / >700 GeV) vs FullSim: neutral hadrons +191/+159/+103% vs
++173/+148/+111%; photons +77/+71/+39% vs +56/+52/+50%; charged hadrons
+-29/-27/-29% vs -39/-40/-42% (FullSim's offline includes lost and displaced
+tracks Delphes doesn't have); displaced (|d0|>1 mm) charged hadrons at HLT
+0.1 vs 0.0 per jet; jet pT ratio ~+5-10% above FullSim at 200-500 GeV,
+within ~5% above (the remaining offset comes from our wider, skewed
+HLT/offline spread, which a scale factor can't remove).
+
+## Delphes PUPPI bug: track charge never passed to PUPPI (offline neutrals over-suppressed)
+
+**Status:** known, deliberately NOT fixed (found 2026-09-19): fixing it would
+change the offline sample (and its agreement with central JetClass-II).
+
+In `modules/RunPUPPI.cc`, `curRecoObj.charge` is only set for neutrals
+(`= 0`), never for tracks, and `RecoObj`'s constructor
+(`external/PUPPI/RecoObj2.hh`) doesn't initialise it - so every track's
+charge is uninitialised memory. `PuppiContainer::initialize` derives the
+particle's user_index from it (0 neutral, charge for leading-vertex tracks,
+charge+5 for pile-up tracks), and `PuppiAlgo::add` treats |user_index| >= 3
+as pile-up; with garbage values, leading-vertex tracks end up in PUPPI's
+pile-up reference, and genuine neutrals in jets get weights << 1. Still
+present in upstream Delphes master (checked 2026-09-19).
+
+Effect on our offline card, even WITHOUT pile-up (1 vertex): pT-weighted
+mean PUPPI weight 0.34 for photons, 0.22 for neutral hadrons (weight 0 for
+62%/81% of them); offline keeps 266 of 821 GeV of photon pT per event
+(truth), and offline AK8 jets come out at 0.82-0.90 of the gen-jet pT
+(FullSim offline: ~0.92, with PUPPI weights of in-jet neutrals ~1). Charged
+hadrons are unaffected (their weights are hard-set by vertex association).
+
+This is why an HLT card without PUPPI (whose jets don't lose that neutral
+energy) shows a large apparent HLT neutral "excess" and HLT/offline jet-pT
+ratio of 1.25-1.3 relative to our offline, and why the no-PUPPI HLT card
+needs `--jes-correction`. It also explains why `UseCharged false` had such a
+large effect on the earlier PUPPI-based HLT card (with it, PUPPI never uses
+the broken classification).
+
+Fix (tested in a scratch copy only, 2026-09-19): set
+`curRecoObj.charge = candidate->Charge;` for tracks in `RunPUPPI.cc` and add
+`charge(0)` to the `RecoObj` constructor. Without pile-up, offline PUPPI then
+keeps all neutrals, and our offline photon energy per jet matches FullSim's -
+but our offline neutral *counts* per jet then exceed FullSim's, so it was
+not adopted.

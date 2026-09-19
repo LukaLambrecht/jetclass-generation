@@ -204,3 +204,46 @@ def format_piecewise_table(eta_edges, pt_edges, values, var_prefix=''):
             value = values[ie][ip]
             lines.append('{}{} * {} * ({:.6g})'.format(var_prefix, eta_cond, pt_cond, value))
     return ' +\n'.join(lines)
+
+
+def format_piecewise_table_3d(eta_edges, pt_edges, d0_edges, values, var_prefix='', skip_zero=True):
+    '''
+    Like format_piecewise_table(), with a third, transverse-impact-parameter
+    axis: one "(eta range) * (pt range) * (|d0| range) * (value)" term per
+    (eta, pt, d0) bin, `values` being an [n_eta][n_pt][n_d0] grid. `d0` is the
+    Delphes formula variable (candidate->D0, in mm, set by ParticlePropagator);
+    abs() is used since only its magnitude matters (and Delphes' sign
+    convention differs from CMS', see delphes_cards/KNOWN_ISSUES.md). pT is
+    open-ended at both ends as in format_piecewise_table(); the lowest |d0|
+    bin starts at 0 (closed) and the highest is open-ended, so every track
+    lands in exactly one bin. With skip_zero, terms whose value is exactly 0
+    are omitted (a sum of terms evaluates to 0 where no term applies anyway),
+    keeping the formula shorter.
+    '''
+    n_eta, n_pt, n_d0 = len(eta_edges) - 1, len(pt_edges) - 1, len(d0_edges) - 1
+    lines = []
+    for ie in range(n_eta):
+        eta_cond = '(abs(eta) > {:g} && abs(eta) <= {:g})'.format(eta_edges[ie], eta_edges[ie + 1])
+        for ip in range(n_pt):
+            pt_lo, pt_hi = pt_edges[ip], pt_edges[ip + 1]
+            if ip == n_pt - 1:
+                pt_cond = '(pt > {:g})'.format(pt_lo)
+            elif ip == 0:
+                pt_cond = '(pt <= {:g})'.format(pt_hi)
+            else:
+                pt_cond = '(pt > {:g} && pt <= {:g})'.format(pt_lo, pt_hi)
+            for i0 in range(n_d0):
+                value = values[ie][ip][i0]
+                if skip_zero and value == 0:
+                    continue
+                d0_lo, d0_hi = d0_edges[i0], d0_edges[i0 + 1]
+                if i0 == n_d0 - 1:
+                    d0_cond = '(abs(d0) > {:g})'.format(d0_lo)
+                elif i0 == 0:
+                    d0_cond = '(abs(d0) <= {:g})'.format(d0_hi)
+                else:
+                    d0_cond = '(abs(d0) > {:g} && abs(d0) <= {:g})'.format(d0_lo, d0_hi)
+                lines.append('{}{} * {} * {} * ({:.6g})'.format(var_prefix, eta_cond, pt_cond, d0_cond, value))
+    if not lines:
+        return '{}0'.format(var_prefix)
+    return ' +\n'.join(lines)

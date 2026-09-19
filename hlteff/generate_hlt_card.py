@@ -100,7 +100,8 @@ import argparse
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from delphes_formula import evaluate_formula, extract_formula_block, replace_formula_block, format_piecewise_table, replace_scalar
+from delphes_formula import (evaluate_formula, extract_formula_block, replace_formula_block, format_piecewise_table,
+                             format_piecewise_table_3d, replace_scalar)
 from calo_grid import parse_regions, coarsen_regions, replace_grid
 
 HLTEFF_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -183,6 +184,101 @@ def build_ratio_table(ratio_grid, n_grid, offline_formula, eta_edges, pt_edges,
                 val = max(clip[0], min(clip[1], val))
             table[ie][ip] = val
     return table
+
+
+# lower edges (GeV) of the coarse track-pT groups whose |d0| SHAPE is used as
+# the fallback for (eta, pt, d0) bins with too few offline tracks (see
+# build_ip_ratio_table); fine pT bins below the first edge join the first group
+IP_PT_GROUP_EDGES = [0.5, 1.2, 3.0, 10.0, 40.0]
+
+
+def build_ip_ratio_table(n_off, n_match, offline_formula, eta_edges, pt_edges, d0_edges, min_count, label,
+                         fallback_2d=None, fallback_shapes=None):
+    '''
+    Multiplicative combination with a third, |d0| axis (see derive_ip_curves.py):
+    HLT(pt,eta,d0) = offline_formula(pt,eta) * ratio(eta,pt,d0), clipped to [0,1].
+    ratio is n_matched/n_offline of the (eta,pt,d0) bin itself when that bin has at
+    least min_count offline tracks; otherwise the product of
+      - the bin's d0-INCLUSIVE ratio (same denominator; pT gaps filled from the
+        nearest valid pT bin, as fill_missing() does elsewhere) - or, for an eta
+        row with no usable d0-inclusive data at all, the (eta, pt) ratio row of
+        fallback_2d = (ratio_grid, n_grid) from curves_qcd.json (what the
+        default card uses), rather than a blind ratio of 1; and
+      - the |d0| SHAPE of the bin's coarse pT group (IP_PT_GROUP_EDGES):
+        ratio(eta,group,d0) / ratio(eta,group,inclusive), itself filled along d0
+        from the nearest valid d0 bin where the group is also short of data - or,
+        for a group with no usable d0 data at all, fallback_shapes[eta][group]
+        (e.g. the charged-hadron shapes, for muons) if given.
+    Using the offline formula as the base assumes the offline efficiency is
+    uniform in d0 (the same assumption the measurement needs).
+    Returns (table, shapes), shapes[eta][group] being the d0 shapes used.
+    '''
+    n_off = np.asarray(n_off, dtype=float)
+    n_match = np.asarray(n_match, dtype=float)
+    ne, npt, nd0 = n_off.shape
+    group_of = []
+    for ip in range(npt):
+        g = 0
+        for k, lo in enumerate(IP_PT_GROUP_EDGES):
+            if pt_edges[ip] >= lo - 1e-9:
+                g = k
+        group_of.append(g)
+
+    table = [[[0.0] * nd0 for _ in range(npt)] for _ in range(ne)]
+    all_shapes = []
+    n_direct = n_fallback = 0
+    for ie in range(ne):
+        eta_c = 0.5 * (eta_edges[ie] + eta_edges[ie + 1])
+        incl_n, incl_m = n_off[ie].sum(axis=1), n_match[ie].sum(axis=1)
+        incl_valid = [bool(n >= min_count) for n in incl_n]
+        incl_vals = [float(m / n) if ok else 1.0 for m, n, ok in zip(incl_m, incl_n, incl_valid)]
+        incl_filled, any_incl = fill_missing(incl_vals, incl_valid)
+        if not any_incl:
+            if fallback_2d is not None:
+                r2, n2 = fallback_2d
+                v2 = [bool(r2[ie][ip] is not None and n2[ie][ip] >= min_count) for ip in range(npt)]
+                incl_filled, any2 = fill_missing([r2[ie][ip] if v2[ip] else 1.0 for ip in range(npt)], v2)
+                print('WARNING: no usable {} d0-inclusive data for eta bin [{},{}) - using the (eta, pt) '
+                      'ratio from --curves there{}'.format(label, eta_edges[ie], eta_edges[ie + 1],
+                                                          '' if any2 else ' (itself empty: ratio 1)'), file=sys.stderr)
+            else:
+                print('WARNING: no usable {} data for eta bin [{},{}) - ratio 1 there'.format(
+                    label, eta_edges[ie], eta_edges[ie + 1]), file=sys.stderr)
+
+        shapes = {}
+        for g in sorted(set(group_of)):
+            sel = [ip for ip in range(npt) if group_of[ip] == g]
+            gn, gm = n_off[ie, sel, :].sum(axis=0), n_match[ie, sel, :].sum(axis=0)
+            g_incl = gm.sum() / gn.sum() if gn.sum() > 0 else 0.0
+            valid = [bool(n >= min_count and g_incl > 0) for n in gn]
+            vals = [float(m / n / g_incl) if ok else 1.0 for m, n, ok in zip(gm, gn, valid)]
+            shape, any_shape = fill_missing(vals, valid)
+            if not any_shape:
+                if fallback_shapes is not None:
+                    shape = list(fallback_shapes[ie][g])
+                    print('WARNING: no usable {} d0 shape for eta bin [{},{}), pT group {} - using the '
+                          'fallback (charged-hadron) shape there'.format(label, eta_edges[ie], eta_edges[ie + 1], g),
+                          file=sys.stderr)
+                else:
+                    print('WARNING: no usable {} d0 shape for eta bin [{},{}), pT group {} - '
+                          'no d0 dependence there'.format(label, eta_edges[ie], eta_edges[ie + 1], g), file=sys.stderr)
+            shapes[g] = shape
+        all_shapes.append(shapes)
+
+        for ip in range(npt):
+            pt_c = 0.5 * (pt_edges[ip] + pt_edges[ip + 1])
+            offline_val = evaluate_formula(offline_formula, pt=pt_c, eta=eta_c)
+            for i0 in range(nd0):
+                if n_off[ie, ip, i0] >= min_count:
+                    r = n_match[ie, ip, i0] / n_off[ie, ip, i0]
+                    n_direct += 1
+                else:
+                    r = incl_filled[ip] * shapes[group_of[ip]][i0]
+                    n_fallback += 1
+                table[ie][ip][i0] = max(0.0, min(1.0, offline_val * r))
+    print('{}: {} (eta,pt,d0) bins measured directly, {} from the fallback (min {} tracks)'.format(
+        label, n_direct, n_fallback, min_count))
+    return table, all_shapes
 
 
 def build_quadrature_table(sigma_grid, n_grid, offline_formula, eta_edges, pt_edges,
@@ -305,6 +401,106 @@ def apply_puppi_use_charged(text, use_charged):
     return text[:m.start()] + new_block + text[end:]
 
 
+HLT_JET_INPUT_MERGER = 'HLTEFlowMerger'
+
+
+def _module_span(text, module_type, module_name):
+    '''(start, end) of a "module <type> <name> { ... }" block, end = index of its closing brace.'''
+    m = re.search(r'^module\s+' + re.escape(module_type) + r'\s+' + re.escape(module_name) + r'\s*\{',
+                  text, re.MULTILINE)
+    if not m:
+        raise ValueError('module {} {} not found in the card'.format(module_type, module_name))
+    depth = 0
+    for i in range(m.end() - 1, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return m.start(), i
+    raise ValueError('module {} {}: unterminated block'.format(module_type, module_name))
+
+
+def _replace_in_module(text, module_type, module_name, old, new):
+    start, end = _module_span(text, module_type, module_name)
+    block = text[start:end]
+    if block.count(old) != 1:
+        raise ValueError('module {}: expected exactly one "{}", found {}'.format(module_name, old, block.count(old)))
+    return text[:start] + block.replace(old, new) + text[end:]
+
+
+HLT_JET_INPUT_PT_FILTER = 'HLTEFlowPtFilter'
+
+
+def apply_no_puppi(text, z_window_mm=None, pf_pt_min=None):
+    '''
+    Build the HLT jets WITHOUT PUPPI (and without CHS): real scouting AK8 jets are
+    plain anti-kT over all scouting particles (see delphes_cards/KNOWN_ISSUES.md).
+    Adds a Merger (HLT_JET_INPUT_MERGER) of the energy-flow tracks + ECal photons +
+    HCal neutral hadrons, and points FastJetFinderPUPPIAK8/AK15 and the
+    ParticleFlowCandidate TreeWriter branch at it instead of RunPUPPI/PuppiParticles.
+    (The module/branch names keep their "PUPPI" labels, so the ntuplizer and
+    run.sh work unchanged; PUPPI itself still runs, but nothing uses its output.)
+
+    z_window_mm None: the tracks are ALL energy-flow tracks (HCal/eflowTracks), i.e.
+    every pile-up track the tracking-efficiency modules let through.
+    z_window_mm given: emulates HLT tracking's limited z acceptance around the
+    leading vertex, which a Delphes formula can't express (its dz is absolute): the
+    tracks are TrackPileUpSubtractor/eflowTracks with ZVertexResolution set to that
+    window, i.e. pile-up tracks farther than z_window_mm from the primary vertex are
+    dropped (by truth) and nearer ones kept - not CHS in the sense of an
+    algorithm run on reconstructed tracks, but a stand-in for tracks HLT never
+    reconstructs.
+
+    pf_pt_min given: additionally drop every candidate (charged or neutral) with
+    reconstructed pT below it before jet clustering / writing, as the scouting
+    producer does (HLTScoutingPFProducer stores only candidates with pT > 0.6 GeV;
+    all ScoutingAK8 scouting candidates have pT >= 0.600). Implemented as a
+    PdgCodeFilter (HLT_JET_INPUT_PT_FILTER) with only a PTMin (no PDG codes listed,
+    so nothing else is filtered).
+    '''
+    tracks = 'TrackPileUpSubtractor/eflowTracks' if z_window_mm is not None else 'HCal/eflowTracks'
+    merger = ('module Merger {name} {{\n'
+              '  add InputArray {tracks}\n'
+              '  add InputArray ECal/eflowPhotons\n'
+              '  add InputArray HCal/eflowNeutralHadrons\n'
+              '  set OutputArray eflow\n'
+              '}}\n\n').format(name=HLT_JET_INPUT_MERGER, tracks=tracks)
+    new_modules = [HLT_JET_INPUT_MERGER]
+    new_input = HLT_JET_INPUT_MERGER + '/eflow'
+    if pf_pt_min is not None:
+        merger += ('module PdgCodeFilter {name} {{\n'
+                   '  set InputArray {inp}\n'
+                   '  set OutputArray eflow\n'
+                   '  set PTMin {pt:g}\n'
+                   '}}\n\n').format(name=HLT_JET_INPUT_PT_FILTER, inp=new_input, pt=pf_pt_min)
+        new_modules.append(HLT_JET_INPUT_PT_FILTER)
+        new_input = HLT_JET_INPUT_PT_FILTER + '/eflow'
+    start, _ = _module_span(text, 'Merger', 'EFlowMerger')
+    text = text[:start] + merger + text[start:]
+
+    # run them right after EFlowMerger
+    text, n = re.subn(r'(set ExecutionPath \{.*?\n)(\s*)EFlowMerger\n',
+                      lambda m: m.group(1) + m.group(2) + 'EFlowMerger\n' +
+                      ''.join(m.group(2) + mod + '\n' for mod in new_modules),
+                      text, count=1, flags=re.S)
+    if n != 1:
+        raise ValueError('EFlowMerger not found in the ExecutionPath')
+
+    for module in ('FastJetFinderPUPPIAK8', 'FastJetFinderPUPPIAK15'):
+        text = _replace_in_module(text, 'FastJetFinder', module,
+                                  'set InputArray RunPUPPI/PuppiParticles', 'set InputArray ' + new_input)
+    text = _replace_in_module(text, 'TreeWriter', 'TreeWriter',
+                              'add Branch RunPUPPI/PuppiParticles ParticleFlowCandidate',
+                              'add Branch {} ParticleFlowCandidate'.format(new_input))
+    if z_window_mm is not None:
+        # value in m (TrackPileUpSubtractor compares formula * 1e3 against mm)
+        text = _replace_in_module(text, 'TrackPileUpSubtractor', 'TrackPileUpSubtractor',
+                                  'set ZVertexResolution {0.0001}',
+                                  'set ZVertexResolution {{{:g}}}'.format(z_window_mm / 1000.0))
+    return text
+
+
 def _wrap_comment(text, width=76, indent='#   '):
     '''Word-wrap `text` for a Tcl "#"-comment block. Returns the lines joined
     by "\\n<indent>", with NO leading indent and no trailing newline - the
@@ -323,8 +519,49 @@ def _wrap_comment(text, width=76, indent='#   '):
 
 
 def make_header(curves_path, curves, offline_card_path, calo_resolution_degradation, calo_granularity_factor,
-                 hlt_jet_pt_min, charged_eff_pt_floor, puppi_use_charged):
+                 hlt_jet_pt_min, charged_eff_pt_floor, puppi_use_charged,
+                 ip_curves_path=None, ip_curves=None, ip_categories=(), no_puppi=False, z_window_mm=None,
+                 pf_pt_min=None, jes_correction_path=None, jes_correction=None):
     src = curves['source']
+
+    # extra paragraphs for the opt-in options only (empty by default, so the
+    # default card stays byte-identical)
+    extra_note = ''
+    if ip_curves is not None:
+        isrc = ip_curves['source']
+        extra_note += '#   ' + _wrap_comment(
+            'IMPACT-PARAMETER-DEPENDENT tracking efficiency for {cats}: the EfficiencyFormula is '
+            'a (|eta|, pT, |d0|) table, offline(pt,eta) * ratio(eta,pt,d0), with the ratio from '
+            '{path} (hlteff/derive_ip_curves.py, generated {gen}, {nj} QCD jets; denominator '
+            'without lost and pile-up-like tracks), assuming the offline efficiency is uniform in '
+            'd0; see derive_ip_curves.py and delphes_cards/KNOWN_ISSUES.md.'.format(
+                cats='/'.join(ip_categories), path=os.path.relpath(ip_curves_path, REPO_DIR),
+                gen=isrc.get('generated_at', 'unknown time'), nj=isrc['n_jets_processed'])) + '\n#\n'
+    if no_puppi:
+        if z_window_mm is None:
+            tracks = ('ALL energy-flow tracks (HCal/eflowTracks, incl. every pile-up track that passes the '
+                      'tracking efficiency)')
+        else:
+            tracks = ('TrackPileUpSubtractor/eflowTracks with ZVertexResolution set to {:g} mm, i.e. pile-up '
+                      'tracks farther than that from the primary vertex are dropped by truth - a stand-in for '
+                      'HLT tracking\'s limited z acceptance, which a Delphes formula cannot express'.format(z_window_mm))
+        extra_note += '#   ' + _wrap_comment(
+            'NO PUPPI and NO CHS for the HLT jets (as real scouting AK8 jets): FastJetFinderPUPPIAK8/AK15 and '
+            'the ParticleFlowCandidate branch use {m}/eflow = {t}, plus ECal photons and HCal neutral hadrons. '
+            'Module/branch names keep "PUPPI" for compatibility. JetEnergyScalePUPPIAK8 was NOT re-derived '
+            'for this.{pt}'.format(m=HLT_JET_INPUT_MERGER, t=tracks,
+                                   pt='' if pf_pt_min is None else ' All HLT candidates with reconstructed pT below '
+                                   '{:g} GeV are dropped first ({}), as in the scouting producer.'.format(
+                                       pf_pt_min, HLT_JET_INPUT_PT_FILTER))) + '\n#\n'
+
+    if jes_correction is not None:
+        extra_note += '#   ' + _wrap_comment(
+            'JetEnergyScalePUPPIAK8 is additionally multiplied by per-HLT-jet-pT factors ({lo:.3f}-{hi:.3f}) from '
+            '{path} (hlteff/derive_hlt_jes_correction.py, generated {gen}, {n} matched QCD jets), which bring '
+            'our HLT/offline jet-pT ratio onto FullSim\'s for this card\'s settings.'.format(
+                lo=min(jes_correction['factors']), hi=max(jes_correction['factors']),
+                path=os.path.relpath(jes_correction_path, REPO_DIR), gen=jes_correction['generated_at'],
+                n=jes_correction['n_matched_jets'])) + '\n#\n'
 
     if puppi_use_charged:
         # kept verbatim (not re-wrapped) so that generating with the default settings
@@ -401,7 +638,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
 #   + extra(pt,eta)^2), where extra is the additional smearing/spread
 #   measured for matched offline-scouting pairs in that bin.
 {puppi_note}#
-{charged_eff_note}#   {calo_paragraph}
+{extra_note}{charged_eff_note}#   {calo_paragraph}
 #
 #   FastJetFinderPUPPIAK8/AK15's own JetPTMin is HAND-SET to {hlt_jet_pt_min:g} GeV
 #   (not copied from the offline card's 200/120 GeV, unlike every other
@@ -427,6 +664,7 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
         input_dir=src['input_dir'],
         files=', '.join(os.path.basename(f) for f in src['files']),
         charged_eff_note=charged_eff_note,
+        extra_note=extra_note,
         puppi_note=puppi_note,
         calo_paragraph=calo_paragraph,
         hlt_jet_pt_min=hlt_jet_pt_min,
@@ -483,7 +721,34 @@ def main():
              ' Default 1.0 GeV is effectively "no cut" (well below any realistic analysis threshold) while'
              ' avoiding the degenerate JetPTMin=0 edge case; lower further only if jets keep vanishing'
              ' below 1 GeV in practice, which should not happen for AK8/AK15 jets built from real activity.')
+    parser.add_argument('--ip-curves', default=None,
+        help='OPT-IN: JSON from derive_ip_curves.py; if given, the tracking efficiency of --ip-categories'
+             ' becomes a (|eta|, pT, |d0|) table (HLT tracking loses displaced tracks) instead of the'
+             ' (|eta|, pT) one from --curves - see build_ip_ratio_table() (default: off)')
+    parser.add_argument('--ip-categories', default='chargedHadron,muon',
+        help='comma-separated categories to apply --ip-curves to (default: chargedHadron,muon; electrons'
+             ' have ~0 HLT efficiency anyway)')
+    parser.add_argument('--ip-min-count', type=int, default=100,
+        help='minimum offline tracks in an (eta, pt, d0) bin to use its own ratio (default: 100)')
+    parser.add_argument('--no-puppi', action='store_true',
+        help='OPT-IN: build the HLT jets (and the written ParticleFlowCandidates) without PUPPI or CHS,'
+             ' as real scouting jets - see apply_no_puppi() (default: off)')
+    parser.add_argument('--pu-track-z-window', type=float, default=None,
+        help='with --no-puppi: drop (by truth) pile-up tracks farther than this many mm from the primary'
+             ' vertex, emulating HLT tracking\'s z acceptance - see apply_no_puppi() (default: off, i.e.'
+             ' keep all pile-up tracks)')
+    parser.add_argument('--hlt-pf-pt-min', type=float, default=None,
+        help='with --no-puppi: drop every HLT candidate (charged or neutral) with reconstructed pT below'
+             ' this (GeV) before jet clustering/writing, as the scouting producer does (0.6 GeV in'
+             ' ScoutingAK8) - see apply_no_puppi() (default: off)')
+    parser.add_argument('--jes-correction', default=None,
+        help='OPT-IN: JSON from derive_hlt_jes_correction.py; its per-HLT-jet-pT factors are multiplied onto'
+             ' the JetEnergyScalePUPPIAK8 table (needed with --no-puppi, see that script) (default: off)')
     args = parser.parse_args()
+    if args.pu_track_z_window is not None and not args.no_puppi:
+        parser.error('--pu-track-z-window requires --no-puppi')
+    if args.hlt_pf_pt_min is not None and not args.no_puppi:
+        parser.error('--hlt-pf-pt-min requires --no-puppi')
 
     with open(args.curves) as f:
         curves = json.load(f)
@@ -514,6 +779,37 @@ def main():
         new_formula = format_piecewise_table(eta_edges, pt_edges, table, var_prefix='  ')
         text = replace_formula_block(text, module, 'EfficiencyFormula', new_formula)
 
+    # --- opt-in: impact-parameter-dependent tracking efficiency (see build_ip_ratio_table) ---
+    ip_curves = None
+    ip_categories = [c for c in args.ip_categories.split(',') if c]
+    if args.ip_curves:
+        with open(args.ip_curves) as f:
+            ip_curves = json.load(f)
+        ib = ip_curves['binning']
+        if ib['eta_edges'] != eta_edges or ib['pt_edges'] != pt_edges:
+            raise SystemExit('--ip-curves uses a different (eta, pt) binning than --curves')
+        d0_edges = ib['d0_edges_mm']
+        # charged hadrons first: their d0 shapes are the fallback for sparser categories (muons)
+        ch_shapes = None
+        for cat in sorted(ip_categories, key=lambda c: c != 'chargedHadron'):
+            module = EFFICIENCY_MODULES[cat]
+            data = ip_curves['categories'][cat]
+            offline_formula = extract_formula_block(offline_text, module, 'EfficiencyFormula')
+            table, shapes = build_ip_ratio_table(
+                data['n_offline'], data['n_matched'], offline_formula,
+                eta_edges, pt_edges, d0_edges, args.ip_min_count, '{} d0-dependent efficiency'.format(cat),
+                fallback_2d=(curves['categories'][cat]['efficiency_ratio'], curves['categories'][cat]['n_offline']),
+                fallback_shapes=ch_shapes if cat != 'chargedHadron' else None)
+            if cat == 'chargedHadron':
+                ch_shapes = shapes
+            if args.charged_eff_pt_floor > 0:
+                for ie in range(len(eta_edges) - 1):
+                    for ip in range(len(pt_edges) - 1):
+                        if pt_edges[ip + 1] <= args.charged_eff_pt_floor + 1e-9:
+                            table[ie][ip] = [0.0] * (len(d0_edges) - 1)
+            new_formula = format_piecewise_table_3d(eta_edges, pt_edges, d0_edges, table, var_prefix='  ')
+            text = replace_formula_block(text, module, 'EfficiencyFormula', new_formula)
+
     # --- momentum resolution (quadrature) ---
     for cat, module in RESOLUTION_MODULES.items():
         data = curves['categories'][cat]
@@ -542,6 +838,15 @@ def main():
     jes_table = build_ratio_table(jes['scout_over_offline_ratio'], jes['n_jets_scout_over_offline'],
                                    offline_scale_formula, eta_edges, jet_pt_edges, args.min_count,
                                    'jet energy scale', clip=None)
+    jes_corr = None
+    if args.jes_correction:
+        with open(args.jes_correction) as f:
+            jes_corr = json.load(f)
+        if jes_corr['jet_pt_edges'] != jet_pt_edges:
+            raise SystemExit('--jes-correction uses a different jet-pT binning than --curves')
+        for ie in range(len(eta_edges) - 1):
+            for ip in range(len(jet_pt_edges) - 1):
+                jes_table[ie][ip] *= jes_corr['factors'][ip]
     new_jes_formula = format_piecewise_table(eta_edges, jet_pt_edges, jes_table, var_prefix='  ')
     text = replace_formula_block(text, 'JetEnergyScalePUPPIAK8', 'ScaleFormula', new_jes_formula)
 
@@ -555,10 +860,17 @@ def main():
     for module in ('FastJetFinderPUPPIAK8', 'FastJetFinderPUPPIAK15'):
         text = replace_scalar(text, module, 'JetPTMin', args.hlt_jet_pt_min)
 
+    # --- opt-in: HLT jets without PUPPI/CHS (see apply_no_puppi) ---
+    if args.no_puppi:
+        text = apply_no_puppi(text, args.pu_track_z_window, args.hlt_pf_pt_min)
+
     header = make_header(args.curves, curves, args.offline_card,
                           args.calo_resolution_degradation, args.calo_granularity_factor,
                           args.hlt_jet_pt_min, args.charged_eff_pt_floor,
-                          args.puppi_use_charged == 'true')
+                          args.puppi_use_charged == 'true',
+                          ip_curves_path=args.ip_curves, ip_curves=ip_curves, ip_categories=ip_categories,
+                          no_puppi=args.no_puppi, z_window_mm=args.pu_track_z_window,
+                          pf_pt_min=args.hlt_pf_pt_min, jes_correction_path=args.jes_correction, jes_correction=jes_corr)
     text = header + '\n' + text
 
     with open(args.output, 'w') as f:
