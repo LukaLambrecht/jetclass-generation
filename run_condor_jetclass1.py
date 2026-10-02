@@ -17,12 +17,15 @@ when calling run_condor_loop.py.
 
 Usage:
   # 10 jobs of 5000 events each, for all 10 jetclass1 processes (100 condor jobs total)
-  python run_condor_jetclass1.py --njobs-per-class 10 --nevents-per-job 5000 \\
+  python run_condor_jetclass1.py --backend delphes --njobs-per-class 10 --nevents-per-job 5000 \\
       --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
 
   # same, but targeting a jet count per job instead
-  python run_condor_jetclass1.py --njobs-per-class 10 --target-njets-per-job 150000 \\
+  python run_condor_jetclass1.py --backend delphes --njobs-per-class 10 --target-njets-per-job 150000 \\
       --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
+
+--backend is required by run_condor_loop.py and simply forwarded, like every
+other argument this script does not handle itself.
 
 See run_condor_loop.py --help for every other available argument (all
 forwarded unchanged) - --procs itself is the only one this script doesn't

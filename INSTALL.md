@@ -3,6 +3,13 @@
 Setup instructions for the JetClass dataset generation
 pipeline (MadGraph + Pythia8 + Delphes) on this machine (lxplus / EOS).
 
+There are two interchangeable detector **backends**, selected by `run.sh`'s first
+argument: `delphes` (steps 2-8 below) and `fullsim` (CMS full simulation in
+CMSSW, step 9). The generation side (MadGraph + Pythia8, steps 2-3) is shared, so
+a `fullsim` run needs the same MG5 install. See
+[`fullsim_configs/README.md`](fullsim_configs/README.md) for the FullSim backend
+itself.
+
 ## 1. Clone the generation repo
 
 ```bash
@@ -119,18 +126,23 @@ PYTHIA8DATA=$MG5_PATH/HEPTools/pythia8/share/Pythia8/xmldoc
 ## 7. Run a test job
 
 ```bash
-# ./run.sh [process_name] [num_tot_events] [num_events_per_gen_step] [job_num]
-./run.sh jetclass2/train_higgs2p 10 10 0
+# ./run.sh <backend> [process_name] [num_tot_events] [num_events_per_gen_step] [job_num]
+./run.sh delphes jetclass2/train_higgs2p 10 10 0
 ```
+
+The first argument (the backend) is **required**, and is new: it used to be
+absent, Delphes being the only option, so an older command line needs `delphes`
+inserted in front of the process name.
 
 Note the process name is relative to `gen_configs/` and must **not** include a `gen_configs/`
 prefix — `./run.sh gen_configs/jetclass2/train_higgs2p ...` fails with a
 `cp: cannot stat '.../gen_configs/gen_configs/jetclass2/train_higgs2p/*'` error, because `run.sh`
 already resolves `$PROC` under its own `gen_configs/` directory.
 
-A successful run produces, under `$OUTPUT_PATH/$PROC/`:
-- `events_delphes_$JOBNUM.root` — the raw Delphes output.
-- `ntuple_$JOBNUM.root` — the flat, jet-based ntuple produced from it (see step 8).
+A successful run produces, under `$OUTPUT_PATH/$PROC/<backend options>/`:
+- `ntuple_$JOBNUM.root` — the flat, jet-based ntuple (see step 8).
+- `events_delphes_$JOBNUM.root` — the raw Delphes output, only with
+  `keep_intermediate` (`run.sh`'s 8th argument) set to `true`.
 
 ## 8. Ntuple production (built into run.sh)
 
@@ -147,7 +159,28 @@ export ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH:/cvmfs/sft.cern.ch/lcg/releases/delp
 root -b -q 'makeNtuples.C++("events_delphes.root", "ntuple.root", "JetPUPPIAK8", "GenJetAK8", true)'
 ```
 
-## 9. Installing an alternate MG5/Pythia8 toolchain (e.g. MG5 3.1.1, for toolchain-comparison tests)
+## 9. The FullSim backend (CMSSW)
+
+Nothing has to be installed for this one, as long as the machine has CVMFS and
+`apptainer` (both are there on lxplus/lxbatch):
+
+```bash
+./run.sh fullsim jetclass2/train_qcd 4 2 0
+```
+
+It pulls CMSSW_10_6_30 and an SLC7 userland from the open-data container image on
+`/cvmfs/unpacked.cern.ch`, and the conditions from `/cvmfs/cms-opendata-conddb.cern.ch`.
+To run somewhere without CVMFS, fetch the container from Docker Hub
+(`cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700`) and the two condition databases
+over plain HTTPS, and point `FULLSIM_CONTAINER` / `FULLSIM_CONDDB` at your
+copies — [`fullsim_configs/README.md`](fullsim_configs/README.md) lists the exact
+records and URLs, the other environment variables, and the caveats (no pile-up,
+2018 design conditions, ~2 min of CPU per event).
+
+Nothing about the Delphes install (steps 4-6) is needed for this backend, and
+nothing about this backend affects the Delphes one.
+
+## 10. Installing an alternate MG5/Pythia8 toolchain (e.g. MG5 3.1.1, for toolchain-comparison tests)
 
 Central JetClass was originally produced with an older MG5/Pythia8 combination than the "main"
 install from step 2 above (MG5 3.7.2). To reproduce that more closely - e.g. to check whether the

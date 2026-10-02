@@ -8,7 +8,16 @@
 #include "TClonesArray.h"
 #include "Math/LorentzVector.h"
 #include <Math/Vector4D.h>
+// Delphes' own classes, EXCEPT when this header is reused by a ntuplizer that
+// has no Delphes at all (fullsim_analyzers/makeNtuplesFullSim.C) - that one
+// defines JETCLASS_STANDALONE_TYPES and supplies the same few class names
+// itself, see fullsim_analyzers/StandaloneTypes.h for why and for what has to
+// match. Nothing changes for the Delphes ntuplizers.
+#ifdef JETCLASS_STANDALONE_TYPES
+#include "StandaloneTypes.h"
+#else
 #include "classes/DelphesClasses.h"
+#endif
 
 #include "ParticleID.h"
 #include "ParticleInfo.h"
@@ -75,7 +84,12 @@ public:
 
     virtual ~FatJetMatching() {}
 
-    void getLabel(const Jet *jet, const TClonesArray *branchParticle) {
+    // `branchParticle` is typed as the TObjArray BASE of TClonesArray (only
+    // GetEntriesFast()/At() are used): the Delphes ntuplizers keep passing their
+    // TClonesArray* unchanged, while the FullSim one can pass a plain TObjArray of
+    // the stand-in GenParticles it builds from reco::GenParticle (no ROOT
+    // dictionary needed for those - see fullsim_analyzers/StandaloneTypes.h)
+    void getLabel(const Jet *jet, const TObjArray *branchParticle) {
 
         genParticles_.clear();
         for (Int_t i = 0; i < branchParticle->GetEntriesFast(); ++i) {

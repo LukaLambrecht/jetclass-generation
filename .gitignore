@@ -38,6 +38,10 @@ gen_configs/*/*/events.hepmc
 gen_configs/*/*/py8_main
 gen_configs/*/*/py8.dat.bak
 
+# The FullSim ntuplizer binary, if build.sh is ever run inside the repository
+# instead of in a job's own scratch directory (which is what run_chain.sh does)
+fullsim_analyzers/makeNtuplesFullSim
+
 # OS / editor cruft
 .DS_Store
 *.swp

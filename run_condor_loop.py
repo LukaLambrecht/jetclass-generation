@@ -33,18 +33,18 @@ know run.sh's own positional-arg order to know what a bare number means).
 
 Usage:
   # 10 jobs of 5000 events each, for 2 processes (20 condor jobs total)
-  python run_condor_loop.py --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
+  python run_condor_loop.py --backend delphes --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
       --nevents-per-job 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
 
   # same, but targeting a jet count per job instead (see run_condor.py's own
   # --target-njets docs for the njets-per-event map this needs)
-  python run_condor_loop.py --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
+  python run_condor_loop.py --backend delphes --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
       --target-njets-per-job 150000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
 
   # both offline and HLT cards, no pileup
-  python run_condor_loop.py --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
+  python run_condor_loop.py --backend delphes --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
       --nevents-per-job 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 \\
-      --delphes-cards onlyFatJetNoPU,onlyFatJetHLTNoPU
+      --backend-opts onlyFatJetNoPU,onlyFatJetHLTNoPU
 '''
 
 import os
@@ -55,7 +55,7 @@ import subprocess
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 RUN_CONDOR_PY = os.path.join(THISDIR, 'run_condor.py')
 sys.path.insert(0, THISDIR)
-from run_condor import RUNSH_DEFAULT_DELPHES_CARDS, validate_proc
+from run_condor import BACKENDS, RUNSH_DEFAULT_OPTS, output_subdirs, validate_proc
 
 
 if __name__ == '__main__':
@@ -83,23 +83,30 @@ if __name__ == '__main__':
              ' use its own default, run_configs/njets_per_nevents.json)')
     parser.add_argument('--output-path', required=True,
         help='REQUIRED: detector-output directory (same as run.sh positional arg 6, forwarded'
-             ' to run_condor.py as --output-path) - where every job\'s events_delphes_*.root/'
+             ' to run_condor.py as --output-path) - where every job\'s '
              ' ntuple_*.root ends up. Not to be confused with -o/--outputdir below (a different'
              ' thing - see module docstring)')
     parser.add_argument('--batch-size', type=int, required=True,
         help='number of events generated per batch, forwarded unchanged to run_condor.py'
-             ' (same as run.sh positional arg 3, NEVENT_GEN there - see run_condor.py\'s own'
+             ' (same as run.sh positional arg 4, NEVENT_GEN there - see run_condor.py\'s own'
              ' docs for what this does and why it must divide the per-job NEVENT evenly)')
-    parser.add_argument('--delphes-cards', default=None,
-        help='comma-separated Delphes card names (forwarded unchanged - see run_condor.py)')
-    parser.add_argument('--keep-delphes-output', action='store_true',
-        help='forwarded to run_condor.py as --keep-delphes-output (default: off - production'
+    parser.add_argument('--backend', required=True, choices=BACKENDS,
+        help='detector simulation backend, forwarded unchanged to run_condor.py - see its docs')
+    parser.add_argument('--backend-opts', '--delphes-cards', dest='backend_opts', default=None,
+        help='backend-specific options (forwarded unchanged - see run_condor.py). For delphes'
+             ' this is the comma-separated card list, and --delphes-cards still works as an'
+             ' alias')
+    parser.add_argument('--keep-intermediate', '--keep-delphes-output', dest='keep_intermediate',
+        action='store_true',
+        help='forwarded to run_condor.py as --keep-intermediate (default: off - production'
              ' runs only need the ntuples, see run_condor.py\'s own docs)')
     parser.add_argument('-o', '--outputdir', default='condor',
         help='directory to write condor submission files into (forwarded to run_condor.py) -'
              ' NOT the detector-output directory, see --output-path and module docstring')
     parser.add_argument('--cpus', type=int, default=1)
-    parser.add_argument('--mem', type=int, default=2048, help='requested memory in MB')
+    parser.add_argument('--mem', type=int, default=None,
+        help='requested memory in MB; left to run_condor.py\'s own per-backend default'
+             ' (2048 for delphes, 4096 for fullsim) if not given')
     parser.add_argument('--disk', type=int, default=20480, help='requested disk in MB')
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour, see https://batchdocs.web.cern.ch/local/submit.html')
@@ -119,11 +126,11 @@ if __name__ == '__main__':
     # up to the first bad one before failing
     for proc in procs:
         validate_proc(proc, THISDIR)
-    cards = [c.strip() for c in
-             (args.delphes_cards if args.delphes_cards is not None else RUNSH_DEFAULT_DELPHES_CARDS).split(',')
-             if c.strip()]
+    backend_opts = args.backend_opts if args.backend_opts is not None \
+        else RUNSH_DEFAULT_OPTS[args.backend]
+    subdirs = output_subdirs(args.backend, backend_opts)
 
-    # pre-create every (process, card) output subdirectory ONCE, serially,
+    # pre-create every (process, output subdirectory) pair ONCE, serially,
     # before submitting any jobs - run.sh's own "mkdir -p" (done
     # independently by every job right before it copies its output to EOS)
     # is NOT safe against this: when the shared parent directory doesn't
@@ -137,8 +144,8 @@ if __name__ == '__main__':
     # means no worker node ever has to create a brand-new shared directory.
     print('Pre-creating output directories...')
     for proc in procs:
-        for card in cards:
-            d = os.path.join(args.output_path, proc, card)
+        for sub in subdirs:
+            d = os.path.join(args.output_path, proc, sub)
             os.makedirs(d, exist_ok=True)
             print('  {}'.format(d))
 
@@ -146,7 +153,7 @@ if __name__ == '__main__':
     for proc in procs:
         for i in range(args.njobs):
             jobnum = args.jobnum_base + i
-            cmd = [sys.executable, RUN_CONDOR_PY, '--proc', proc]
+            cmd = [sys.executable, RUN_CONDOR_PY, '--backend', args.backend, '--proc', proc]
             if args.target_njets_per_job is not None:
                 cmd += ['--target-njets', str(args.target_njets_per_job)]
                 if args.njets_map is not None:
@@ -155,12 +162,15 @@ if __name__ == '__main__':
                 cmd += ['--nevent', str(args.nevents_per_job)]
             cmd += ['--output-path', args.output_path]
             cmd += ['--batch-size', str(args.batch_size), '--jobnum', str(jobnum)]
-            if args.delphes_cards is not None:
-                cmd += ['--delphes-cards', args.delphes_cards]
-            if args.keep_delphes_output:
-                cmd.append('--keep-delphes-output')
-            cmd += ['-o', args.outputdir, '--cpus', str(args.cpus), '--mem', str(args.mem),
+            if args.backend_opts is not None:
+                cmd += ['--backend-opts', args.backend_opts]
+            if args.keep_intermediate:
+                cmd.append('--keep-intermediate')
+            cmd += ['-o', args.outputdir, '--cpus', str(args.cpus),
                     '--disk', str(args.disk), '--jobflavour', args.jobflavour]
+            # left to run_condor.py's own per-backend default when not given
+            if args.mem is not None:
+                cmd += ['--mem', str(args.mem)]
             if args.extra_env:
                 cmd += ['--extra-env', args.extra_env]
 

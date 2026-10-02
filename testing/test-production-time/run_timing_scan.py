@@ -2,7 +2,8 @@
 
 '''
 Timing scan: submit one condor job per (process, NEVENT) pair, each running
-the full run.sh chain (gen + Delphes + ntupling), timing the whole run.sh
+the full run.sh chain (gen + Delphes + ntupling, i.e. the "delphes"
+backend), timing the whole run.sh
 call with the bash builtin `time`, and appending
 "NEVENT=... JOBNUM=... elapsed_sec=... njets=... size_bytes=... rc=..." to
 that process's own results file once the job finishes. njets is the number
@@ -142,14 +143,14 @@ if __name__ == '__main__':
     parser.add_argument('--nevents', default=DEFAULT_NEVENTS,
         help='comma-separated NEVENT values to test, one job each, per process')
     parser.add_argument('--card', default=DEFAULT_CARD,
-        help='Delphes card name (run.sh positional arg 5)')
+        help='Delphes card name (run.sh positional arg 6, BACKEND_OPTS)')
     parser.add_argument('--jobnum-base', type=int, default=0,
         help='first JOBNUM to use per process; each subsequent NEVENT value gets'
              ' jobnum_base+i (jobnums only need to be unique within one process\'s own'
              ' output subdirectory, since --output-path/<process>/... already separates'
              ' processes - so every process reuses the same jobnum range by default)')
     parser.add_argument('--output-path', default=DEFAULT_OUTPUT_PATH,
-        help='detector-output directory (run.sh positional arg 6) - a dedicated'
+        help='detector-output directory (run.sh positional arg 7) - a dedicated'
              ' directory for these throwaway timing runs, separate from routine'
              ' production output')
     parser.add_argument('--condor-dir', default=DEFAULT_CONDOR_DIR,
@@ -211,7 +212,9 @@ if __name__ == '__main__':
                     'cd {}'.format(REPO_DIR),
                     'echo "###starting###"',
                     'START=$(date +%s)',
-                    '{} {} {} {} {} {} {}'.format(
+                    # run.sh's first argument is the detector backend; this scan
+                    # times the Delphes chain, so it is pinned to "delphes" here
+                    '{} delphes {} {} {} {} {} {}'.format(
                         runsh, full, n, n, jobnum, args.card, args.output_path),
                     'RC=$?',
                     'END=$(date +%s)',  # captured before njets/size measurement - doesn't inflate elapsed_sec

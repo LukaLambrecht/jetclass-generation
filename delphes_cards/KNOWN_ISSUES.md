@@ -122,6 +122,17 @@ To bring ours onto the CMS convention: `dxy_cm = -part_d0val / 10`,
 uses the same Delphes convention as ours (mm, Delphes sign), so ours is
 consistent with the central datasets as is.
 
+For the same reason, the **fullsim backend** (`run.sh fullsim`, added
+2026-10-02) applies exactly that conversion in the opposite direction: it reads
+CMS `dxy`/`dz` from the PF candidates' tracks and writes
+`d0val = -10 * dxy`, `dzval = 10 * dz` (and the errors * 10), so its ntuples are
+in the same units and sign convention as these and as central JetClass, and the
+two backends' outputs are interchangeable. See
+`fullsim_analyzers/makeNtuplesFullSim.cc`. Its `dzval` is measured w.r.t. each
+side's OWN primary vertex (the offline one offline, the HLT one at HLT), and
+unlike Delphes its `d0val` is genuinely vertex-subtracted, since the CMS primary
+vertex is not at x = y = 0.
+
 The transverse IP needs no vertex subtraction in Delphes: `PileUpMerger` places
 the hard-scatter vertex at x = y = 0 and only smears it in z (and t), so a `D0`
 measured from the origin is already measured from the primary vertex.

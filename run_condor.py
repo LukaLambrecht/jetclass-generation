@@ -19,24 +19,33 @@ that default is untouched, but this wrapper no longer lets you fall into it
 by accident). Note there are two different, unrelated "output directories"
 involved:
   - --output-path (required): where the JOB'S OWN detector-level output
-    (events_delphes_*.root, ntuple_*.root) is written - this is run.sh's
-    OUTPUT_PATH, positional arg 6.
+    (ntuple_*.root, and the backend's intermediate files if
+    --keep-intermediate) is written - this is run.sh's OUTPUT_PATH.
   - -o/--outputdir (optional, default "condor"): where THIS SCRIPT writes
     the condor submission files (.sh/.txt/log) for the job it submits - has
     nothing to do with the job's own detector output.
 
+--backend is REQUIRED and selects the detector simulation: "delphes" (fast,
+what every dataset so far was made with) or "fullsim" (CMS full simulation in
+CMSSW, see backends/fullsim.sh). This is new: it used to be absent, Delphes being
+the only option, so an old command line needs "--backend delphes" added.
+
 Usage:
-  python run_condor.py --proc PROC (--nevent NEVENT | --target-njets NJETS) --output-path OUTPUT_PATH --batch-size BATCH_SIZE --jobnum JOBNUM [--delphes-cards DELPHES_CARD_NAMES]
+  python run_condor.py --backend BACKEND --proc PROC (--nevent NEVENT | --target-njets NJETS) --output-path OUTPUT_PATH --batch-size BATCH_SIZE --jobnum JOBNUM [--backend-opts OPTS]
 
 Example:
   # one card, offline reconstruction, no pileup
-  python run_condor.py --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU
+  python run_condor.py --backend delphes --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --backend-opts onlyFatJetNoPU
 
   # both offline and HLT reconstruction, no pileup
-  python run_condor.py --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU,onlyFatJetHLTNoPU
+  python run_condor.py --backend delphes --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --backend-opts onlyFatJetNoPU,onlyFatJetHLTNoPU
 
   # a one-off/exploratory run, written to a separate output directory
-  python run_condor.py --proc jetclass1/HToBB --nevent 100 --output-path /eos/user/l/llambrec/jetclass/output_timing_test --batch-size 100 --jobnum 0 --delphes-cards onlyFatJetNoPU
+  python run_condor.py --backend delphes --proc jetclass1/HToBB --nevent 100 --output-path /eos/user/l/llambrec/jetclass/output_timing_test --batch-size 100 --jobnum 0 --backend-opts onlyFatJetNoPU
+
+  # the same process through CMS full simulation instead - ~2 min/event, so a
+  # job is sized in tens of events, not thousands
+  python run_condor.py --backend fullsim --proc jetclass1/HToBB --nevent 20 --output-path /eos/user/l/llambrec/jetclass/output_fullsim_test --batch-size 10 --jobnum 0
 
   # target a number of JETS instead of events: NEVENT is derived here (in
   # this script, not run.sh) from --target-njets using the process's
@@ -57,12 +66,34 @@ from download_gridpack import normalize_proc
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json')
-# run.sh's own default for DELPHES_CARD_NAMES (positional arg 5) - mirrored
-# here (not imported - run.sh has no importable defaults) only so that
-# OUTPUT_PATH (positional arg 6, always given now that --output-path is
-# required) can still be placed correctly even when delphes_cards is
-# omitted; run.sh's own behavior/default is otherwise completely untouched
-RUNSH_DEFAULT_DELPHES_CARDS = 'onlyFatJet'
+# Each backend's own default BACKEND_OPTS, mirrored here (not imported - the
+# backends are shell files with no importable defaults) only so that OUTPUT_PATH
+# can still be placed in the right positional slot for run.sh even when
+# --backend-opts is omitted; the backends' own defaults are untouched. Keep in
+# sync with BACKEND_DEFAULT_OPTS in backends/<backend>.sh.
+BACKENDS = ('delphes', 'fullsim')
+RUNSH_DEFAULT_OPTS = {
+    'delphes': 'onlyFatJet',
+    'fullsim': 'offline+hlt',
+}
+# Requested memory per backend. A fullsim job runs CMSSW's HLT (the whole GRun
+# menu) and RECO, which peak at ~3 GB; with the delphes default of 2 GB such a
+# job is simply killed by condor partway through.
+DEFAULT_MEM = {
+    'delphes': 2048,
+    'fullsim': 4096,
+}
+# the subdirectory each backend writes under $OUTPUT_PATH/$PROC, as a function of
+# its BACKEND_OPTS - used by run_condor_loop.py to pre-create them (see its own
+# comment for why that has to happen before any job starts)
+
+
+def output_subdirs(backend, backend_opts):
+    if backend == 'delphes':
+        return [c.strip() for c in backend_opts.split(',') if c.strip()]
+    if backend == 'fullsim':
+        return ['fullsim_{}'.format(backend_opts)]
+    raise Exception('unknown backend {!r}'.format(backend))
 
 
 def validate_proc(proc, thisdir):
@@ -154,11 +185,15 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(
         description='Submit a run.sh job to condor. All arguments (NEVENT, however it was'
                      ' arrived at, included) are forwarded to run.sh unchanged.')
+    parser.add_argument('--backend', required=True, choices=BACKENDS,
+        help='detector simulation backend (same as run.sh positional arg 1): "delphes" (fast,'
+             ' what every dataset so far was made with) or "fullsim" (CMS full simulation in'
+             ' CMSSW - about 2 min/event, so size jobs accordingly)')
     parser.add_argument('--proc', required=True,
-        help='process name, e.g. jetclass1/HToBB (same as run.sh positional arg 1)')
+        help='process name, e.g. jetclass1/HToBB (same as run.sh positional arg 2)')
     nevent_group = parser.add_mutually_exclusive_group(required=True)
     nevent_group.add_argument('--nevent', type=int, default=None,
-        help='total number of events (same as run.sh positional arg 2, but given as a flag'
+        help='total number of events (same as run.sh positional arg 3, but given as a flag'
              ' here rather than positionally - see --target-njets for why)')
     nevent_group.add_argument('--target-njets', type=float, default=None,
         help='target number of jets instead of NEVENT - translated to NEVENT here (not in'
@@ -167,32 +202,38 @@ if __name__=='__main__':
         help='JSON file mapping process name -> jets per event, used only with --target-njets'
              ' (default: run_configs/njets_per_nevents.json)')
     parser.add_argument('--output-path', required=True,
-        help='REQUIRED: detector-output directory (same as run.sh positional arg 6) - where'
-             ' this job\'s events_delphes_*.root/ntuple_*.root end up. Not to be confused with'
+        help='REQUIRED: output directory (same as run.sh positional arg 7) - where'
+             ' this job\'s ntuple_*.root end up. Not to be confused with'
              ' -o/--outputdir below (a different thing - see module docstring)')
     parser.add_argument('--batch-size', type=int, required=True,
-        help='number of events generated per batch (same as run.sh positional arg 3,'
+        help='number of events generated per batch (same as run.sh positional arg 4,'
              ' NEVENT_GEN there) - run.sh splits NEVENT into NEVENT/BATCH_SIZE batches,'
              ' each its own MG5+Pythia8+Delphes call, merged (hadd) at the end; must divide'
              ' NEVENT evenly, since run.sh drops any remainder rather than generating it')
     parser.add_argument('--jobnum', type=int, required=True,
-        help='job number, used for output naming (same as run.sh positional arg 4)')
-    parser.add_argument('--delphes-cards', default=None,
-        help='comma-separated Delphes card names, e.g. onlyFatJet,onlyFatJetHLT'
-             ' (same as run.sh optional positional arg 5; if omitted, run.sh\'s own default'
-             ' ("{}") is passed explicitly, so --output-path still lands in the right'
-             ' positional slot for run.sh)'.format(RUNSH_DEFAULT_DELPHES_CARDS))
-    parser.add_argument('--keep-delphes-output', action='store_true',
-        help='also copy events_delphes_*.root to --output-path, not just the ntuple (same as'
-             ' run.sh positional arg 7; default: off - production runs only need the ntuples,'
-             ' the Delphes ROOT file is still produced and used locally to make the ntuple'
-             ' either way, it just isn\'t copied out unless this is set)')
+        help='job number, used for output naming (same as run.sh positional arg 5)')
+    parser.add_argument('--backend-opts', '--delphes-cards', dest='backend_opts', default=None,
+        help='backend-specific options (same as run.sh optional positional arg 6). For'
+             ' delphes: comma-separated card names, e.g. onlyFatJet,onlyFatJetHLT (default'
+             ' "{}"). For fullsim: "offline+hlt" (default) or "offline". If omitted, the'
+             ' backend\'s own default is passed explicitly, so --output-path still lands in'
+             ' the right positional slot for run.sh. --delphes-cards is accepted as an alias,'
+             ' so existing delphes command lines keep working.'.format(RUNSH_DEFAULT_OPTS['delphes']))
+    parser.add_argument('--keep-intermediate', '--keep-delphes-output', dest='keep_intermediate',
+        action='store_true',
+        help='also copy the backend\'s intermediate detector files to --output-path, not just'
+             ' the ntuple (same as run.sh positional arg 8; delphes: events_delphes_*.root,'
+             ' fullsim: the AODSIM files). Default: off - production runs only need the'
+             ' ntuples; the intermediate files are still produced and used locally to make the'
+             ' ntuple either way, they just are not copied out unless this is set')
     parser.add_argument('-o', '--outputdir', default='condor',
         help='directory to write condor submission files into (default: condor) - NOT the'
              ' detector-output directory, see --output-path and module docstring')
     parser.add_argument('--cpus', type=int, default=1)
-    parser.add_argument('--mem', type=int, default=2048,
-        help='requested memory in MB (default: 2048)')
+    parser.add_argument('--mem', type=int, default=None,
+        help='requested memory in MB (default: {} for delphes, {} for fullsim - CMSSW\'s'
+             ' HLT and RECO steps need several GB, a delphes job needs well under one)'.format(
+                 DEFAULT_MEM['delphes'], DEFAULT_MEM['fullsim']))
     parser.add_argument('--disk', type=int, default=20480,
         help='requested disk in MB (default: 20480)')
     parser.add_argument('--jobflavour', default='workday',
@@ -207,6 +248,8 @@ if __name__=='__main__':
              ' run_gen_precompiled.sh/populate_gridpack_cache.sh, not run.sh')
     args = parser.parse_args()
 
+    mem = args.mem if args.mem is not None else DEFAULT_MEM[args.backend]
+
     thisdir = os.path.dirname(os.path.abspath(__file__))
     runsh = os.path.join(thisdir, 'run.sh')
     if not os.path.exists(runsh):
@@ -219,18 +262,18 @@ if __name__=='__main__':
     else:
         nevent = args.nevent
 
-    # DELPHES_CARD_NAMES (run.sh positional arg 5) must be filled in explicitly
-    # if omitted, since OUTPUT_PATH (arg 6) is always given now
-    delphes_cards = args.delphes_cards if args.delphes_cards is not None else RUNSH_DEFAULT_DELPHES_CARDS
-    keep_delphes_output = 'true' if args.keep_delphes_output else 'false'
-    runsh_args = [args.proc, str(nevent), str(args.batch_size), str(args.jobnum), delphes_cards,
-                  args.output_path, keep_delphes_output]
+    # BACKEND_OPTS (run.sh positional arg 6) must be filled in explicitly if
+    # omitted, since OUTPUT_PATH (arg 7) is always given now
+    backend_opts = args.backend_opts if args.backend_opts is not None else RUNSH_DEFAULT_OPTS[args.backend]
+    keep_intermediate = 'true' if args.keep_intermediate else 'false'
+    runsh_args = [args.backend, args.proc, str(nevent), str(args.batch_size), str(args.jobnum),
+                  backend_opts, args.output_path, keep_intermediate]
     command = '{} {}'.format(runsh, ' '.join(runsh_args))
 
     outputdir = os.path.abspath(args.outputdir)
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
-    jobname = 'run_{}_{}'.format(args.proc.replace('/', '_'), args.jobnum)
+    jobname = 'run_{}_{}_{}'.format(args.backend, args.proc.replace('/', '_'), args.jobnum)
 
     # explicit cd, in addition to jobtools' own cwd-based cd, so the job
     # works regardless of where run_condor.py happened to be invoked from
@@ -264,13 +307,15 @@ if __name__=='__main__':
             commands,
             home='auto',
             cpus=args.cpus,
-            mem=args.mem,
+            mem=mem,
             disk=args.disk,
             jobflavour=args.jobflavour,
         )
     finally:
         os.chdir(cwd)
 
-    print('Submitted condor job for proc={} jobnum={} nevent={} output_path={} (cards={}, keep_delphes_output={})'.format(
-        args.proc, args.jobnum, nevent, args.output_path, delphes_cards, keep_delphes_output))
+    print('Submitted condor job for backend={} proc={} jobnum={} nevent={} output_path={}'
+          ' (opts={}, keep_intermediate={})'.format(
+              args.backend, args.proc, args.jobnum, nevent, args.output_path,
+              backend_opts, keep_intermediate))
     print('Job description: {}'.format(os.path.join(outputdir, jobname + '.txt')))
