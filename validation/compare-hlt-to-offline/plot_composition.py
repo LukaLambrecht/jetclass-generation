@@ -165,6 +165,18 @@ def main():
              ' both panels (default: {})'.format(','.join(str(b) for b in DEFAULT_PT_BINS)))
     parser.add_argument('--label-threshold', type=float, default=5.0,
         help='minimum segment size in %% for a percentage label to be drawn inside it (default: 5)')
+    parser.add_argument('--min-jet-pt', type=float, default=None,
+        help='extra selection on the OFFLINE jet pT in GeV (default: none - use whatever the'
+             ' sample contains). Use 200 together with --max-jet-eta 2.4 to put a sample on'
+             ' the CMS reference dataset\'s own footing - see ntuple_io.jet_selection_mask().'
+             ' Note the panels are already binned by jet pT, so this mainly removes bins the'
+             ' reference has no counterpart for, rather than changing the ones it shares')
+    parser.add_argument('--max-jet-eta', type=float, default=None,
+        help='extra selection on the OFFLINE jet |eta| (default: none; the reference uses 2.4)')
+    parser.add_argument('--tag', default=None,
+        help='suffix added to the output file name (e.g. --tag ptmatched ->'
+             ' plot_composition_ptmatched.png), so a selected and an unselected version can'
+             ' share one output directory')
     parser.add_argument('--title', default=None,
         help='extra title text prepended to each panel title (e.g. a process name)')
     parser.add_argument('--output', default=DEFAULT_OUTPUT,
@@ -178,6 +190,19 @@ def main():
 
     files = expand_files(args.files)
     jet_pt, hlt_matched, fracs, sides = load_composition_data(files, treename=args.treename)
+
+    # Optional extra OFFLINE jet selection, applied to every row-aligned array at once
+    keep = nio.jet_selection_mask(files, min_jet_pt=args.min_jet_pt,
+                                  max_jet_eta=args.max_jet_eta, treename=args.treename)
+    if keep is not None:
+        print('offline selection ({}) keeps {}/{} jets ({:.1f}%)'.format(
+            nio.describe_jet_selection(args.min_jet_pt, args.max_jet_eta),
+            int(keep.sum()), len(keep), 100.0 * keep.mean() if len(keep) else 0))
+        jet_pt = jet_pt[keep]
+        fracs = {k: v[keep] for k, v in fracs.items()}
+        if hlt_matched is not None:
+            hlt_matched = hlt_matched[keep]
+
     njets = len(jet_pt)
     has_hlt = hlt_matched is not None
     if has_hlt:
@@ -246,11 +271,15 @@ def main():
 
     fig.tight_layout()
 
-    outdir = os.path.dirname(os.path.abspath(args.output))
+    output = args.output
+    if args.tag:
+        base, ext = os.path.splitext(os.path.abspath(output))
+        output = '{}_{}{}'.format(base, args.tag, ext or '.png')
+    outdir = os.path.dirname(os.path.abspath(output))
     if outdir and not os.path.exists(outdir):
         os.makedirs(outdir)
-    fig.savefig(args.output, dpi=150, bbox_inches='tight')
-    print('Saved plot to {}'.format(args.output))
+    fig.savefig(output, dpi=150, bbox_inches='tight')
+    print('Saved plot to {}'.format(output))
 
 
 if __name__ == '__main__':

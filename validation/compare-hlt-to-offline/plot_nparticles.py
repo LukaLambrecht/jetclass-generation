@@ -219,7 +219,7 @@ def class_masks(files, class_names):
     return masks, njets
 
 
-def read_all_classes(files, class_names, max_jets):
+def read_all_classes(files, class_names, max_jets, keep=None):
     '''
     One combined read of `files`: the requested classes' boolean masks (see
     class_masks()) plus ntuple_io.load_nparticles()'s own per-jet counts - the
@@ -244,6 +244,8 @@ def read_all_classes(files, class_names, max_jets):
     Returns {class_name: (offline_nparticles, hlt_nparticles_or_None, njets, n_matched_or_None)}.
     '''
     masks, njets_total = class_masks(files, class_names)
+    if keep is not None:
+        masks = {name: m & keep for name, m in masks.items()}
     counts = nio.load_nparticles(files, treename=TREE_NAME)
     has_hlt = 'hlt_jet_nparticles' in counts
     if max_jets is not None and njets_total > max_jets:
@@ -276,7 +278,7 @@ def _as_numpy(arr):
     return arr if isinstance(arr, np.ndarray) else ak.to_numpy(arr)
 
 
-def read_all_classes_by_type(files, class_names, max_jets):
+def read_all_classes_by_type(files, class_names, max_jets, keep=None):
     '''
     Per-PARTICLE-TYPE counterpart to read_all_classes(): same class bucketing (via
     class_masks()), but counting particles of each PARTICLE_TYPES type separately
@@ -299,6 +301,8 @@ def read_all_classes_by_type(files, class_names, max_jets):
                           'types': {type_name: (offline_counts, hlt_counts_or_None)}}}.
     '''
     masks, njets_total = class_masks(files, class_names)
+    if keep is not None:
+        masks = {name: m & keep for name, m in masks.items()}
     suffixes = [suffix for _, suffix in PARTICLE_TYPES]
     data = nio.load_particles(files, suffixes=suffixes, treename=TREE_NAME)
     has_hlt = 'hlt_matched' in data
@@ -479,6 +483,16 @@ if __name__ == '__main__':
              ' no cap (read everything available)')
     parser.add_argument('--outdir', default=DEFAULT_OUTDIR,
         help='directory to write plots into (default: {})'.format(DEFAULT_OUTDIR))
+    parser.add_argument('--min-jet-pt', type=float, default=None,
+        help='extra selection on the OFFLINE jet pT in GeV (default: none - use whatever the'
+             ' sample contains). Use 200 together with --max-jet-eta 2.4 to put a sample on'
+             ' the CMS reference dataset\'s own footing - see ntuple_io.jet_selection_mask()')
+    parser.add_argument('--max-jet-eta', type=float, default=None,
+        help='extra selection on the OFFLINE jet |eta| (default: none; the reference uses 2.4)')
+    parser.add_argument('--tag', default=None,
+        help='suffix added to the output file names (e.g. --tag ptmatched ->'
+             ' nparticles_offline_vs_hlt_all_classes_ptmatched.png), so a selected and an'
+             ' unselected version can share one output directory')
     parser.add_argument('--plots', default='total,types',
         help='which figures to make (comma-separated): "total" = the all-classes grid of'
              ' TOTAL particles per jet; "types" = one per-particle-type figure per jet class.'
@@ -504,8 +518,16 @@ if __name__ == '__main__':
 
     files = expand_files(args.files)
 
+    keep = nio.jet_selection_mask(files, min_jet_pt=args.min_jet_pt,
+                                  max_jet_eta=args.max_jet_eta, treename=TREE_NAME)
+    if keep is not None:
+        print('offline selection ({}) keeps {}/{} jets ({:.1f}%)'.format(
+            nio.describe_jet_selection(args.min_jet_pt, args.max_jet_eta),
+            int(keep.sum()), len(keep), 100.0 * keep.mean() if len(keep) else 0))
+    suffix = '_{}'.format(args.tag) if args.tag else ''
+
     if 'total' in plots:
-        results = read_all_classes(files, classes, max_jets)
+        results = read_all_classes(files, classes, max_jets, keep=keep)
 
         header = '{:<16}{:<10}{:>10}{:>10}{:>10}{:>10}'.format(
             'class', 'source', 'njets', 'mean', 'median', 'std')
@@ -516,10 +538,12 @@ if __name__ == '__main__':
             print_stats(name, 'offline', offline_vals)
             print_stats(name, 'hlt', hlt_vals)
 
-        make_grid(results, classes, os.path.join(args.outdir, 'nparticles_offline_vs_hlt_all_classes.png'))
+        make_grid(results, classes,
+                  os.path.join(args.outdir,
+                               'nparticles_offline_vs_hlt_all_classes{}.png'.format(suffix)))
 
     if 'types' in plots:
-        by_type = read_all_classes_by_type(files, classes, max_jets)
+        by_type = read_all_classes_by_type(files, classes, max_jets, keep=keep)
 
         # per-type table: the offline/HLT means and their ratio, the number this
         # comparison is actually about, for every (class, particle type) pair
@@ -549,4 +573,5 @@ if __name__ == '__main__':
 
         for name in classes:
             make_type_grid(name, by_type[name],
-                           os.path.join(args.outdir, 'nparticles_by_type_{}.png'.format(name)))
+                           os.path.join(args.outdir,
+                                        'nparticles_by_type_{}{}.png'.format(name, suffix)))

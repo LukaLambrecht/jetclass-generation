@@ -42,6 +42,7 @@ import re
 import awkward as ak
 import numpy as np
 import uproot
+import concurrent.futures
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(THISDIR)
@@ -63,6 +64,37 @@ def _treepaths(files, treename):
 def _keys_of(file, treename):
     with uproot.open('{}:{}'.format(file, treename)) as t:
         return set(t.keys())
+
+
+# How many files to read in parallel in _read_branches(). Reading a handful of flat
+# branches out of this repo's inputs is almost pure I/O LATENCY, not bandwidth or CPU:
+# the CMS reference dataset is 53 files of ~3 GB on an EOS FUSE mount, and pulling four
+# scalar branches out of all of them took 11.5 minutes of wall time for 56 seconds of
+# CPU before this existed. uproot releases the GIL while reading/decompressing, so
+# overlapping whole files across threads turns that latency into throughput.
+READ_WORKERS = int(os.environ.get('NTUPLE_IO_WORKERS', '8'))
+
+
+def _read_branches(files, branches, treename, workers=None):
+    '''uproot.concatenate(files, filter_name=branches) with the files read in parallel.
+
+    Returns the same {branch: numpy array} with the files' entries in the SAME order as
+    `files` (ThreadPoolExecutor.map preserves input order), which callers rely on to keep
+    separate reads of the same file list aligned element-wise.
+    '''
+    branches = list(branches)
+    workers = READ_WORKERS if workers is None else workers
+
+    def read_one(f):
+        with uproot.open('{}:{}'.format(f, treename)) as t:
+            return t.arrays(branches, library='np')
+
+    if len(files) == 1 or workers <= 1:
+        parts = [read_one(f) for f in files]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(files))) as ex:
+            parts = list(ex.map(read_one, files))
+    return {b: np.concatenate([part[b] for part in parts]) for b in branches}
 
 
 def detect_schema(files, treename='tree'):
@@ -217,6 +249,98 @@ def load_nparticles(files, treename='tree'):
             'hlt_matched': np.ones(len(offline_n), dtype=bool)}
 
 
+# Per-JET (one value per jet) quantities load_jet_kinematics() normalizes onto
+# jet_<q>/hlt_jet_<q> for both schemas. Only quantities BOTH schemas carry on BOTH
+# sides are listed, so anything loaded through here is always directly comparable
+# (notably absent: 'mass', which fullsim has as fj_mass but our own schema does not
+# store at all, and 'tau4', which is the other way round).
+# The branch names happen to be perfectly regular on both sides - ours jet_<q>/
+# hlt_jet_<q>, fullsim fj_<q>/scoutfj_<q> - so no explicit per-field map is needed
+# here, unlike the per-particle FULLSIM_*_FIELD tables above.
+JET_QUANTITIES = ['pt', 'eta', 'phi', 'energy', 'sdmass', 'tau1', 'tau2', 'tau3']
+
+
+def load_jet_kinematics(files, quantities=('pt', 'eta'), treename='tree'):
+    '''
+    Lightest possible read of per-JET quantities for either schema: only the flat
+    scalar branches asked for, no jagged per-particle data touched at all (unlike
+    load_particles(), and cheaper even than load_nparticles(), which has to read one
+    jagged branch per collection just to measure its length).
+
+    Returns {'jet_<q>': array} for every q in `quantities` and, when an HLT/scouting
+    side is present, also 'hlt_jet_<q>' and 'hlt_matched'. For fullsim, 'hlt_matched'
+    is trivially all True (every row there already IS a matched pair - see the module
+    docstring), returned anyway so callers need no schema-specific branch.
+
+    An unmatched "ours" row carries hlt_jet_<q> = -999 sentinels (see
+    makeNtuplesPaired.C), NOT a physical value - callers must mask by 'hlt_matched'
+    before histogramming the HLT side, exactly as for load_nparticles()'s counts.
+    '''
+    unknown = [q for q in quantities if q not in JET_QUANTITIES]
+    if unknown:
+        raise ValueError('unsupported jet quantity/-ies {} - available on both schemas: {}'.format(
+            unknown, ', '.join(JET_QUANTITIES)))
+    schema = detect_schema(files, treename)
+    paths = _treepaths(files, treename)
+
+    if schema == 'ours':
+        has_hlt = 'hlt_matched' in _keys_of(files[0], treename)
+        branches = ['jet_' + q for q in quantities]
+        if has_hlt:
+            branches += ['hlt_matched'] + ['hlt_jet_' + q for q in quantities]
+        return _read_branches(files, branches, treename)
+
+    raw = ['fj_' + q for q in quantities] + ['scoutfj_' + q for q in quantities]
+    a = _read_branches(files, raw, treename)
+    out = {}
+    for q in quantities:
+        out['jet_' + q] = a['fj_' + q]
+        out['hlt_jet_' + q] = a['scoutfj_' + q]
+    out['hlt_matched'] = np.ones(len(a['fj_' + quantities[0]]), dtype=bool)
+    return out
+
+
+def jet_selection_mask(files, min_jet_pt=None, max_jet_eta=None, treename='tree'):
+    '''Boolean per-row mask for an extra selection on the OFFLINE jet, or None when
+    neither bound is given (so callers can skip masking entirely).
+
+    Exists because the samples this directory compares do NOT all share one selection:
+    the CMS reference dataset cuts its offline jets at pT > 200 GeV and |eta| < 2.4 (a
+    hard edge at exactly those values, measured over 1.2M jet pairs), our delphes
+    productions are effectively cut at 200 GeV by the cards' own FastJetFinder
+    JetPTMin, but fullsim productions made before 2026-10-05 reach down to 120 GeV -
+    and that extra 120-200 GeV band is ~94% QCD-labeled, so comparing across the
+    mismatch skews anything split by jet class. Applying this makes them like for like.
+
+    Only the flat branches the bounds actually need are read, and the rows line up with
+    every other loader's for the same file list (see _read_branches()), so the result
+    can be used directly to mask their output. Always the OFFLINE jet, never the HLT
+    one - that is how each of those samples defines its own selection.
+    '''
+    if min_jet_pt is None and max_jet_eta is None:
+        return None
+    quantities = ((['pt'] if min_jet_pt is not None else [])
+                  + (['eta'] if max_jet_eta is not None else []))
+    d = load_jet_kinematics(files, quantities=quantities, treename=treename)
+    keep = np.ones(len(np.asarray(d['jet_' + quantities[0]])), dtype=bool)
+    if min_jet_pt is not None:
+        keep &= np.asarray(d['jet_pt']) > min_jet_pt
+    if max_jet_eta is not None:
+        keep &= np.abs(np.asarray(d['jet_eta'])) < max_jet_eta
+    return keep
+
+
+def describe_jet_selection(min_jet_pt=None, max_jet_eta=None):
+    '''Short human-readable form of a jet_selection_mask() selection, for the log line
+    scripts print when they apply one.'''
+    parts = []
+    if min_jet_pt is not None:
+        parts.append('pT > {:g} GeV'.format(min_jet_pt))
+    if max_jet_eta is not None:
+        parts.append('|eta| < {:g}'.format(max_jet_eta))
+    return ' and '.join(parts) if parts else 'none'
+
+
 def load_label_names(header_path=DEFAULT_LABEL_HEADER):
     '''
     Parse FatJetMatching.h's own `std::vector<std::string> labels_{...}`
@@ -357,8 +481,7 @@ def load_fullsim_raw_labels(files, treename='tree'):
     recover the true per-value category, without needing DNNTuples' own full label
     list or its exact concatenation order.
     '''
-    paths = _treepaths(files, treename)
-    a = uproot.concatenate(paths, filter_name=['fj_label'] + FULLSIM_CATEGORY_FLAGS, library='np')
+    a = _read_branches(files, ['fj_label'] + FULLSIM_CATEGORY_FLAGS, treename)
     category_flags = {name: a[flag].astype(bool) for name, flag in zip(CATEGORY_NAMES[:-1], FULLSIM_CATEGORY_FLAGS)}
     return a['fj_label'], category_flags, len(a['fj_label'])
 

@@ -178,6 +178,16 @@ def main():
         help='use a linear x-axis instead of the default log scale')
     parser.add_argument('--liny', action='store_true',
         help='use a linear y-axis instead of the default log scale')
+    parser.add_argument('--min-jet-pt', type=float, default=None,
+        help='extra selection on the OFFLINE jet pT in GeV (default: none - use whatever the'
+             ' sample contains). Use 200 together with --max-jet-eta 2.4 to put a sample on'
+             ' the CMS reference dataset\'s own footing - see ntuple_io.jet_selection_mask()')
+    parser.add_argument('--max-jet-eta', type=float, default=None,
+        help='extra selection on the OFFLINE jet |eta| (default: none; the reference uses 2.4)')
+    parser.add_argument('--tag', default=None,
+        help='suffix added to the output file names (e.g. --tag ptmatched ->'
+             ' plot_particle_pt_all_ptmatched.png), so a selected and an unselected version'
+             ' can share one output directory')
     parser.add_argument('--info', default=None,
         help='extra info text shown in the upper left corner of every plot'
              ' (e.g. a process name like "train_higgs2p"); the particle-type'
@@ -198,6 +208,17 @@ def main():
 
     files = expand_files(args.files)
     data, njets, sides = load_data(files, treename=args.treename)
+
+    # Optional extra OFFLINE jet selection. Applied to the whole row (both sides and
+    # the denominator alike), so every curve keeps describing the same set of jets.
+    keep = nio.jet_selection_mask(files, min_jet_pt=args.min_jet_pt,
+                                  max_jet_eta=args.max_jet_eta, treename=args.treename)
+    if keep is not None:
+        print('offline selection ({}) keeps {}/{} jets ({:.1f}%)'.format(
+            nio.describe_jet_selection(args.min_jet_pt, args.max_jet_eta),
+            int(keep.sum()), len(keep), 100.0 * keep.mean() if len(keep) else 0))
+        data = {k: v[keep] for k, v in data.items()}
+        njets = int(keep.sum())
     has_hlt = len(sides) == 2
     if not has_hlt:
         print('No hlt_part_*/hlt_matched branches found - this is offline-only production output'
@@ -258,7 +279,8 @@ def main():
         ax.legend(loc='upper right')
         fig.tight_layout()
 
-        outpath = '{}_{}{}'.format(outbase, category, outext)
+        outpath = '{}_{}{}{}'.format(outbase, category,
+                                     '_{}'.format(args.tag) if args.tag else '', outext)
         fig.savefig(outpath, dpi=150)
         plt.close(fig)
         print('Saved plot to {}'.format(outpath))

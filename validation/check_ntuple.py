@@ -109,8 +109,21 @@ def check_file(path, c, show_label_names=False):
     c.check(np.all(a['jet_pt'] > 0), 'jet_pt > 0')
     c.check(np.all(np.abs(a['jet_eta']) < 5), '|jet_eta| < 5')
     c.check(np.all(a['jet_energy'] >= a['jet_pt'] - 1e-3), 'jet_energy >= jet_pt')
+    # SoftDrop mass is a SIGNED mass on both backends (fastjet's PseudoJet::m() and
+    # ROOT's TLorentzVector::M() both return -sqrt(-m2) for m2 < 0), so a jet groomed
+    # down to ~one particle legitimately comes out at a small negative value. Seen at
+    # ~1e-5 GeV in the Delphes production (0.04% of jets) and up to ~-1 GeV in FullSim
+    # (0.4% of QCD, 3% of two-prong signal jets, concentrated at low constituent
+    # multiplicity). Only a LARGE negative is a real defect; the small ones are
+    # reported below so they cannot go unnoticed either.
     sd = np.asarray(a['jet_sdmass'])
-    c.check(np.all((sd >= 0) & (sd < a['jet_energy'])), '0 <= jet_sdmass < jet_energy')
+    c.check(np.all((sd > -2.0) & (sd < a['jet_energy'])), '-2 < jet_sdmass < jet_energy',
+            'out of range: {}'.format(np.unique(sd[(sd <= -2.0) | (sd >= a['jet_energy'])])[:5]))
+    nneg = int((sd < 0).sum())
+    if nneg:
+        print('  NOTE jet_sdmass < 0 for {}/{} jets ({:.2f}%), most negative {:.3f} GeV'
+              ' - groomed to ~zero mass, see the comment in this script'.format(
+                  nneg, len(sd), 100. * nneg / len(sd), float(sd.min())))
     for lo, hi in (('jet_tau1', 'jet_tau2'), ('jet_tau2', 'jet_tau3'), ('jet_tau3', 'jet_tau4')):
         # N-subjettiness is non-increasing in N by construction
         c.check(np.all(np.asarray(a[hi]) <= np.asarray(a[lo]) + 1e-5), '{} <= {}'.format(hi, lo))
