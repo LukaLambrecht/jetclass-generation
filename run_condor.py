@@ -239,6 +239,18 @@ if __name__=='__main__':
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour, see https://batchdocs.web.cern.ch/local/submit.html'
              ' (default: workday, i.e. up to 8h)')
+    parser.add_argument('--max-running', type=int, default=None,
+        help='let at most this many of these jobs RUN at the same time, the rest waiting'
+             ' idle in the queue. Implemented as an HTCondor concurrency limit, which the'
+             ' negotiator enforces across every cluster sharing --concurrency-limit-name -'
+             ' which is what makes it work here, since this script submits one cluster per'
+             ' job. See condortools.concurrency_limit_for_max_running() for the mechanism.'
+             ' Every job of the same production must be submitted with the SAME'
+             ' --max-running and --concurrency-limit-name for the throttle to mean what it says')
+    parser.add_argument('--concurrency-limit-name', default=None,
+        help='name of the concurrency limit used by --max-running (default: <user>_jetclass).'
+             ' The names are a pool-wide namespace, so this should be something nobody else'
+             ' would pick; jobs sharing a name share the limit')
     parser.add_argument('--extra-env', default=None,
         help='comma-separated KEY=VALUE pairs, exported in the job before run.sh runs (e.g.'
              ' --extra-env MG5_PATH=/path/to/other/MG5,GRIDPACK_CACHE=/path/to/other/cache) -'
@@ -249,6 +261,14 @@ if __name__=='__main__':
     args = parser.parse_args()
 
     mem = args.mem if args.mem is not None else DEFAULT_MEM[args.backend]
+
+    concurrency_limits = None
+    if args.max_running is not None:
+        name = args.concurrency_limit_name or '{}_jetclass'.format(
+            os.environ.get('USER', 'jetclass'))
+        concurrency_limits, effective = ct.concurrency_limit_for_max_running(args.max_running, name)
+        print('Throttling to at most {} running job(s) via concurrency_limits = {}'.format(
+            effective, concurrency_limits))
 
     thisdir = os.path.dirname(os.path.abspath(__file__))
     runsh = os.path.join(thisdir, 'run.sh')
@@ -310,6 +330,7 @@ if __name__=='__main__':
             mem=mem,
             disk=args.disk,
             jobflavour=args.jobflavour,
+            concurrency_limits=concurrency_limits,
         )
     finally:
         os.chdir(cwd)
