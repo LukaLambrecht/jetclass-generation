@@ -38,7 +38,7 @@ charged hadrons), which can otherwise be diluted in the "all particles"
 view by the unaffected categories.
 
 Usage (from any directory - output defaults to output_plots/ next to this script):
-  python plot_pt.py FILE_OR_GLOB [FILE_OR_GLOB ...] [options]
+  python plot_particle_pt.py FILE_OR_GLOB [FILE_OR_GLOB ...] [options]
 
 `files` are every paired ntuple belonging to ONE production (e.g. all of a
 process' condor-job ntuple_*.root under one card-pair directory) - pass a
@@ -48,12 +48,12 @@ not looped over as separate series like the old (pre-paired-format)
 version of this script did.
 
 Examples:
-  python plot_pt.py \\
+  python plot_particle_pt.py \\
       '/eos/user/l/llambrec/jetclass/output_jetclass2_5M/jetclass2/train_higgs2p/onlyFatJet+onlyFatJetHLT/ntuple_*.root' \\
       --info train_higgs2p --output output_plots/plot_pt_train_higgs2p.png
 
   # same, but against the real FullSim/scouting reference dataset
-  python plot_pt.py \\
+  python plot_particle_pt.py \\
       '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/H0HpHm_mixed_new/dnnTuples_nanov15_*.root' \\
       --info H0HpHm_mixed_new --output output_plots/plot_pt_fullsim_h0hphm.png
 '''

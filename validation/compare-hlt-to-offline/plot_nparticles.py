@@ -26,7 +26,7 @@ needs no flag:
     in both datasets.
 
 `files` is just every ntuple to pool together and then bucket by class,
-same as ../plot_pt.py/plot_composition.py - no separate "QCD source"/
+same as ../plot_particle_pt.py/plot_composition.py - no separate "QCD source"/
 "Higgs source" arguments: since every jet is bucketed by its OWN label
 regardless of which file it came from, one combined glob (or several)
 covering every process/sample you want represented is enough - e.g. an
@@ -151,7 +151,7 @@ def expand_files(patterns):
     '''Glob-expand each pattern (quote globs on the command line so THIS expands them,
     not the shell) - a pattern matching nothing is kept as a literal path, so a plain
     existing file still works and a genuine typo fails loudly (on the actual read)
-    instead of silently vanishing here. Same as ../plot_pt.py/plot_composition.py's
+    instead of silently vanishing here. Same as ../plot_particle_pt.py/plot_composition.py's
     own expand_files().'''
     files = []
     for pattern in patterns:

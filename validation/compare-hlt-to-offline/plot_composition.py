@@ -65,6 +65,16 @@ import matplotlib.pyplot as plt
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(THISDIR))  # validation/ - for ntuple_io
 import ntuple_io as nio
+# the class scheme comes from the sibling script, so the three scripts that split by
+# jet class can't drift apart in what "QCD" or "X_tauhtaul" means (it guards its own
+# command-line handling behind __main__, so importing it does nothing else)
+sys.path.append(THISDIR)
+from plot_nparticles import CLASSES, CLASS_SUFFIXES, class_masks
+
+# "all" is not a jet class but the pooled, un-split view - the same convention
+# plot_particle_pt.py uses for its own "all particle types" category. Kept as the
+# default FIRST entry so the legacy whole-sample figure is still produced.
+ALL_CLASSES = ['all'] + CLASSES
 
 DEFAULT_OUTPUT = os.path.join(THISDIR, 'output_plots', 'plot_composition.png')
 
@@ -100,7 +110,7 @@ DEFAULT_PT_BINS = [200, 250, 300, 400, 500, 650, 800, 1000, 1500, 2000, 3000, 50
 
 
 def expand_files(patterns):
-    '''See plot_pt.py's own expand_files() - identical glob-or-literal handling.'''
+    '''See plot_particle_pt.py's own expand_files() - identical glob-or-literal handling.'''
     files = []
     for pattern in patterns:
         matched = sorted(glob.glob(pattern))
@@ -152,6 +162,86 @@ def format_bin_label(lo, hi):
     return '{}–{}'.format(fmt(lo), fmt(hi))
 
 
+def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labels,
+                label_threshold, title_text, outpath):
+    '''One composition figure (Offline and, when present, HLT panel) for ONE jet class -
+    everything below is the original whole-sample plotting code, now called once per
+    class with that class's own already-masked arrays.'''
+    nbins = len(pt_bins) - 1
+    y = np.arange(nbins)
+    njets = len(jet_pt)
+    has_hlt = hlt_matched is not None
+    if njets == 0:
+        print('{}: no jets - skipped'.format(class_name))
+        return
+
+    fig, axes = plt.subplots(1, len(sides), figsize=(6.5 * len(sides), 0.55 * nbins + 2), sharey=True)
+    if len(sides) == 1:
+        axes = [axes]
+
+    for ax, (prefix, side_label) in zip(axes, sides):
+        # HLT's own per-bin means only ever run over hlt_matched rows - a
+        # composition fraction is undefined (not 0%), for a jet with no HLT
+        # match at all, not a real "0% of everything" data point
+        in_side = hlt_matched if prefix == 'hlt_part_' else np.ones(njets, dtype=bool)
+
+        binned = {name: np.full(nbins, np.nan) for name, _, _, _ in CATEGORIES}
+        njets_per_bin = np.zeros(nbins, dtype=int)
+        nmatched_per_bin = np.zeros(nbins, dtype=int)
+        for i in range(nbins):
+            lo, hi = pt_bins[i], pt_bins[i + 1]
+            in_bin = (jet_pt >= lo) & (jet_pt < hi)
+            njets_per_bin[i] = np.count_nonzero(in_bin)
+            nmatched_per_bin[i] = np.count_nonzero(in_bin & in_side)
+            if nmatched_per_bin[i] == 0:
+                continue
+            for name, _, _, _ in CATEGORIES:
+                binned[name][i] = 100.0 * np.nanmean(fracs[prefix + name][in_bin & in_side])
+
+        left = np.zeros(nbins)
+        for name, _, cat_label, color in CATEGORIES:
+            vals = np.nan_to_num(binned[name])
+            ax.barh(y, vals, left=left, height=0.7, color=color, label=cat_label)
+            for i in range(nbins):
+                if vals[i] >= label_threshold:
+                    ax.text(left[i] + vals[i] / 2, y[i], '{:.0f}%'.format(vals[i]),
+                            ha='center', va='center', color='white', fontweight='bold', fontsize=12)
+            left += vals
+
+        title = '{} ({})'.format(title_text, side_label) if title_text else side_label
+        ax.set_title(title, fontweight='bold', fontsize=17)
+        ax.set_xlabel('Mean per-jet composition [%]')
+        ax.set_xlim(0, 100)
+        ax.xaxis.grid(True, alpha=0.3)
+        ax.set_axisbelow(True)
+        # per-bin (jets, HLT-match%) annotation on the right edge, so a thin/
+        # low-statistics or poorly-matched bin is never silently indistinguishable
+        # from a well-populated one
+        for i in range(nbins):
+            match_pct = 100.0 * nmatched_per_bin[i] / njets_per_bin[i] if njets_per_bin[i] else 0
+            annotation = '{} jets'.format(njets_per_bin[i]) if prefix != 'hlt_part_' \
+                else '{} jets ({:.0f}% matched)'.format(njets_per_bin[i], match_pct)
+            ax.text(101, y[i], annotation, ha='left', va='center', fontsize=10, color='dimgray')
+
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels(bin_labels)
+    axes[0].set_ylabel(r'Jet $p_{T}$ bin [GeV] (offline)')
+    axes[0].invert_yaxis()
+
+    handles, legend_labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, legend_labels, loc='lower center', ncol=3,
+               bbox_to_anchor=(0.5, -0.09), frameon=False)
+
+    fig.tight_layout()
+
+    output = outpath
+    outdir = os.path.dirname(os.path.abspath(output))
+    if outdir and not os.path.exists(outdir):
+        os.makedirs(outdir)
+    fig.savefig(output, dpi=150, bbox_inches='tight')
+    print('Saved plot to {}'.format(output))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -177,10 +267,20 @@ def main():
         help='suffix added to the output file name (e.g. --tag ptmatched ->'
              ' plot_composition_ptmatched.png), so a selected and an unselected version can'
              ' share one output directory')
+    parser.add_argument('--classes', default=','.join(ALL_CLASSES),
+        help='comma-separated jet classes to make a separate figure for, "all" meaning the'
+             ' pooled whole-sample view (default: all of them - {}). Class definitions are'
+             ' shared with plot_nparticles.py. Splitting matters because a pooled figure'
+             ' averages over whatever class mix the input happens to have, which differs'
+             ' between samples (e.g. 73%% vs 52%% QCD-sample jets for the CMS reference vs our'
+             ' own fullsim production)'.format(', '.join(ALL_CLASSES)))
     parser.add_argument('--title', default=None,
         help='extra title text prepended to each panel title (e.g. a process name)')
     parser.add_argument('--output', default=DEFAULT_OUTPUT,
-        help='output plot file (default: output_plots/plot_composition.png, next to this script)')
+        help='base output plot file; one file is written per class by inserting its name'
+             ' before the extension, e.g. output_plots/plot_composition.png ->'
+             ' plot_composition_all.png, plot_composition_QCD.png, ...'
+             ' (default: output_plots/plot_composition.png, next to this script)')
     args = parser.parse_args()
 
     pt_bins = [float(x) for x in args.ptbins.split(',')] if args.ptbins else DEFAULT_PT_BINS
@@ -212,74 +312,39 @@ def main():
         print('{} jets (no hlt_part_*/hlt_matched branches found - this is offline-only production'
               ' output, e.g. a single-card run like output_jetclass2_5M; plotting Offline only.)'.format(njets))
 
-    fig, axes = plt.subplots(1, len(sides), figsize=(6.5 * len(sides), 0.55 * nbins + 2), sharey=True)
-    if len(sides) == 1:
-        axes = [axes]
+    # Per-class masks, over the SAME rows as everything above (the selection `keep` has
+    # not been applied to them yet, so the two are combined per class below).
+    classes = [c.strip() for c in args.classes.split(',') if c.strip()]
+    unknown = [c for c in classes if c != 'all' and c != 'QCD' and c not in CLASS_SUFFIXES]
+    if unknown:
+        raise Exception('unknown class(es) {} - known: {}'.format(unknown, ', '.join(ALL_CLASSES)))
+    needed = [c for c in classes if c != 'all']
+    masks = class_masks(files, needed)[0] if needed else {}
 
-    for ax, (prefix, side_label) in zip(axes, sides):
-        # HLT's own per-bin means only ever run over hlt_matched rows - a
-        # composition fraction is undefined (not 0%), for a jet with no HLT
-        # match at all, not a real "0% of everything" data point
-        in_side = hlt_matched if prefix == 'hlt_part_' else np.ones(njets, dtype=bool)
+    outbase, outext = os.path.splitext(os.path.abspath(args.output))
+    outext = outext or '.png'
+    tag = '_{}'.format(args.tag) if args.tag else ''
 
-        binned = {name: np.full(nbins, np.nan) for name, _, _, _ in CATEGORIES}
-        njets_per_bin = np.zeros(nbins, dtype=int)
-        nmatched_per_bin = np.zeros(nbins, dtype=int)
-        for i in range(nbins):
-            lo, hi = pt_bins[i], pt_bins[i + 1]
-            in_bin = (jet_pt >= lo) & (jet_pt < hi)
-            njets_per_bin[i] = np.count_nonzero(in_bin)
-            nmatched_per_bin[i] = np.count_nonzero(in_bin & in_side)
-            if nmatched_per_bin[i] == 0:
-                continue
-            for name, _, _, _ in CATEGORIES:
-                binned[name][i] = 100.0 * np.nanmean(fracs[prefix + name][in_bin & in_side])
-
-        left = np.zeros(nbins)
-        for name, _, cat_label, color in CATEGORIES:
-            vals = np.nan_to_num(binned[name])
-            ax.barh(y, vals, left=left, height=0.7, color=color, label=cat_label)
-            for i in range(nbins):
-                if vals[i] >= args.label_threshold:
-                    ax.text(left[i] + vals[i] / 2, y[i], '{:.0f}%'.format(vals[i]),
-                            ha='center', va='center', color='white', fontweight='bold', fontsize=12)
-            left += vals
-
-        title = '{} ({})'.format(args.title, side_label) if args.title else side_label
-        ax.set_title(title, fontweight='bold', fontsize=17)
-        ax.set_xlabel('Mean per-jet composition [%]')
-        ax.set_xlim(0, 100)
-        ax.xaxis.grid(True, alpha=0.3)
-        ax.set_axisbelow(True)
-        # per-bin (jets, HLT-match%) annotation on the right edge, so a thin/
-        # low-statistics or poorly-matched bin is never silently indistinguishable
-        # from a well-populated one
-        for i in range(nbins):
-            match_pct = 100.0 * nmatched_per_bin[i] / njets_per_bin[i] if njets_per_bin[i] else 0
-            annotation = '{} jets'.format(njets_per_bin[i]) if prefix != 'hlt_part_' \
-                else '{} jets ({:.0f}% matched)'.format(njets_per_bin[i], match_pct)
-            ax.text(101, y[i], annotation, ha='left', va='center', fontsize=10, color='dimgray')
-
-    axes[0].set_yticks(y)
-    axes[0].set_yticklabels(bin_labels)
-    axes[0].set_ylabel(r'Jet $p_{T}$ bin [GeV] (offline)')
-    axes[0].invert_yaxis()
-
-    handles, legend_labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, legend_labels, loc='lower center', ncol=3,
-               bbox_to_anchor=(0.5, -0.09), frameon=False)
-
-    fig.tight_layout()
-
-    output = args.output
-    if args.tag:
-        base, ext = os.path.splitext(os.path.abspath(output))
-        output = '{}_{}{}'.format(base, args.tag, ext or '.png')
-    outdir = os.path.dirname(os.path.abspath(output))
-    if outdir and not os.path.exists(outdir):
-        os.makedirs(outdir)
-    fig.savefig(output, dpi=150, bbox_inches='tight')
-    print('Saved plot to {}'.format(output))
+    for class_name in classes:
+        sel = None if class_name == 'all' else masks[class_name]
+        if keep is not None:
+            # `masks` is over the unselected rows, the loaded arrays are already
+            # selected - so restrict the class mask to the kept rows
+            sel = keep.copy() if sel is None else (sel & keep)
+            sel = sel[keep]
+        if sel is None:
+            cls_pt, cls_fracs = jet_pt, fracs
+            cls_matched = hlt_matched
+        else:
+            cls_pt = jet_pt[sel]
+            cls_fracs = {k: v[sel] for k, v in fracs.items()}
+            cls_matched = hlt_matched[sel] if has_hlt else None
+        label = 'all classes' if class_name == 'all' else 'class: {}'.format(class_name)
+        title_text = '{} | {}'.format(args.title, label) if args.title else label
+        print('  {:<12} {} jets'.format(class_name, len(cls_pt)))
+        make_figure(class_name, cls_pt, cls_matched, cls_fracs, sides, pt_bins, bin_labels,
+                    args.label_threshold, title_text,
+                    '{}_{}{}{}'.format(outbase, class_name, tag, outext))
 
 
 if __name__ == '__main__':
