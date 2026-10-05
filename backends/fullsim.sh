@@ -71,7 +71,7 @@ fullsim_in_container() {
     done
     setsid timeout -k 30 "${FULLSIM_TIMEOUT_SEC}s" \
         $FULLSIM_CONTAINER_CMD exec $binds --pwd "$WORKDIR" \
-        --env FS_WORK="$FS_WORK",FS_CFGSRC="$FS_CFGSRC",FS_ANASRC="$FS_ANASRC",FS_NEVENT="$FS_NEVENT",FS_KEEP="$KEEP_INTERMEDIATE",FULLSIM_CMSSW_DIR="$FULLSIM_CMSSW_DIR",FULLSIM_SCRAM_ARCH="$FULLSIM_SCRAM_ARCH",FULLSIM_CONDDB="$FULLSIM_CONDDB",NT_JETS="$NT_JETS",NT_HLTJETS="$NT_HLTJETS",NT_QCDLABEL="$NT_QCDLABEL",NT_V1LABELS="$NT_V1LABELS",NT_DOHLT="$NT_DOHLT",NT_KEEPGENJET="$NT_KEEPGENJET" \
+        --env FS_WORK="$FS_WORK",FS_CFGSRC="$FS_CFGSRC",FS_ANASRC="$FS_ANASRC",FS_NEVENT="$FS_NEVENT",FS_KEEP="$KEEP_INTERMEDIATE",FULLSIM_CMSSW_DIR="$FULLSIM_CMSSW_DIR",FULLSIM_SCRAM_ARCH="$FULLSIM_SCRAM_ARCH",FULLSIM_CONDDB="$FULLSIM_CONDDB",NT_JETS="$NT_JETS",NT_HLTJETS="$NT_HLTJETS",NT_QCDLABEL="$NT_QCDLABEL",NT_V1LABELS="$NT_V1LABELS",NT_DOHLT="$NT_DOHLT",NT_KEEPGENJET="$NT_KEEPGENJET",NT_JETPTMIN="$NT_JETPTMIN",NT_JETETAMAX="$NT_JETETAMAX" \
         "$FULLSIM_CONTAINER" bash -lc "bash $FS_CFGSRC/run_chain.sh $*" &
     local pgid=$!
     # Keep run.sh's stall watchdog fed while the container runs. Without this a
@@ -148,6 +148,10 @@ backend_setup() {
     NT_QCDLABEL=${NT_QCDLABEL:-true}
     NT_V1LABELS=$USE_V1_LABELS
     NT_KEEPGENJET=${NT_KEEPGENJET:-false}
+    # offline jet selection; the defaults match the CMS reference dataset (and the
+    # Delphes cards' own 200 GeV) - see makeNtuplesFullSim.cc's header
+    NT_JETPTMIN=${NT_JETPTMIN:-200}
+    NT_JETETAMAX=${NT_JETETAMAX:-2.4}
 
     # Write the three cmsRun configs and build the ntuplizer ONCE for the whole
     # job: generating the HLT config alone takes ~1 minute (the GRun menu is

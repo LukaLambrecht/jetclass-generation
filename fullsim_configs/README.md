@@ -99,6 +99,24 @@ vertex. The scouting products are still written as well, so the two views can be
 compared in the same file. Physics-wise they are the same objects: the scouting
 stream is a compressed view of exactly these candidates.
 
+## Jet selection
+
+Offline jets: **pT > 200 GeV, |eta| < 2.4**, matching the CMS offline+scouting
+reference dataset this pipeline reproduces
+(`/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/`), whose selection was
+measured to be a hard edge at exactly those values (min `fj_pt` = 200.00, max
+`|fj_eta|` = 2.3999 over 1.2M jet pairs). The Delphes backend imposes the same
+200 GeV through its cards' `FastJetFinder JetPTMin`, so the two backends and the
+reference agree. Overridable per job with `NT_JETPTMIN` / `NT_JETETAMAX`.
+
+No pT or eta cut is applied to the matched HLT jet, on purpose - a vanished HLT
+jet has to stay distinguishable from a merely softer one (see
+`delphes_analyzers/makeNtuplesPaired.C`'s docstring). The reference *does* cut
+its scouting jet at **170 GeV** (also a hard edge: zero jets below it), and
+applies no eta cut there, so a strict comparison against the reference should
+add `hlt_jet_pt > 170` downstream. That removes 0.35% of FullSim jets and 3.4%
+of Delphes jets.
+
 ## Caveats
 
 1. **No pile-up.** Deliberate (it would multiply an already expensive job), but

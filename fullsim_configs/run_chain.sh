@@ -151,7 +151,8 @@ do_batch () {
         dohlt="${NT_DOHLT:-true}" debug="${NT_DEBUG:-false}" \
         keepgenparticles="${NT_KEEPGENPARTICLES:-false}" \
         keepauxgenparticles="${NT_KEEPAUXGENPARTICLES:-false}" \
-        keepgenjet="${NT_KEEPGENJET:-false}" > ntuple.log 2>&1
+        keepgenjet="${NT_KEEPGENJET:-false}" \
+        jetptmin="${NT_JETPTMIN:-200}" jetetamax="${NT_JETETAMAX:-2.4}" > ntuple.log 2>&1
     local rc=$?
     echo "  ntuple: rc=$rc ($(( $(date +%s) - t0 ))s) $(grep -m1 '^\*\* Written' ntuple.log || true)"
     if [ $rc -ne 0 ]; then
