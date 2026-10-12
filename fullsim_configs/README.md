@@ -99,6 +99,76 @@ vertex. The scouting products are still written as well, so the two views can be
 compared in the same file. Physics-wise they are the same objects: the scouting
 stream is a compressed view of exactly these candidates.
 
+## Generator sources
+
+A process under `gen_configs/` produces its generator-level events in one of two ways,
+decided by what its directory contains (`run.sh` calls this `PROC_KIND`):
+
+| kind | marker | how events are made | backends |
+|---|---|---|---|
+| `hepmc` | a `run_gen.sh` (or the default one) | standalone MG5_aMC + Pythia8 writes `events.hepmc`, fed to CMSSW via `MCFileSource` (`patch_gen.py`) | delphes **and** fullsim |
+| `cmssw_fragment` | **`fragment.py`** | CMSSW runs the Pythia8 fragment itself, inside the GEN step - no external generator, no HepMC file | **fullsim only** |
+
+`jetclass1/*` and `jetclass2/*` are `hepmc` and are unchanged. A `cmssw_fragment`
+process passed to the Delphes backend is refused with an explicit error, since Delphes
+has no way to consume it.
+
+For a fragment process the backend creates a scram developer area and installs the
+fragment as `Configuration/GenProduction/python/<name>.py`, which is how cmsDriver
+expects to import it. That subpackage does not exist in the release, and CMSSW's own
+package `__init__.py` prepends `$LOCALRT/python/<Package>` to the package path, so it
+is *added* with nothing shadowed. The module name is sanitised, because a process name
+like `QCD_PT-470to600` is not a valid Python identifier.
+
+Every batch gets a fresh random seed for **all** random-number modules (generator,
+vertex smearing, GEANT4, mixing) via CMSSW's `RandomNumberServiceHelper`, logged as
+`seed: <n>`. This is essential for fragment processes - all batches of a job share one
+config and would otherwise generate identical events - and it also fixed the HepMC
+route, whose batches previously shared GEANT4 seeds.
+
+### `jetclass2SB`: reproducing the reference dataset's spectrum
+
+`gen_configs/jetclass2SB/QCD_PT-*` are the ten pThat-binned fragments behind the CMS
+offline+scouting reference dataset, copied from the public
+[hww-tagging repository](https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3)
+(themselves the official CMS McM Summer23GS fragments). The one adaptation for
+CMSSW_10_6_30 is marked inline in each file: the Run-3 13.6 TeV CP5 tune module does
+not exist in this release, so the import falls back to an inlined copy of that block
+from cms-sw/cmssw (Apache-2.0), differing only in `SigmaTotal:sigmaEl/sigmaTot`.
+
+The reference sample is **"PT-mixed": each of the ten bins was generated with an EQUAL
+number of events** (500 jobs x 500 events = 250k per bin), i.e. flat in pThat rather
+than cross-section weighted. That flat mixing - not the per-bin settings - is what
+makes its jet pT spectrum so much harder than our jetclass2 QCD (reference median
+gen-jet pT 871 GeV, which is exactly where flat mixing over these bins puts it).
+
+So reproduce it by submitting the **same number of jobs for every bin**:
+
+```bash
+OUT=/eos/user/l/llambrec/jetclass/output_jetclass2SB
+for b in 170to300 300to470 470to600 600to800 800to1000 \
+         1000to1400 1400to1800 1800to2400 2400to3200 3200toInf; do
+  python run_condor_loop.py --backend fullsim --procs jetclass2SB/QCD_PT-$b \
+      --njobs 20 --nevents-per-job 320 --batch-size 80 \
+      --output-path $OUT --max-materialize 100 -o condor_jetclass2SB
+done
+```
+
+Equal `--njobs` across bins is what makes the mix flat; scale `--njobs` to taste (the
+reference's own 250k events per bin would be ~3 CPU-years through full simulation).
+
+### The two-prong signal is not wired up
+
+`submit_higgs2p.jdl` in the same repository uses
+`BulkGravitonToHHTo4QGluLTau_MX-600to6000_MH-15to650`, which is **not** a Pythia-only
+fragment: it declares 3564 `RandomizedParameters` points (26 x 54 low-mass plus
+40 x 54 high-mass), each referencing its own MadGraph gridpack through a custom
+`instMG://` URL. That scheme is not a CMSSW feature (absent from both 10_6_30 and
+13_0_0) - the production patches `GeneratorInterface/Core/src/BaseHadronizer.cc` to
+swap the gridpack-fetching script for its own `run_instMG.sh`, which builds the
+gridpack for each mass point on the fly with MG5_aMC v2.9.18. Wiring that up is a
+separate project from the QCD side; see the notes in this repository's discussion.
+
 ## Jet selection
 
 Offline jets: **pT > 200 GeV, |eta| < 2.4**, matching the CMS offline+scouting

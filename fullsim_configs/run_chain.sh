@@ -37,8 +37,26 @@ if [ ! -d "$CMSSW_DIR" ]; then
 fi
 source /cvmfs/cms.cern.ch/cmsset_default.sh >/dev/null 2>&1 || {
     echo "ERROR: could not source cmsset_default.sh - is /cvmfs/cms.cern.ch available?" >&2; exit 2; }
-cd "$CMSSW_DIR"
-eval "$(scram runtime -sh)" || { echo "ERROR: scram runtime failed in $CMSSW_DIR" >&2; exit 2; }
+# A CMSSW GEN fragment has to be importable as Configuration.GenProduction.<name>,
+# which means a scram developer area: CMSSW's own package __init__.py prepends
+# $LOCALRT/python/<Package> to the package __path__, so a subpackage that does NOT
+# exist in the release (GenProduction is created by users, never shipped) is simply
+# ADDED there, with nothing in the release shadowed. The area is created once per job
+# and reused by every batch.
+FS_FRAGMENT=${FS_FRAGMENT:-}
+FS_FRAGNAME=${FS_FRAGNAME:-}
+if [ -n "$FS_FRAGMENT" ]; then
+    DEVAREA=$FS_WORK/devarea
+    RELNAME=$(basename "$CMSSW_DIR")
+    if [ ! -d "$DEVAREA/$RELNAME" ]; then
+        mkdir -p "$DEVAREA"
+        (cd "$DEVAREA" && scram project CMSSW "$RELNAME" >/dev/null 2>&1)             || { echo "ERROR: could not create a scram area for $RELNAME in $DEVAREA" >&2; exit 2; }
+    fi
+    cd "$DEVAREA/$RELNAME/src"
+else
+    cd "$CMSSW_DIR"
+fi
+eval "$(scram runtime -sh)" || { echo "ERROR: scram runtime failed" >&2; exit 2; }
 
 CFGDIR=$FS_WORK/cfg
 GT=$(python -c "import sys; sys.path.insert(0,'$FS_CFGSRC'); import patch_cond; print(patch_cond.GT)")
@@ -63,19 +81,38 @@ do_setup () {
     cd "$CFGDIR"
 
     if [ ! -s gensim_cfg.py ]; then
-        # The fragment name is required by cmsDriver but its generator module is
-        # removed again by patch_gen (we read our own HepMC file instead); it
-        # only has to be a GEN fragment that exists in the release.
-        cmsDriver.py QCD_Pt_600_800_13TeV_TuneCUETP8M1_cfi --mc --eventcontent FEVTDEBUG \
-            --datatier GEN-SIM --conditions "$GT" --beamspot "$BEAMSPOT" --step GEN,SIM \
-            --geometry DB:Extended --era Run2_2018 --python_filename gensim_cfg.py \
-            --fileout file:gensim.root -n "$FS_NEVENT" --no_exec > cmsdriver_gensim.log 2>&1 \
-            || { echo "ERROR: cmsDriver (GEN,SIM) failed, see $CFGDIR/cmsdriver_gensim.log" >&2; return 1; }
-        append_patch gensim_cfg.py \
-            "import patch_gen" \
-            "process = patch_gen.apply(process, 'events.hepmc')" \
-            "process = patch_cond.apply(process)" \
-            "process = patch_cond.set_beamspot(process)"
+        if [ -n "$FS_FRAGMENT" ]; then
+            # CMSSW generates the events itself from the process' own fragment, so
+            # there is no HepMC input and patch_gen is NOT applied.
+            local gp=$DEVAREA/$RELNAME/src/Configuration/GenProduction/python
+            mkdir -p "$gp"
+            cp "$FS_FRAGMENT" "$gp/$FS_FRAGNAME.py"
+            (cd "$DEVAREA/$RELNAME/src" && scram b >/dev/null 2>&1) \
+                || { echo "ERROR: scram b failed after installing the fragment" >&2; return 1; }
+            cmsDriver.py "Configuration/GenProduction/python/$FS_FRAGNAME.py" --mc \
+                --eventcontent FEVTDEBUG --datatier GEN-SIM --conditions "$GT" \
+                --beamspot "$BEAMSPOT" --step GEN,SIM --geometry DB:Extended --era Run2_2018 \
+                --python_filename gensim_cfg.py --fileout file:gensim.root \
+                -n "$FS_NEVENT" --no_exec > cmsdriver_gensim.log 2>&1 \
+                || { echo "ERROR: cmsDriver (GEN,SIM from fragment) failed, see $CFGDIR/cmsdriver_gensim.log" >&2; return 1; }
+            append_patch gensim_cfg.py \
+                "process = patch_cond.apply(process)" \
+                "process = patch_cond.set_beamspot(process)"
+        else
+            # The fragment name is required by cmsDriver but its generator module is
+            # removed again by patch_gen (we read our own HepMC file instead); it
+            # only has to be a GEN fragment that exists in the release.
+            cmsDriver.py QCD_Pt_600_800_13TeV_TuneCUETP8M1_cfi --mc --eventcontent FEVTDEBUG \
+                --datatier GEN-SIM --conditions "$GT" --beamspot "$BEAMSPOT" --step GEN,SIM \
+                --geometry DB:Extended --era Run2_2018 --python_filename gensim_cfg.py \
+                --fileout file:gensim.root -n "$FS_NEVENT" --no_exec > cmsdriver_gensim.log 2>&1 \
+                || { echo "ERROR: cmsDriver (GEN,SIM) failed, see $CFGDIR/cmsdriver_gensim.log" >&2; return 1; }
+            append_patch gensim_cfg.py \
+                "import patch_gen" \
+                "process = patch_gen.apply(process, 'events.hepmc')" \
+                "process = patch_cond.apply(process)" \
+                "process = patch_cond.set_beamspot(process)"
+        fi
     fi
 
     if [ ! -s hlt_cfg.py ]; then
@@ -120,7 +157,11 @@ run_step () {
         return 0
     fi
     local t0=$(date +%s)
-    cmsRun "$CFGDIR/${name}_cfg.py" > "${name}.log" 2>&1
+    # a batch-local copy (gensim, which carries this batch's seeds) wins over the
+    # job-wide one written by do_setup
+    local cfg="${name}_cfg.py"
+    [ -s "$cfg" ] || cfg="$CFGDIR/${name}_cfg.py"
+    cmsRun "$cfg" > "${name}.log" 2>&1
     local rc=$?
     echo "  $name: rc=$rc ($(( $(date +%s) - t0 ))s)"
     if [ $rc -ne 0 ]; then
@@ -135,10 +176,25 @@ do_batch () {
     local bdir=$FS_WORK/batch_$i
     mkdir -p "$bdir"
     cd "$bdir"
-    if [ ! -s events.hepmc ]; then
+    if [ -z "$FS_FRAGMENT" ] && [ ! -s events.hepmc ]; then
         echo "ERROR: $bdir/events.hepmc is missing - nothing to reconstruct" >&2
         return 1
     fi
+
+    # One random seed per batch, reseeding EVERY random-number module (generator,
+    # vertex smearing, GEANT4, mixing) via CMSSW's own helper. Essential for a
+    # fragment process - without it every batch of a job would generate the identical
+    # events, since they share one config - and a genuine improvement for the HepMC
+    # route too, whose batches previously shared GEANT4 seeds. Logged so a batch can
+    # be reproduced. Nonzero: 0 is not a valid CMSSW seed.
+    BATCH_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 900000000 + 1 ))
+    echo "  seed: $BATCH_SEED"
+    cp "$CFGDIR/gensim_cfg.py" ./gensim_cfg.py
+    cat >> gensim_cfg.py <<SEEDEOF
+from IOMC.RandomEngine.RandomServiceHelper import RandomNumberServiceHelper
+RandomNumberServiceHelper(process.RandomNumberGeneratorService).resetSeeds($BATCH_SEED)
+SEEDEOF
+
     run_step gensim gensim.root || return 1
     run_step hlt hlt.root || return 1
     run_step reco reco.root || return 1

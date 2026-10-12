@@ -71,7 +71,7 @@ fullsim_in_container() {
     done
     setsid timeout -k 30 "${FULLSIM_TIMEOUT_SEC}s" \
         $FULLSIM_CONTAINER_CMD exec $binds --pwd "$WORKDIR" \
-        --env FS_WORK="$FS_WORK",FS_CFGSRC="$FS_CFGSRC",FS_ANASRC="$FS_ANASRC",FS_NEVENT="$FS_NEVENT",FS_KEEP="$KEEP_INTERMEDIATE",FULLSIM_CMSSW_DIR="$FULLSIM_CMSSW_DIR",FULLSIM_SCRAM_ARCH="$FULLSIM_SCRAM_ARCH",FULLSIM_CONDDB="$FULLSIM_CONDDB",NT_JETS="$NT_JETS",NT_HLTJETS="$NT_HLTJETS",NT_QCDLABEL="$NT_QCDLABEL",NT_V1LABELS="$NT_V1LABELS",NT_DOHLT="$NT_DOHLT",NT_KEEPGENJET="$NT_KEEPGENJET",NT_JETPTMIN="$NT_JETPTMIN",NT_JETETAMAX="$NT_JETETAMAX" \
+        --env FS_WORK="$FS_WORK",FS_CFGSRC="$FS_CFGSRC",FS_ANASRC="$FS_ANASRC",FS_NEVENT="$FS_NEVENT",FS_KEEP="$KEEP_INTERMEDIATE",FULLSIM_CMSSW_DIR="$FULLSIM_CMSSW_DIR",FULLSIM_SCRAM_ARCH="$FULLSIM_SCRAM_ARCH",FULLSIM_CONDDB="$FULLSIM_CONDDB",NT_JETS="$NT_JETS",NT_HLTJETS="$NT_HLTJETS",NT_QCDLABEL="$NT_QCDLABEL",NT_V1LABELS="$NT_V1LABELS",NT_DOHLT="$NT_DOHLT",NT_KEEPGENJET="$NT_KEEPGENJET",NT_JETPTMIN="$NT_JETPTMIN",NT_JETETAMAX="$NT_JETETAMAX",FS_FRAGMENT="$FS_FRAGMENT",FS_FRAGNAME="$FS_FRAGNAME" \
         "$FULLSIM_CONTAINER" bash -lc "bash $FS_CFGSRC/run_chain.sh $*" &
     local pgid=$!
     # Keep run.sh's stall watchdog fed while the container runs. Without this a
@@ -140,9 +140,25 @@ backend_setup() {
        "$REPO_DIR"/fullsim_analyzers/makeNtuplesFullSim.cc \
        "$REPO_DIR"/fullsim_analyzers/build.sh "$FS_ANASRC/"
 
-    # -1 = "every event in this batch's events.hepmc", so a batch that generated
-    # slightly fewer events than asked is still fully reconstructed
+    # How the generator-level events arrive (see run.sh's PROC_KIND):
+    #   hepmc          -1 = "every event in this batch's events.hepmc", so a batch that
+    #                  generated slightly fewer events than asked is still fully
+    #                  reconstructed
+    #   cmssw_fragment CMSSW generates them itself, so the count has to be stated: it is
+    #                  exactly the batch size
+    FS_FRAGMENT=''
+    FS_FRAGNAME=''
     FS_NEVENT=-1
+    if [ "$PROC_KIND" = "cmssw_fragment" ]; then
+        FS_NEVENT=$NEVENT_GEN
+        # cmsDriver imports the fragment as a python MODULE
+        # (Configuration.GenProduction.<name>), so the name must be a valid
+        # identifier - process names like "QCD_PT-470to600" are not.
+        FS_FRAGNAME=$(echo "$PROC" | sed 's/[^A-Za-z0-9_]/_/g')
+        FS_FRAGMENT=$FS_CFGSRC/$FS_FRAGNAME.py
+        cp "$REPO_DIR/gen_configs/$PROC/fragment.py" "$FS_FRAGMENT"
+        echo "fullsim: CMSSW GEN fragment $PROC -> Configuration/GenProduction/python/$FS_FRAGNAME.py"
+    fi
     NT_JETS=${NT_JETS:-ak8PFJetsCHS}
     NT_HLTJETS=${NT_HLTJETS:-hltAK8PFJets}
     NT_QCDLABEL=${NT_QCDLABEL:-true}
@@ -176,33 +192,77 @@ backend_run_batch() {
     local i=$1
     local bdir=$FS_WORK/batch_$i
     mkdir -p "$bdir"
-    if [ ! -s events.hepmc ]; then
-        echo "WARNING: batch $i produced no events.hepmc - skipping its reconstruction" >&2
-        return 0
+    if [ "$PROC_KIND" != "cmssw_fragment" ]; then
+        if [ ! -s events.hepmc ]; then
+            echo "WARNING: batch $i produced no events.hepmc - skipping its reconstruction" >&2
+            return 0
+        fi
+        # moved, not copied: the HepMC file is large (~10 MB per 100 events) and the
+        # generation step has no further use for it
+        mv events.hepmc "$bdir/events.hepmc"
     fi
-    # moved, not copied: the HepMC file is large (~10 MB per 100 events) and the
-    # generation step has no further use for it
-    mv events.hepmc "$bdir/events.hepmc"
 
     # NOT piped into tee: that would make the exit status checked below tee's,
     # not the container's, so a failed batch would look successful
     fullsim_in_container batch "$i" > "$bdir/batch.out" 2>&1
     local rc=$?
     cat "$bdir/batch.out"
-    if [ $rc -eq 0 ]; then
-        if [ -s "$bdir/ntuple.root" ]; then
-            NTUPLES_PRODUCED=$((NTUPLES_PRODUCED + 1))
-        else
-            echo "WARNING: batch $i reported success but produced no ntuple.root - skipping it" >&2
-        fi
+    if [ $rc -eq 0 ] && [ -s "$bdir/ntuple.root" ]; then
+        NTUPLES_PRODUCED=$((NTUPLES_PRODUCED + 1))
     else
         # Same policy as the other backends' per-step failures: this batch's
         # contribution is lost, the job carries on with a slightly reduced yield.
-        echo "WARNING: fullsim batch $i failed or timed out (limit ${FULLSIM_TIMEOUT_SEC}s) - skipping it" >&2
+        if [ $rc -eq 0 ]; then
+            echo "WARNING: batch $i reported success but produced no ntuple.root - skipping it" >&2
+        else
+            echo "WARNING: fullsim batch $i failed or timed out (limit ${FULLSIM_TIMEOUT_SEC}s) - skipping it" >&2
+        fi
+        # A failed ntuplizer still leaves an 811-byte keyless ntuple.root behind.
+        # It MUST go: the merge steps below glob batch_*/ntuple.root, so leaving it
+        # would feed garbage to hadd and let a job in which every batch failed still
+        # publish a file and exit 0. That is exactly what happened to job
+        # 406255.45 of the 2026-10-09 round (ProductNotFound in the ntuplizer, both
+        # batches, "0 of 2 batches reconstructed successfully", exit 0, empty file
+        # on EOS).
+        rm -f "$bdir/ntuple.root"
     fi
     # the HepMC file is the single biggest intermediate; nothing needs it now
     [ "$KEEP_INTERMEDIATE" != "true" ] && rm -f "$bdir/events.hepmc"
     cd "$WORKDIR"
+}
+
+# Push a valid partial ntuple to EOS after every batch but the last.
+#
+# backend_finalize() is the only place that copies output out, so a job killed by
+# SYSTEM_PERIODIC_REMOVE at the wall-time limit used to lose EVERY completed batch
+# (the 2026-10-08 jetclass2SB trial lost 88 jobs, including all 30 of its lowest
+# pThat bin, with ~8 h of finished reconstruction each and zero files written).
+# Checkpointing under the SAME final name keeps the output layout unchanged - one
+# ntuple_$JOBNUM.root per job - and backend_finalize simply overwrites it with the
+# complete merge. Never fails the job: a failed checkpoint is not worse than the
+# old behaviour.
+backend_intermediate_merge() {
+    local i=$1
+    # the last batch is backend_finalize's job
+    [ "$i" -ge "$((nbatch - 1))" ] && return 0
+
+    local outdir=$OUTPUT_PATH/$PROC/fullsim_$BACKEND_OPTS
+    local partial=$FS_WORK/ntuple_partial.root
+    [ "$NTUPLES_PRODUCED" -eq 0 ] && return 0
+    local files
+    files=$(ls "$FS_WORK"/batch_*/ntuple.root 2>/dev/null)
+    [ -z "$files" ] && return 0
+
+    if [ "$(echo "$files" | wc -l)" -eq 1 ]; then
+        cp $files "$partial" || return 0
+    else
+        hadd -f "$partial" $files >/dev/null 2>&1 || return 0
+    fi
+    if copy_to_eos "$partial" "$outdir/ntuple_$JOBNUM.root"; then
+        echo -e "\033[1m  [checkpoint] batches 0-$i safe at $outdir/ntuple_$JOBNUM.root\033[0m"
+    fi
+    rm -f "$partial"
+    return 0
 }
 
 backend_finalize() {
@@ -211,8 +271,9 @@ backend_finalize() {
     local local_ntuple=$FS_WORK/ntuple_$JOBNUM.root
     local files
     files=$(ls "$FS_WORK"/batch_*/ntuple.root 2>/dev/null)
-    if [ -z "$files" ]; then
-        echo "ERROR: no batch produced an ntuple - nothing to write out" >&2
+    if [ -z "$files" ] || [ "$NTUPLES_PRODUCED" -eq 0 ]; then
+        echo "ERROR: no batch produced an ntuple ($NTUPLES_PRODUCED of $nbatch succeeded)" >&2
+        echo "ERROR: failing the job rather than publishing an empty ntuple" >&2
         exit 1
     fi
     # one flat TTree per batch: hadd is all that is needed (unlike the Delphes

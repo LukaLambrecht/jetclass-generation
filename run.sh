@@ -60,6 +60,23 @@ backend_intermediate_merge() { :; }
 
 source "$BACKEND_FILE"
 
+# How this process produces its generator-level events, decided by what its
+# gen_configs/ directory contains:
+#   hepmc           the original route: a standalone MG5_aMC+Pythia8 run (run_gen.sh,
+#                   or gen_configs/run_gen_default.sh) writes events.hepmc, which the
+#                   backend then reconstructs. Works for either backend.
+#   cmssw_fragment  the process directory holds a `fragment.py`, a CMSSW Pythia8 GEN
+#                   fragment that CMSSW runs itself inside the GEN step - no external
+#                   generator, no HepMC file. FULLSIM ONLY (Delphes has no way to
+#                   consume it; backends/delphes.sh refuses such a process outright).
+# Backends read this to decide what to expect; run.sh skips the generation step
+# entirely for a fragment process, since CMSSW does that work.
+if [ -f "$REPO_DIR/gen_configs/$PROC/fragment.py" ]; then
+    PROC_KIND=cmssw_fragment
+else
+    PROC_KIND=hepmc
+fi
+
 BACKEND_OPTS=${6:-$BACKEND_DEFAULT_OPTS}
 OUTPUT_PATH=${7:-/eos/user/l/llambrec/jetclass/output_test}
 KEEP_INTERMEDIATE=${8:-false}
@@ -332,8 +349,16 @@ for ((i=0; i<nbatch; i++)); do
     echo "Batch: $i"
     heartbeat
 
-    # copy genpack if not exist
     cd $WORKDIR
+    if [ "$PROC_KIND" = "cmssw_fragment" ]; then
+        # nothing to generate here - CMSSW does it in its own GEN step, from the
+        # process' fragment.py (see PROC_KIND above). Straight to the backend.
+        backend_run_batch $i
+        backend_intermediate_merge $i
+        continue
+    fi
+
+    # copy genpack if not exist
     if [ ! -d "proc_base" ]; then
         mkdir proc_base
         # Retry+verify these two copies before proceeding - same reasoning as
