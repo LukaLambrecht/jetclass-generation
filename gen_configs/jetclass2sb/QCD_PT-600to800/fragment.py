@@ -1,6 +1,6 @@
 # VERBATIM copy of the generator fragment used for the CMS offline+scouting reference
 # dataset (/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/), from the public
-#   https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3/fragments/QCD_PT-300to470_TuneCP5_13p6TeV_pythia8.py
+#   https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3/fragments/QCD_PT-600to800_TuneCP5_13p6TeV_pythia8.py
 # which is itself the official CMS McM Summer23GS fragment (see its own comment below).
 #
 # ONE adaptation for CMSSW_10_6_30, marked inline below: the Run-3 13.6 TeV CP5 tune
@@ -14,7 +14,7 @@
 # bins generated with an EQUAL number of events each (500 jobs x 500 events = 250k per
 # bin), i.e. flat in pThat rather than cross-section weighted - which is what makes its
 # jet pT spectrum so hard. Reproduce that by submitting the SAME number of jobs for
-# each jetclass2SB/QCD_PT-* process; see fullsim_configs/README.md.
+# each jetclass2sb/QCD_PT-* process; see fullsim_configs/README.md.
 #
 # Beam energy is 13.6 TeV as in the reference, while the detector conditions are 2018
 # (Run 2) - a deliberate choice, see fullsim_configs/README.md "Caveats".
@@ -66,8 +66,8 @@ generator = cms.EDFilter("Pythia8ConcurrentGeneratorFilter",
             pythia8CP5SettingsBlock,
 	    processParameters = cms.vstring(
 			'HardQCD:all = on',
-			'PhaseSpace:pTHatMin = 300  ',
-			'PhaseSpace:pTHatMax = 470  ',
+			'PhaseSpace:pTHatMin = 600  ',
+			'PhaseSpace:pTHatMax = 800  ',
 	    ),
             parameterSets = cms.vstring('pythia8CommonSettings',
                                         'pythia8CP5Settings',
@@ -79,5 +79,5 @@ generator = cms.EDFilter("Pythia8ConcurrentGeneratorFilter",
 configurationMetadata = cms.untracked.PSet(
     version = cms.untracked.string('\$Revision$'),
     name = cms.untracked.string('\$Source$'),
-    annotation = cms.untracked.string('QCD pthat 300to470 GeV, 13.6 TeV, TuneCP5')
+    annotation = cms.untracked.string('QCD pthat 600to800 GeV, 13.6 TeV, TuneCP5')
 )

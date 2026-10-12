@@ -16,7 +16,8 @@ Directories are auto-discovered under --output-path (rather than assuming a
 fixed jetclass1 process list/layout) by globbing for ntuple_*.root and
 parsing each file's path relative to --output-path as
 <family>/<proc>/.../<card>/ntuple_*.root - i.e. "jetclass1/HToBB/precompiled/
-onlyFatJetNoPU/..." or "jetclass2/train_higgs2p/onlyFatJet/..." (proc is
+onlyFatJetNoPU/...", "jetclass2/train_higgs2p/onlyFatJet/..." or
+"jetclass2sb/QCD_PT-470to600/fullsim_offline+hlt/..." (proc is
 always the path component right after the family, whatever comes between
 proc and card - "precompiled"/"raw" for jetclass1, nothing for jetclass2).
 This works unchanged for both process families and needs no update when new
@@ -102,6 +103,19 @@ THISDIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(THISDIR)
 DEFAULT_LABEL_HEADER = nio.DEFAULT_LABEL_HEADER
 
+# The process families our own productions write under <output-path>/<family>/<proc>/...
+# (i.e. the top-level subdirectory names of gen_configs/). Anything else under
+# --output-path is either a fullsim reference dataset (matched by FULLSIM_GLOB
+# instead) or an unrecognized layout. Extend this when a new gen_configs/ family is
+# added - "jetclass2sb" is the pThat-binned QCD set behind the offline+scouting
+# reference dataset, see gen_configs/jetclass2sb/README.md.
+#
+# Matched case-INSENSITIVELY (see discover_ntuple_dirs()): a production writes this
+# directory from its own --procs argument, so datasets generated before gen_configs/
+# jetclass2SB was lowercased to jetclass2sb carry the old capitalization inside them
+# and would otherwise stop being readable. Keep the entries here lowercase.
+OURS_FAMILIES = ('jetclass1', 'jetclass2', 'jetclass2sb')
+
 NTUPLE_TREE_NAME = 'tree'  # see makeNtuples.C/makeNtuplesPaired.C: one entry per jet
 NTUPLE_GLOB = 'ntuple_*.root'          # "ours" - see makeNtuples.C/makeNtuplesPaired.C
 FULLSIM_GLOB = 'dnnTuples_nanov15_*.root'  # fullsim - see ntuple_io.py
@@ -185,7 +199,7 @@ def discover_ntuple_dirs(output_path):
     for path in sorted(glob.glob(os.path.join(output_path, '**', NTUPLE_GLOB), recursive=True)):
         rel = os.path.relpath(os.path.dirname(path), output_path)
         parts = [p for p in rel.split(os.sep) if p]
-        if len(parts) < 3 or parts[0] not in ('jetclass1', 'jetclass2'):
+        if len(parts) < 3 or parts[0].lower() not in OURS_FAMILIES:
             print('WARNING: skipping ntuple file in unrecognized directory layout: {}'.format(path), file=sys.stderr)
             continue
         family, proc, card = parts[0], parts[1], parts[-1]

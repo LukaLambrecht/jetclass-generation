@@ -393,7 +393,10 @@ def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched):
 def make_grid(results, classes, outpath):
     '''One multi-axes ("small multiples") figure, 2 rows x 5 columns, all `classes` together -
     same layout as the sibling script's own make_grid().'''
-    ncols = 5
+    # capped at the number of classes actually plotted, so a --classes subset smaller
+    # than the grid width doesn't produce a full-width canvas of blank axes (a no-op
+    # for the default 10 classes, which still lay out 5 x 2)
+    ncols = min(5, len(classes))
     nrows = (len(classes) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
     axes = np.atleast_1d(axes).flatten()

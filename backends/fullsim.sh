@@ -235,7 +235,7 @@ backend_run_batch() {
 #
 # backend_finalize() is the only place that copies output out, so a job killed by
 # SYSTEM_PERIODIC_REMOVE at the wall-time limit used to lose EVERY completed batch
-# (the 2026-10-08 jetclass2SB trial lost 88 jobs, including all 30 of its lowest
+# (the 2026-10-08 jetclass2sb trial lost 88 jobs, including all 30 of its lowest
 # pThat bin, with ~8 h of finished reconstruction each and zero files written).
 # Checkpointing under the SAME final name keeps the output layout unchanged - one
 # ntuple_$JOBNUM.root per job - and backend_finalize simply overwrites it with the

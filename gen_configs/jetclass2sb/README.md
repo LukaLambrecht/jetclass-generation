@@ -1,11 +1,17 @@
-# `jetclass2SB`: the generation behind the CMS offline+scouting reference dataset
+# `jetclass2sb`: the generation behind the CMS offline+scouting reference dataset
 
-> **The name.** `SB` is for Sebastian, who shared the original reference dataset. The
+> **The name.** `sb` is for Sebastian, who shared the original reference dataset. The
 > processes here are a *jetclass2-style* QCD sample generated the way his dataset was,
-> which is why they sit next to `jetclass1` and `jetclass2`. (This folder was briefly
-> called `scouting_run3`; that name was misleading - the fragments are Run-3 McM
-> fragments, but nothing here is scouting-specific and we run them with Run-2/2018
-> conditions.)
+> which is why they sit next to `jetclass1` and `jetclass2`. It is all lowercase to
+> match them; it was briefly `jetclass2SB`, and before that `scouting_run3` - a
+> misleading name, since the fragments are Run-3 McM fragments but nothing here is
+> scouting-specific and we run them with Run-2/2018 conditions.
+>
+> **Datasets produced before the lowercasing** carry `jetclass2SB` as their own
+> `<output-path>/<family>/` directory, because a production writes that directory from
+> its `--procs` argument. `validation/print_njets.py` therefore matches the family name
+> case-insensitively (see its `OURS_FAMILIES`), so those datasets stay readable -
+> `output_fullsim_350k_trial_jetclass2sb_qcdonly` is one of them.
 
 These processes reproduce the **generator side** of
 `/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/` — the real CMS
@@ -19,7 +25,7 @@ explicit error, because a CMSSW GEN fragment never produces the `events.hepmc` D
 needs.
 
 ```bash
-./run.sh fullsim jetclass2SB/QCD_PT-470to600 16 8 0
+./run.sh fullsim jetclass2sb/QCD_PT-470to600 16 8 0
 ```
 
 ## Where this came from
@@ -71,12 +77,12 @@ The simplest way to satisfy it is identical `--njobs` and `--nevents-per-job`
 everywhere:
 
 ```bash
-OUT=/eos/user/l/llambrec/jetclass/output_jetclass2SB
+OUT=/eos/user/l/llambrec/jetclass/output_jetclass2sb
 for b in 170to300 300to470 470to600 600to800 800to1000 \
          1000to1400 1400to1800 1800to2400 2400to3200 3200toInf; do
-  python run_condor_loop.py --backend fullsim --procs jetclass2SB/QCD_PT-$b \
+  python run_condor_loop.py --backend fullsim --procs jetclass2sb/QCD_PT-$b \
       --njobs <N> --nevents-per-job <M> --batch-size <M/2> \
-      --output-path $OUT --max-materialize 100 -o condor_jetclass2SB
+      --output-path $OUT --max-materialize 100 -o condor_jetclass2sb
 done
 ```
 
@@ -217,7 +223,7 @@ That gives roughly 300 events/job for the low five bins and 200 for the high fiv
 ### 2026-10-12 - OUTCOME of the 2026-10-09 round: **success**
 
 **973 usable files, 199,520 events, 387,711 jets** (target 350k) in
-`/eos/user/l/llambrec/jetclass/output_jetclass2SB_trial`, 1.5 GB.
+`/eos/user/l/llambrec/jetclass/output_jetclass2sb_trial`, 1.5 GB.
 **974 of 975 jobs completed (99.9%), 1 killed at the wall limit.**
 
 Runtime over all 974: median **3.57 h**, p90 **5.70 h**, max **7.81 h**. The 5.0 h p90
@@ -283,7 +289,7 @@ the entire point of redoing the round.
    reproduced. If it becomes common, the ntuplizer's track dereference needs a
    `.isAvailable()` guard, or `reco.root` needs `generalTracks` in its keep list.
 
-### 2026-10-09 - QCD-only trial, resized (`output_jetclass2SB_trial`)
+### 2026-10-09 - QCD-only trial, resized (`output_jetclass2sb_trial`)
 
 Resubmitted from scratch after cancelling the 2026-10-08 round. Sized from that
 round's **measured** p90 s/event (section above), not from probes.
@@ -312,16 +318,16 @@ within one bin the runtime spreads by a factor ~2 on worker-node speed alone.
 **975 jobs, 200,000 events, ~3,600 CPU-hours, ~9 h wall at 400 concurrent.**
 Expected **~388,000 jets** (target was 350k; the margin covers the extrapolated
 jets/event for the two bins without data). Output
-`/eos/user/l/llambrec/jetclass/output_jetclass2SB_trial`, submission files in
-`condor_jetclass2SB`, clusters **406246-406255** in the bin order of the table.
+`/eos/user/l/llambrec/jetclass/output_jetclass2sb_trial`, submission files in
+`condor_jetclass2sb`, clusters **406246-406255** in the bin order of the table.
 
 ```bash
-OUT=/eos/user/l/llambrec/jetclass/output_jetclass2SB_trial
+OUT=/eos/user/l/llambrec/jetclass/output_jetclass2sb_trial
 while read b nj nev batch; do
-  python3 run_condor_loop.py --backend fullsim --procs jetclass2SB/QCD_PT-$b \
+  python3 run_condor_loop.py --backend fullsim --procs jetclass2sb/QCD_PT-$b \
       --njobs $nj --nevents-per-job $nev --batch-size $batch \
       --output-path $OUT --max-running 400 --max-materialize 80 \
-      -o condor_jetclass2SB
+      -o condor_jetclass2sb
 done <<'EOF'
 170to300 80 250 125
 300to470 80 250 125
@@ -388,7 +394,7 @@ Two things were fixed as a result:
 <details>
 <summary>Original (cancelled) settings</summary>
 
-#### 2026-10-08 - first QCD-only trial (`output_jetclass2SB_trial`)
+#### 2026-10-08 - first QCD-only trial (`output_jetclass2sb_trial`)
 
 Sized to beat the previous jetclass2 trial's **338k QCD jets**; target 350k, submitted
 for ~370k expected to leave margin on the jets/event uncertainty above.
@@ -412,19 +418,19 @@ so the mixture stays flat), with the job size tuned per bin to land every job at
 | `QCD_PT-3200toInf` | 120 | 200 | 100 | 3.6 h |
 
 **774 jobs, 240,000 events, ~2,500 CPU-hours, ~12.5 h wall at 200 concurrent.**
-Output `/eos/user/l/llambrec/jetclass/output_jetclass2SB_trial`, submission files in
-`validation/../condor_jetclass2SB`, condor clusters 404377-404386 (in the bin order
+Output `/eos/user/l/llambrec/jetclass/output_jetclass2sb_trial`, submission files in
+`validation/../condor_jetclass2sb`, condor clusters 404377-404386 (in the bin order
 of the table).
 
 Submitted with:
 
 ```bash
-OUT=/eos/user/l/llambrec/jetclass/output_jetclass2SB_trial
+OUT=/eos/user/l/llambrec/jetclass/output_jetclass2sb_trial
 while read b nj nev batch; do
-  python3 run_condor_loop.py --backend fullsim --procs jetclass2SB/QCD_PT-$b \
+  python3 run_condor_loop.py --backend fullsim --procs jetclass2sb/QCD_PT-$b \
       --njobs $nj --nevents-per-job $nev --batch-size $batch \
       --output-path $OUT --max-running 200 --max-materialize 50 \
-      -o condor_jetclass2SB
+      -o condor_jetclass2sb
 done <<'EOF'
 170to300 30 800 400
 300to470 48 500 250

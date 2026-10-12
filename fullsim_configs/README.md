@@ -126,9 +126,9 @@ vertex smearing, GEANT4, mixing) via CMSSW's `RandomNumberServiceHelper`, logged
 config and would otherwise generate identical events - and it also fixed the HepMC
 route, whose batches previously shared GEANT4 seeds.
 
-### `jetclass2SB`: reproducing the reference dataset's spectrum
+### `jetclass2sb`: reproducing the reference dataset's spectrum
 
-`gen_configs/jetclass2SB/QCD_PT-*` are the ten pThat-binned fragments behind the CMS
+`gen_configs/jetclass2sb/QCD_PT-*` are the ten pThat-binned fragments behind the CMS
 offline+scouting reference dataset, copied from the public
 [hww-tagging repository](https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3)
 (themselves the official CMS McM Summer23GS fragments). The one adaptation for
@@ -145,12 +145,12 @@ gen-jet pT 871 GeV, which is exactly where flat mixing over these bins puts it).
 So reproduce it by submitting the **same number of jobs for every bin**:
 
 ```bash
-OUT=/eos/user/l/llambrec/jetclass/output_jetclass2SB
+OUT=/eos/user/l/llambrec/jetclass/output_jetclass2sb
 for b in 170to300 300to470 470to600 600to800 800to1000 \
          1000to1400 1400to1800 1800to2400 2400to3200 3200toInf; do
-  python run_condor_loop.py --backend fullsim --procs jetclass2SB/QCD_PT-$b \
+  python run_condor_loop.py --backend fullsim --procs jetclass2sb/QCD_PT-$b \
       --njobs 20 --nevents-per-job 320 --batch-size 80 \
-      --output-path $OUT --max-materialize 100 -o condor_jetclass2SB
+      --output-path $OUT --max-materialize 100 -o condor_jetclass2sb
 done
 ```
 

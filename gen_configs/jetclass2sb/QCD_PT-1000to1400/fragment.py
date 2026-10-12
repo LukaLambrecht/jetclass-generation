@@ -14,7 +14,7 @@
 # bins generated with an EQUAL number of events each (500 jobs x 500 events = 250k per
 # bin), i.e. flat in pThat rather than cross-section weighted - which is what makes its
 # jet pT spectrum so hard. Reproduce that by submitting the SAME number of jobs for
-# each jetclass2SB/QCD_PT-* process; see fullsim_configs/README.md.
+# each jetclass2sb/QCD_PT-* process; see fullsim_configs/README.md.
 #
 # Beam energy is 13.6 TeV as in the reference, while the detector conditions are 2018
 # (Run 2) - a deliberate choice, see fullsim_configs/README.md "Caveats".

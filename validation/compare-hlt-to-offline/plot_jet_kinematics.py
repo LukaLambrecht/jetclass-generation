@@ -232,7 +232,10 @@ def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, ov
 def make_grid(results, classes, key, outpath, overrides):
     '''One figure per quantity: 2 rows x 5 columns of jet classes, same layout as
     plot_nparticles.py's own make_grid().'''
-    ncols = 5
+    # capped at the number of classes actually plotted, so a --classes subset smaller
+    # than the grid width doesn't produce a full-width canvas of blank axes (a no-op
+    # for the default 10 classes, which still lay out 5 x 2)
+    ncols = min(5, len(classes))
     nrows = (len(classes) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
     axes = np.atleast_1d(axes).flatten()

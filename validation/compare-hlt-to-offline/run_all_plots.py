@@ -111,12 +111,20 @@ def expand_files(patterns):
     return files
 
 
-def build_command(script, files, extras, outdir):
+# Scripts that split their output per jet class and so accept --classes (see each
+# one's own CLASSES list). plot_particle_pt.py pools every jet together instead and
+# has no such option, so --classes is simply not forwarded to it.
+CLASS_SPLIT_SCRIPTS = ('plot_jet_kinematics.py', 'plot_nparticles.py', 'plot_composition.py')
+
+
+def build_command(script, files, extras, outdir, classes=None):
     '''The one shell command a job runs: the LCG view, then the script with the input
     patterns QUOTED (they contain globs and must reach python, not the job's own shell)
     and the job's own extra arguments.'''
     quoted = ' '.join("'{}'".format(f) for f in files)
     args = ' '.join(a.format(outdir=outdir) for a in extras)
+    if classes and script in CLASS_SPLIT_SCRIPTS:
+        args += ' --classes {}'.format(classes)
     return 'python3 {} {} {}'.format(os.path.join(THISDIR, script), quoted, args)
 
 
@@ -139,6 +147,14 @@ if __name__ == '__main__':
              ' plot output directory, which is --outdir')
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour (default: workday)')
+    parser.add_argument('--classes', default=None,
+        help='comma-separated jet classes to restrict the per-class scripts to, e.g. "QCD"'
+             ' for a QCD-only sample (default: every class each script knows about).'
+             ' Forwarded only to the scripts that split per class - see'
+             ' CLASS_SPLIT_SCRIPTS. Purely about what gets PLOTTED: a class with no jets'
+             ' is already skipped with a "no data" message, so this only avoids the empty'
+             ' figures, e.g. the 9 signal classes of a QCD-only production like'
+             ' jetclass2sb (gen_configs/jetclass2sb/README.md)')
     args = parser.parse_args()
 
     selected = [j for j in JOBS
@@ -159,7 +175,7 @@ if __name__ == '__main__':
 
     if args.local:
         for name, script, extras, _ in selected:
-            cmd = build_command(script, args.files, extras, outdir)
+            cmd = build_command(script, args.files, extras, outdir, args.classes)
             print('\n=== {} ===\n{}'.format(name, cmd))
             rc = subprocess.run(['bash', '-c', 'source {} >/dev/null 2>&1; {}'.format(LCG_VIEW, cmd)]).returncode
             if rc != 0:
@@ -172,7 +188,7 @@ if __name__ == '__main__':
     os.chdir(condordir)   # jobtools writes its .sh/.txt relative to the cwd it submits from
     try:
         for name, script, extras, mem in selected:
-            cmd = build_command(script, args.files, extras, outdir)
+            cmd = build_command(script, args.files, extras, outdir, args.classes)
             print('=== submitting {} ==='.format(name))
             ct.submitCommandsAsCondorJob(
                 'plots_{}'.format(name),
