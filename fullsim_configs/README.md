@@ -187,11 +187,85 @@ applies no eta cut there, so a strict comparison against the reference should
 add `hlt_jet_pt > 170` downstream. That removes 0.35% of FullSim jets and 3.4%
 of Delphes jets.
 
+
+## Pile-up: what works and what does not
+
+Tested end to end on 2026-10-12. **Classic mixing against our own minimum-bias
+sample works; the official open-data premix library cannot be used with this chain.**
+
+### What works: classic mixing (`--pileup` + `--pileup_input`)
+
+This is the pattern of the only official open-data mixing recipe (the CMS Open Data
+Guide's event-generation walkthrough, which is written for 2012/CMSSW_5_3_32):
+`--pileup NoPileUp` at GEN-SIM, then mix at the DIGI step. The 2018 pile-up
+*distributions* ship with the release - no conditions DB needed - so only the
+minimum-bias events have to be supplied:
+
+```
+cmsDriver.py ... --step DIGI,L1,DIGI2RAW,HLT:GRun --era Run2_2018 \
+    --pileup 2018_25ns_JuneProjectionFull18_PoissonOOTPU \
+    --pileup_input file:minbias.root
+```
+
+Verified on 2 hard-scatter events, same GEN-SIM both ways, 2018 design conditions:
+
+| | vertices | PF candidates | in-time PU |
+|---|---|---|---|
+| no pile-up | 1, 1 | 368, 546 | 0 |
+| with pile-up | 25, 27 | 1631, 1975 | 26, 28 |
+
+`addPileupInfo` is filled, so the normal pile-up bookkeeping works downstream.
+
+**What it costs.** The configured window is `minBunch -12 .. maxBunch +3` (16 bunch
+crossings) with a distribution mean of **34.9**, i.e. **~558 minimum-bias overlays per
+hard-scatter event**. Minimum-bias GEN-SIM runs at **4.3 s/event** and ~228 kB/event,
+so a 1M-event library is ~1,200 CPU-hours and ~0.23 TB, one-off and reusable. At our
+production scale (~190k hard events = ~106M overlays) such a library is reused ~100x,
+which is normal practice but does correlate events - the reason CMS itself moved to
+premixing. The DIGI+HLT step cost roughly +70% in this small test (49.6 s -> 86.0 s for
+2 events); measure it properly before sizing a production, since fixed startup
+dominates at 2 events.
+
+**One thing to fix first:** the release only ships `MinBias_13TeV_pythia8_TuneCUETP8M1_cfi`,
+while our hard-scatter fragments use CP5. Build a CP5 minimum-bias fragment (the CP5
+block is already inlined in `gen_configs/jetclass2sb/*/fragment.py`) so tune and beam
+energy match the sample it is mixed into.
+
+### What does NOT work: the official premix library
+
+`/Neutrino_E-10_gun/RunIISummer20ULPrePremix-UL16_106X_mcRun2_asymptotic_v13-v1/PREMIX`
+([record 30595](https://opendata.cern.ch/record/30595)) is real, online, 17,279 files /
+55.6 TB / 27.6M events, built with **CMSSW_10_6_30** and **106X_mcRun2_asymptotic_v17** -
+both of which the open-data container provides. It streams fine from
+`root://eospublic.cern.ch/` (confirmed: 1,600 events per 3.2 GB file). It is also the
+only premix sample in open data - there is no UL2017 or UL2018 one.
+
+It still cannot be used here, for two independent reasons:
+
+1. **It is UL2016, and this release has no 2016 HLT menu.**
+   `Configuration/HLT/python/autoHLT.py` maps `relval2016` and `relval2017` to
+   **`Fake2`** - a validation stub, not a physics menu. The only real menu in
+   CMSSW_10_6_30 is `GRun`, which is the 2018 one. Running it against UL2016
+   conditions segfaults in `CAHitTripletEDProducer:hltIter2PFlowPixelHitTriplets`
+   after 149 `The requested algorithm name` errors: GRun needs the Phase-1 pixel
+   (installed 2017) and the 2018 L1 menu, and 2016 has neither. Since the whole
+   point of this sample is the offline-vs-HLT comparison, an HLT-less 2016 chain is
+   not useful.
+2. **The premix library cannot be fed into our 2018 chain either.**
+   `PreMixingModule` then throws `NoRecord` for
+   **`SiPixelStatusScenarioProbabilityRcd`**, which is in *neither* open conditions
+   tag (checked directly: 276 records in `102X_upgrade2018_design_v9`, 271 in
+   `106X_mcRun2_asymptotic_v17`, absent from both), so it cannot be gap-filled from
+   what open data ships. And even with that record, mixing 2016 Phase-0 pixel digis
+   into a Phase-1 2018 digitisation is physically incoherent, not merely unconfigured.
+
+So the premix route needs either a 2018 premix library or a real 2016 HLT menu, and
+open data publishes neither.
+
 ## Caveats
 
-1. **No pile-up.** Deliberate (it would multiply an already expensive job), but
-   it is the biggest difference from a real CMS sample, and it is what drove the
-   offline-vs-HLT differences this whole study is about. Without pile-up
+1. **No pile-up** - still true, but no longer for lack of a way to do it. See
+   "Pile-up: what works and what does not" below. Without pile-up
    `ak8PFJetsCHS` is effectively plain anti-kT over all PF candidates, so the
    CHS-vs-PUPPI difference from the Delphes side does not bite either.
 2. **2018 is the latest open year**, and its open conditions are *design*
