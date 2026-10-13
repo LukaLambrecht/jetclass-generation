@@ -9,6 +9,10 @@ testing/test-generation-time/*.txt
 condor
 condor_*
 
+# CRAB working directories and related stuff
+crab/production
+crab/monitoring/monitor_crab_jobs
+
 # ROOT / ACLiC compiled artifacts (machine- and ROOT-version-specific;
 # regenerated automatically by `root -b -q 'macro.C++(...)'`)
 *.so
