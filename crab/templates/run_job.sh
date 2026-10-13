@@ -89,14 +89,28 @@ if [ "${1:-}" = "--step" ]; then
             || { echo "ERROR: no gfortran on PATH in the EL9 container - MG5 cannot build" >&2; exit 1; }
         echo "  gen: $(gfortran --version | head -1)  [from $FC_DIR]"
 
-        # CRAB sets up its own CMSSW_14_0_0 (el9_amd64_gcc12) before calling scriptExe,
-        # so PYTHIA8DATA arrives in the INHERITED environment pointing at CMSSW's Pythia
-        # 8.309 xmldoc. MG5 bundles 8.317 and aborts with "unmatched version numbers".
-        # Unset it unconditionally - MG5's Pythia finds its own data relative to itself.
-        # (An earlier fix only stopped US exporting it, which was not the whole story.)
-        unset PYTHIA8DATA
-        # same family of problem: a stale LHAPDF data path would silently change PDFs
-        unset LHAPDF_DATA_PATH LHAPATH
+        # Data paths for MG5's bundled Pythia8 and LHAPDF.
+        #
+        # Two ways to get this wrong, and we hit both:
+        #  * CRAB sets up its own CMSSW_14_0_0 before calling scriptExe, so PYTHIA8DATA
+        #    arrives pointing at CMSSW's Pythia 8.309 xmldoc; MG5 bundles 8.317 and
+        #    aborts with "unmatched version numbers".
+        #  * Merely UNSETTING it is not enough: the MG5aMC_PY8_interface binary then
+        #    falls back to a path compiled in when MG5 was installed, which points at
+        #    the machine it was built on and does not exist on a worker node
+        #    ("settings file /eos/.../xmldoc/Index.xml not found").
+        # So point them at MG5's own directories explicitly.
+        unset LHAPATH
+        if [ -d "$MG5_PATH/bin/HEPTools/pythia8/share/Pythia8/xmldoc" ]; then
+            export PYTHIA8DATA="$MG5_PATH/bin/HEPTools/pythia8/share/Pythia8/xmldoc"
+        else
+            unset PYTHIA8DATA
+        fi
+        if [ -d "$MG5_PATH/bin/HEPTools/lhapdf6_py3/share/LHAPDF" ]; then
+            export LHAPDF_DATA_PATH="$MG5_PATH/bin/HEPTools/lhapdf6_py3/share/LHAPDF"
+        fi
+        echo "  gen: PYTHIA8DATA=${PYTHIA8DATA:-<unset>}"
+        echo "  gen: LHAPDF_DATA_PATH=${LHAPDF_DATA_PATH:-<unset>}"
         cd "$GENDIR" && MG5_PATH="$MG5_PATH" ./run_gen.sh "$1"
         ;;
     merge)
@@ -182,6 +196,7 @@ if [ "$PROC_KIND" = "hepmc" ]; then
     if [ -n "${MG5_PATH:-}" ] && [ -x "${MG5_PATH}/bin/mg5_aMC" ]; then
         echo "MG5 provided via MG5_PATH=$MG5_PATH - skipping the fetch"
         export MG5_PATH
+        MG5_IS_OURS=false
     else
         t0=$(date +%s)
         "$EL7" --command-to-run "./run_job.sh --step fetch-mg5 $HERE/mg5.tar.gz" \
@@ -193,6 +208,7 @@ if [ "$PROC_KIND" = "hepmc" ]; then
         export MG5_PATH=$HERE/mg5
         [ -x "$MG5_PATH/bin/mg5_aMC" ] \
             || { echo "ERROR: $MG5_PATH/bin/mg5_aMC missing after unpack" >&2; exit 65; }
+        MG5_IS_OURS=true
         echo "MG5 ready at $MG5_PATH ($(( $(date +%s) - t0 ))s)"
     fi
     chmod +x "$GENDIR/run_gen.sh" 2>/dev/null
@@ -207,6 +223,22 @@ fi
 # Write our own user config instead, derived from wherever MG5 actually landed. CRAB
 # sets HOME to the job directory, so this is job-local and touches no shared install.
 if [ "$PROC_KIND" = "hepmc" ]; then
+    # HEPTools' *-config scripts bake the INSTALL-TIME prefix in, so after unpacking
+    # somewhere else they still advertise the original machine's paths and MG5 goes
+    # looking for e.g. .../share/LHAPDF/pdfsets.index where nothing exists. Rewrite the
+    # baked root to wherever MG5 actually landed. (pythia8-config locates itself and
+    # needs no help; lhapdf-config does not.)
+    # NEVER rewrite an install we did not unpack: MG5_PATH may point at a shared
+    # read-only copy (local testing uses the one on EOS), and sed -i would corrupt it
+    # for everyone.
+    OLDROOT=$(grep -m1 '^prefix=' "$MG5_PATH/bin/HEPTools/lhapdf6_py3/bin/lhapdf-config" 2>/dev/null \
+              | sed 's/^prefix=//; s|/bin/HEPTools/.*||')
+    if [ "${MG5_IS_OURS:-false}" = true ] && [ -n "$OLDROOT" ] && [ "$OLDROOT" != "$MG5_PATH" ]; then
+        echo "MG5 paths: rewriting baked prefix $OLDROOT -> $MG5_PATH"
+        grep -rl "$OLDROOT" "$MG5_PATH"/bin/HEPTools/*/bin "$MG5_PATH"/HEPTools/*/bin 2>/dev/null \
+            | xargs -r sed -i "s|$OLDROOT|$MG5_PATH|g"
+    fi
+
     LHA=$MG5_PATH/HEPTools/lhapdf6_py3/bin/lhapdf-config
     if [ -x "$LHA" ]; then
         mkdir -p "$HOME/.mg5"

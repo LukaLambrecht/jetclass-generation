@@ -99,8 +99,8 @@ if __name__ == '__main__':
              ' jobs find what got downloaded here instead of re-downloading it')
     parser.add_argument('--mg5-path', default=DEFAULT_MG5_PATH,
         help='MG5_PATH used to patch the gridpack\'s hardcoded install path (same role as in run.sh)')
-    parser.add_argument('--condor-dir', default='condor',
-        help='directory to write condor submission files into (default: condor, same as run_condor.py)')
+    parser.add_argument('--condor-dir', default='condor_jobs',
+        help='directory to write condor submission files into (default: condor_jobs, same as run_condor.py)')
     parser.add_argument('--local', action='store_true',
         help='run locally, one process after another, instead of submitting condor jobs')
     parser.add_argument('--cpus', type=int, default=1)

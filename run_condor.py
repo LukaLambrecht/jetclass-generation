@@ -21,9 +21,14 @@ involved:
   - --output-path (required): where the JOB'S OWN detector-level output
     (ntuple_*.root, and the backend's intermediate files if
     --keep-intermediate) is written - this is run.sh's OUTPUT_PATH.
-  - -o/--outputdir (optional, default "condor"): where THIS SCRIPT writes
+  - -o/--outputdir (optional, default "condor_jobs"): where THIS SCRIPT writes
     the condor submission files (.sh/.txt/log) for the job it submits - has
     nothing to do with the job's own detector output.
+    The default is "condor_jobs", not "condor": condor/ is a tracked source
+    directory (the production submitters, see condor/README.md), and the old
+    default dropped submit files and logs straight into it. "condor_jobs" also
+    matches the .gitignore "condor_*" job-directory pattern, so job output
+    stays out of git.
 
 --backend is REQUIRED and selects the detector simulation: "delphes" (fast,
 what every dataset so far was made with) or "fullsim" (CMS full simulation in
@@ -226,8 +231,8 @@ if __name__=='__main__':
              ' fullsim: the AODSIM files). Default: off - production runs only need the'
              ' ntuples; the intermediate files are still produced and used locally to make the'
              ' ntuple either way, they just are not copied out unless this is set')
-    parser.add_argument('-o', '--outputdir', default='condor',
-        help='directory to write condor submission files into (default: condor) - NOT the'
+    parser.add_argument('-o', '--outputdir', default='condor_jobs',
+        help='directory to write condor submission files into (default: condor_jobs) - NOT the'
              ' detector-output directory, see --output-path and module docstring')
     parser.add_argument('--cpus', type=int, default=1)
     parser.add_argument('--mem', type=int, default=None,

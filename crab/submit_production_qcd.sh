@@ -54,6 +54,27 @@ OUTLFN=${OUTLFN:-/store/user/$USER/jetclass/output_jetclass2sb_4M/}
 SCALE=1            # multiplies njobs; keeps the invariant if you scale ALL bins
 BINS=""
 WHITELIST=""
+# Sites that cannot run this chain, to be skipped by default.
+#
+# Our run_job.sh launches a container (cmssw-el7, and cmssw-el9 for hepmc processes)
+# INSIDE the apptainer container CRAB already runs the job in. Some sites do not allow
+# that nesting - the inner launch dies instantly with
+#   FATAL: container creation failed: ... fuse-overlayfs exited: fuse: device not found
+# and the job fails with exit code 50115 (BadFWJRXML) after a couple of minutes,
+# having done no work.
+#
+# Measured on the 2026-10-13 signal task (596 failures out of 4000, 592 of them here):
+#   T2_IT_Pisa     291 failed /   0 ran   100%
+#   T2_AT_Vienna    19 failed /   0 ran   100%
+#   T2_LB_HPC4L     12 failed /   0 ran   100%
+#   T2_BR_SPRACE    97 failed /   4 ran    96%
+#   T2_US_MIT      173 failed / 218 ran    44%  (per-node, not uniform - blacklisted
+#                                               anyway, the waste outweighs the gain)
+# Every other site had ZERO such failures.
+#
+# Re-check this list occasionally: it reflects site configuration, which changes.
+DEFAULT_BLACKLIST="T2_IT_Pisa,T2_AT_Vienna,T2_US_MIT,T2_BR_SPRACE,T2_LB_HPC4L"
+BLACKLIST=${BLACKLIST:-$DEFAULT_BLACKLIST}
 RUNTIME_MIN=900    # 15 h: above the ~10 h a slow 8 h job reaches, below the 24 h cap.
                    # Lower values match more sites during matchmaking; CRAB's own
                    # default is 1315 (21.9 h), which some sites will not accept.
@@ -64,6 +85,7 @@ while [ $# -gt 0 ]; do
         --bins)      BINS=$2; shift 2 ;;
         --scale)     SCALE=$2; shift 2 ;;
         --whitelist) WHITELIST=$2; shift 2 ;;
+        --blacklist) BLACKLIST=$2; shift 2 ;;
         --outlfn)    OUTLFN=$2; shift 2 ;;
         --runtime-min) RUNTIME_MIN=$2; shift 2 ;;
         --workdir)   WORKDIR=$2; shift 2 ;;
@@ -114,6 +136,7 @@ while read -r bin nj nev batch; do
     d=$WORKDIR/QCD_PT-$bin
     extra=""
     [ -n "$WHITELIST" ] && extra="--whitelist $WHITELIST"
+    [ -n "$BLACKLIST" ] && extra="$extra --blacklist $BLACKLIST"
     if [ -d "$d" ]; then echo "  (already built, skipping build)"; else
         run python3 "$THISDIR/build_simpack.py" --proc "jetclass2sb/QCD_PT-$bin" \
             --njobs "$nj" --nevents-per-job "$nev" --batch-size "$batch" \

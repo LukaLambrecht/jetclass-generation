@@ -47,6 +47,27 @@ BATCH=250            # 2 batches per job, as for QCD
 RUNTIME_MIN=1200     # 20 h; see "RUNTIME IS THE LEAST CERTAIN PART" above
 MEMORY=2500          # CRAB refuses a 1-core task above 3000; measured peak ~1.4 GB
 WHITELIST=""
+# Sites that cannot run this chain, to be skipped by default.
+#
+# Our run_job.sh launches a container (cmssw-el7, and cmssw-el9 for hepmc processes)
+# INSIDE the apptainer container CRAB already runs the job in. Some sites do not allow
+# that nesting - the inner launch dies instantly with
+#   FATAL: container creation failed: ... fuse-overlayfs exited: fuse: device not found
+# and the job fails with exit code 50115 (BadFWJRXML) after a couple of minutes,
+# having done no work.
+#
+# Measured on the 2026-10-13 signal task (596 failures out of 4000, 592 of them here):
+#   T2_IT_Pisa     291 failed /   0 ran   100%
+#   T2_AT_Vienna    19 failed /   0 ran   100%
+#   T2_LB_HPC4L     12 failed /   0 ran   100%
+#   T2_BR_SPRACE    97 failed /   4 ran    96%
+#   T2_US_MIT      173 failed / 218 ran    44%  (per-node, not uniform - blacklisted
+#                                               anyway, the waste outweighs the gain)
+# Every other site had ZERO such failures.
+#
+# Re-check this list occasionally: it reflects site configuration, which changes.
+DEFAULT_BLACKLIST="T2_IT_Pisa,T2_AT_Vienna,T2_US_MIT,T2_BR_SPRACE,T2_LB_HPC4L"
+BLACKLIST=${BLACKLIST:-$DEFAULT_BLACKLIST}
 DRYRUN=false
 
 while [ $# -gt 0 ]; do
@@ -56,6 +77,7 @@ while [ $# -gt 0 ]; do
         --batch-size)  BATCH=$2; shift 2 ;;
         --outlfn)      OUTLFN=$2; shift 2 ;;
         --whitelist)   WHITELIST=$2; shift 2 ;;
+        --blacklist)   BLACKLIST=$2; shift 2 ;;
         --runtime-min) RUNTIME_MIN=$2; shift 2 ;;
         --workdir)     WORKDIR=$2; shift 2 ;;
         --dry-run)     DRYRUN=true; shift ;;
@@ -91,6 +113,7 @@ run mkdir -p "$WORKDIR"
 d=$WORKDIR/train_higgs2p
 extra=""
 [ -n "$WHITELIST" ] && extra="--whitelist $WHITELIST"
+[ -n "$BLACKLIST" ] && extra="$extra --blacklist $BLACKLIST"
 if [ -d "$d" ]; then
     echo "  (already built, skipping build)"
 else

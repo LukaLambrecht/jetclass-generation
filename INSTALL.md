@@ -123,6 +123,21 @@ LHAPDF_DATA_PATH=$MG5_PATH/HEPTools/lhapdf6_py3/share/LHAPDF
 PYTHIA8DATA=$MG5_PATH/HEPTools/pythia8/share/Pythia8/xmldoc
 ```
 
+## 6b. Submitting a full production
+
+Once a test job works, neither route below needs anything further configured:
+
+* **lxplus HTCondor** - [`condor/README.md`](condor/README.md). One command per
+  sample; needs no grid proxy. The signal additionally needs the MG5 install from
+  steps 2-3.
+* **CRAB / the CMS grid** - [`crab/README.md`](crab/README.md). Far more parallelism;
+  needs CMS VO membership and `voms-proxy-init -voms cms`. Ships a self-contained
+  "simpack" per task and fetches MG5 and the conditions itself, so a worker node
+  needs nothing preinstalled.
+
+Both use identical job splitting and produce the same output layout and ntuple
+schema, so they are interchangeable.
+
 ## 7. Run a test job
 
 ```bash
@@ -172,8 +187,18 @@ It pulls CMSSW_10_6_30 and an SLC7 userland from the open-data container image o
 `/cvmfs/unpacked.cern.ch`, and the conditions from `/cvmfs/cms-opendata-conddb.cern.ch`.
 To run somewhere without CVMFS, fetch the container from Docker Hub
 (`cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700`) and the two condition databases
-over plain HTTPS, and point `FULLSIM_CONTAINER` / `FULLSIM_CONDDB` at your
-copies — [`fullsim_configs/README.md`](fullsim_configs/README.md) lists the exact
+from the CERN Open Data portal, and point `FULLSIM_CONTAINER` / `FULLSIM_CONDDB`
+at your copies. The databases are published as ordinary xrootd-readable files and
+need **no credentials at all** (verified with `X509_USER_PROXY` unset; the copies
+are byte-identical to the CVMFS ones):
+
+```bash
+xrdcp root://eospublic.cern.ch//eos/opendata/cms/conddb/102X_upgrade2018_design_v9.db .  # 1.00 GB, record 1807
+xrdcp root://eospublic.cern.ch//eos/opendata/cms/conddb/106X_mcRun2_asymptotic_v17.db .  #  664 MB, record 1819
+```
+
+This is also how grid jobs get them when a site does not mount
+`/cvmfs/cms-opendata-conddb.cern.ch` — [`fullsim_configs/README.md`](fullsim_configs/README.md) lists the exact
 records and URLs, the other environment variables, and the caveats (no pile-up,
 2018 design conditions, ~2 min of CPU per event).
 
@@ -189,11 +214,11 @@ have a **second, separate** MG5 install (here: MG5 3.1.1, released 2021-05-28) a
 one, without disturbing it. This section documents that procedure end to end, including the
 pitfalls hit getting it working.
 
-### 9.1. Install MG5 3.1.1 itself
+### 10.1. Install MG5 3.1.1 itself
 
 Same as step 2, but into its own directory (a sibling of the main install, not nested inside it -
 e.g. `MG5_aMC_v3_1_1` next to `MG5_aMC_v3_7_2`), and **do not** run `install pythia8`/
-`install lhapdf6` yet - those need extra setup first (9.2-9.3 below) or you'll hit the crash
+`install lhapdf6` yet - those need extra setup first (10.2-10.3 below) or you'll hit the crash
 described there.
 
 ```bash
@@ -204,7 +229,7 @@ tar xzf MG5_aMC_v3.1.1.tar.gz
 (Adjust the launchpad URL/branch if 3.1.1 has since been moved to a different series' download
 page - the `3.0/3.1.x` path reflects where it lived at the time of writing.)
 
-### 9.2. Set up a durable `--local` HEPToolsInstaller copy
+### 10.2. Set up a durable `--local` HEPToolsInstaller copy
 
 **Problem:** `install <tool>` inside `mg5_aMC` does *not* use anything bundled with the MG5
 release. Every single time it's called, it re-downloads a "maintained online" installer script
@@ -213,7 +238,7 @@ into `MG5_PATH/HEPTools/HEPToolsInstallers/`, completely overwriting whatever wa
 so this installer is **not** version-pinned to MG5 3.1.1, and any patch made directly to that
 downloaded copy is silently wiped out by the next `install` call (found the hard way, twice).
 
-Two of the patches this toolchain actually needs (9.3 below) have to survive across repeated
+Two of the patches this toolchain actually needs (10.3 below) have to survive across repeated
 `install` retries. `mg5_aMC`'s `install` command supports a `--local` flag for exactly this: with
 `--local`, instead of using the freshly re-downloaded copy, it copies the installer from a fixed
 sibling directory of `MG5_PATH` itself - `pjoin(MG5_PATH, os.path.pardir, 'HEPToolsInstallers')`,
@@ -232,9 +257,9 @@ Every `install <tool>` call against this MG5 install should then use `--local` (
 reinstall over an existing copy), e.g. `install pythia8 --local --force` - never a bare
 `install pythia8`, or the fixes below get lost.
 
-### 9.3. Patch the durable installer copy
+### 10.3. Patch the durable installer copy
 
-Edit `<jetclass_root>/HEPToolsInstallers/HEPToolInstaller.py` (the sibling directory from 9.2, NOT
+Edit `<jetclass_root>/HEPToolsInstallers/HEPToolInstaller.py` (the sibling directory from 10.2, NOT
 anything under `MG5_aMC_v3_1_1/`) with the following, before ever running `install pythia8
 --local`:
 
@@ -295,7 +320,7 @@ kept here in case they resurface for another old version:
   `CUSTOM_STATIC_HEPMC2_LIB` variable directly in the Makefile recipe instead, plus an explicit
   `-L$(GZIP_LIB) -lz`.
 
-### 9.4. Point the generation pipeline at the new install
+### 10.4. Point the generation pipeline at the new install
 
 `run.sh`'s `MG5_PATH` respects a pre-set environment variable (see its own comment), so the new
 install can be used **without editing any repo file**:

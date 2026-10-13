@@ -177,7 +177,7 @@ if __name__ == '__main__':
         action='store_true',
         help='forwarded to run_condor.py as --keep-intermediate (default: off - production'
              ' runs only need the ntuples, see run_condor.py\'s own docs)')
-    parser.add_argument('-o', '--outputdir', default='condor',
+    parser.add_argument('-o', '--outputdir', default='condor_jobs',
         help='directory to write condor submission files into (forwarded to run_condor.py) -'
              ' NOT the detector-output directory, see --output-path and module docstring')
     parser.add_argument('--cpus', type=int, default=1)

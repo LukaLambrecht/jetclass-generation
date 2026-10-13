@@ -5,13 +5,14 @@
 hlteff/curves_qcd.json
 testing/test-generation-time/*.txt
 
-# job directories
-condor
+# job directories (submit files + logs). Note "condor_*", not "condor": the
+# condor/ directory itself is tracked source (the production submitters).
 condor_*
 
 # CRAB working directories and related stuff
 crab/production
 crab/monitoring/monitor_crab_jobs
+crab/monitoring/monitor.log
 
 # ROOT / ACLiC compiled artifacts (machine- and ROOT-version-specific;
 # regenerated automatically by `root -b -q 'macro.C++(...)'`)
