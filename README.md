@@ -1,20 +1,29 @@
-# JetClass dataset generation for offline vs HLT studies
+# JetClass-like dataset generation for offline vs HLT studies
 
-### General information
-For general information on JetClass dataset production, see the [main branch](https://github.com/LukaLambrecht/jetclass-generation) of this repository (which is forked from [jet-universe/jetclass2_generation](https://github.com/jet-universe/jetclass2_generation/tree/main)).
+### Introduction
+This repository produces ntuples with simulated wide-radius (AK8) jets with both offline and HLT-like reconstruction workflows.
+The resulting ntuples can be used for studying and improving HLT performance by having the one-to-one corresponding offline jets available for direct comparison.
+The simulated jets are of various signal classes of interest (e.g. Xbb and Xcc) and generic QCD background.
+
+### Installation
+See the dedicated [installation instructions](INSTALL.md).
+
+Short version: the `fullsim` backend needs nothing beyond CVMFS and `apptainer`
+(both on lxplus), except for the `jetclass2/*` processes, which generate their
+events with MadGraph5 + Pythia8 before CMSSW starts and therefore need an MG5 install
+([installation instructions](INSTALL.md) steps 2-3). The `delphes` backend additionally needs Delphes ([installation instructions](INSTALL.md) steps 4-6).
+
+### Information on JetClass datasets
+The generation of signal and background jets in this repository follows the [JetClass(v1)](https://github.com/jet-universe/jetclass_generation/tree/main) and [JetClass2](https://github.com/jet-universe/jetclass2_generation/tree/main) setups (both are supported here).
+For general information on the original JetClass dataset production, see the [main branch](https://github.com/LukaLambrecht/jetclass-generation) of this repository (which is forked from [jet-universe/jetclass2_generation](https://github.com/jet-universe/jetclass2_generation/tree/main)).
 
 ### Detector backends
-`run.sh`'s first argument selects how the generated events are turned into a
-detector-level dataset:
+Two detector simulation approaches are supported: Delphes-based fast parametric simulation (called `delphes` in this repository),
+and FullSim (CMSSW-based) simulation (called `fullsim` in this repository).
+The latter uses only open-source and open-data tools, as detailed in [`fullsim_configs/README.md`](fullsim_configs/README.md).
+Both write the same ntuple schema, so downstream code does not need to know which one produced its input.
 
-| backend | what it is |
-|---|---|
-| `delphes` | fast parameterised simulation — every dataset so far was made with this |
-| `fullsim` | CMS full simulation, reconstruction and HLT in CMSSW, using only openly available software and conditions — see [`fullsim_configs/README.md`](fullsim_configs/README.md) |
-
-Both write the same ntuple schema, so downstream code does not need to know which
-one produced its input.
-
+### Minimal examples
 ```bash
 ./run.sh delphes jetclass2/train_qcd 1000 100 0
 ./run.sh fullsim jetclass2/train_qcd 4 2 0        # ~2 min of CPU per event
@@ -24,8 +33,7 @@ python run_condor.py --backend delphes --proc jetclass2/train_qcd --nevent 1000 
 ```
 
 ### Running a full production
-Two interchangeable submission routes, with identical job splitting and identical
-output, so a dataset made with one matches a dataset made with the other:
+Two interchangeable submission routes, with identical job splitting and identical output, so a dataset made with one matches a dataset made with the other:
 
 | route | where | needs |
 |---|---|---|
@@ -44,13 +52,4 @@ voms-proxy-init -voms cms -valid 192:00
 ./crab/submit_production_higgs2p.sh
 ```
 
-Each script takes `--dry-run`, which prints every command it would run without
-running any of them - worth doing first, since a full production is thousands of jobs.
-
-### Installation
-See the dedicated [installation instructions](INSTALL.md).
-
-Short version: the `fullsim` backend needs **nothing** beyond CVMFS and `apptainer`
-(both on lxplus), *except* for the `jetclass2/*` processes, which generate their
-events with MadGraph5 + Pythia8 before CMSSW starts and therefore need an MG5 install
-(INSTALL.md steps 2-3). The `delphes` backend additionally needs Delphes (steps 4-6).
+Each script takes `--dry-run`, which prints every command it would run without running any of them.
