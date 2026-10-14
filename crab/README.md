@@ -91,6 +91,62 @@ premix library meant to be streamed, but it is public infrastructure, so:
   sandbox. Unmeasured - the 1 GB is probably dominated by alignment and calorimeter
   calibrations that reconstruction genuinely needs.
 
+## The FrameworkJobReport, and why a scriptExe must write one
+
+CRAB's job wrapper parses `FrameworkJobReport.xml` the moment the `scriptExe` returns.
+If the file is missing or unparseable the job fails with exit code **50115
+"BadFWJRXML"** and **no stageout is done**, no matter how well the work went. A job
+that ran for hours and exited 0 is discarded in full.
+
+A `scriptExe` whose last act is `cmsRun` gets the report for free. Ours never runs
+`cmsRun` - the ntuplizer is a standalone FWLite binary and the merge is a `hadd` - so
+`run_job.sh` writes the report itself, as its final step.
+
+**The report declares an `<AnalysisFile>`, not a `<File>`, and this matters.** A
+`<File>` entry means "EDM output", and CRAB follows it by reading the file's
+provenance with `edmProvDump`. Our ntuple is a plain `TTree` with no EDM provenance,
+so that aborts and the job dies with **exit code 56** - again only after the work is
+finished. `<AnalysisFile>` is what `cmsRun` emits for a `TFileService` output, i.e.
+for an ordinary ROOT file, which is what we actually produce.
+
+The same distinction has to hold in `pset.py`, which CRAB reads at *submit* time to
+decide what the job produces. A `PoolOutputModule` there puts `ntuple.root` in
+`CRAB_EDMOutputFiles` and triggers the same `edmProvDump` path; a `TFileService` puts
+it in `CRAB_TFileOutputFiles`, which skips provenance entirely. So three things must
+agree: the `TFileService` in `pset.py`, the `<AnalysisFile>` in the report, and the
+file `run_job.sh` actually leaves behind. `JobType.outputFiles` is deliberately left
+unset, since CRAB already infers the file from the pset.
+
+Both report forms above were copied from real `cmsRun -j` output rather than written
+from memory - the easiest way to check one is to run `cmsRun -j report.xml` on a
+two-event pset and read what comes out.
+
+**This cost the entire 2026-10-13 round**: 11 tasks, ~11,000 jobs, 0 finished, 0 files
+on EOS, >10,000 CPU-hours burned. The error is invisible in the usual places - the
+chain logs all show success, `Application exit status: 0` - and 50115 reads as a
+generic failure, which is easy to mistake for the (real, unrelated) site-level
+container problem that produces the same code at job *start*. The tell is **where** in
+the log it happens and that **nothing ever reaches `finished`**.
+
+If you change what the job stages out, `TotalEvents` and `<PFN>` in that block have to
+follow, as does `JobType.outputFiles` in the CRAB config and the output file name in
+`pset.py`.
+
+## Memory: why these tasks ask for 2 cores
+
+Measured over the ~3,600 failed jobs of the 2026-10-13 round: **1616-1849 MB average,
+3958 MB peak**. The round requested 2500 MB on one core and lost 11% (QCD) to 23%
+(signal) of its failures to exit **50660**, HTCondor killing the job for memory.
+
+CRAB refuses more than 3000 MB for a 1-core task, so the peak cannot be covered on one
+core at all. Hence `--cores 2 --memory 4000`. The chain is single-threaded, so the
+second core is bought for its memory allowance rather than for speed - the CPU
+efficiency of these tasks is about 50% by construction.
+
+Note that `numCores` must match `process.options.numberOfThreads` in `pset.py` or CRAB
+rejects the task at submit time; `build_simpack.py` renders both from `--cores`, so
+they cannot drift.
+
 ## The site probe (optional)
 
 `site-probe/` measures which sites already mount the conditions and so avoid the

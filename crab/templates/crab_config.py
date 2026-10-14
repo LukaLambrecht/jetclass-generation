@@ -29,7 +29,10 @@ config.JobType.scriptArgs  = ['events=__NEVENTS__', 'batch=__BATCH__']
 # directories recursively). The site probe has no payload at all, so it must not ask
 # for one: CRAB refuses to submit if a listed input file does not exist.
 config.JobType.inputFiles  = __INPUTFILES__
-config.JobType.outputFiles = ['ntuple.root']
+# Deliberately NOT set: ntuple.root is declared by the TFileService in pset.py, so
+# CRAB already collects it (as CRAB_TFileOutputFiles). JobType.outputFiles is for
+# files CRAB cannot infer, and listing it here as well double-counts it.
+# config.JobType.outputFiles = ['ntuple.root']
 # CRAB refuses a 1-core task above 3000 MB; measured peak usage is ~1.4 GB
 config.JobType.maxMemoryMB    = __MEMORY__
 config.JobType.maxJobRuntimeMin = __RUNTIMEMIN__

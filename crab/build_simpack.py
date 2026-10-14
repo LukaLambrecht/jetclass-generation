@@ -191,7 +191,8 @@ if __name__ == '__main__':
                '__PROCKIND__': proc_kind, '__MG5_URL__': args.mg5_url}
     render(os.path.join(TEMPLATES, 'run_job.sh'), os.path.join(out, 'run_job.sh'), jobsubs)
     shutil.copy(os.path.join(TEMPLATES, 'run_in_container.sh'), os.path.join(out, 'run_in_container.sh'))
-    shutil.copy(os.path.join(TEMPLATES, 'pset.py'), os.path.join(out, 'pset.py'))
+    render(os.path.join(TEMPLATES, 'pset.py'), os.path.join(out, 'pset.py'),
+           {'__CORES__': args.cores})
     shutil.copy(os.path.join(TEMPLATES, 'crab_submit.sh'), os.path.join(out, 'crab_submit.sh'))
     # driver for any crab subcommand; crab/monitoring/ shells out to it per simpack
     shutil.copy(os.path.join(TEMPLATES, 'crab_command.sh'), os.path.join(out, 'crab_command.sh'))

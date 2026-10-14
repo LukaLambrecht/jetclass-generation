@@ -78,6 +78,14 @@ BLACKLIST=${BLACKLIST:-$DEFAULT_BLACKLIST}
 RUNTIME_MIN=900    # 15 h: above the ~10 h a slow 8 h job reaches, below the 24 h cap.
                    # Lower values match more sites during matchmaking; CRAB's own
                    # default is 1315 (21.9 h), which some sites will not accept.
+# MEMORY/CORES: the 2026-10-13 round requested 2500 MB on 1 core and lost 11% of its
+# failures to exit 50660, HTCondor killing jobs for memory. Measured across the ten QCD
+# tasks and the signal task: 1616-1849 MB average, 3958 MB peak. CRAB refuses more than
+# 3000 MB for a 1-core task, so the peak simply cannot be covered on one core - hence
+# 2 cores and 4000 MB. The chain is single-threaded, so the second core is bought for
+# its memory allowance, not for speed.
+MEMORY=4000
+CORES=2
 DRYRUN=false
 
 while [ $# -gt 0 ]; do
@@ -141,6 +149,7 @@ while read -r bin nj nev batch; do
         run python3 "$THISDIR/build_simpack.py" --proc "jetclass2sb/QCD_PT-$bin" \
             --njobs "$nj" --nevents-per-job "$nev" --batch-size "$batch" \
             --runtime-min "$RUNTIME_MIN" --request-name "jetclass2sb_QCD_PT_$bin" \
+            --memory "$MEMORY" --cores "$CORES" \
             --outlfn "$OUTLFN" $extra -o "$d"
     fi
     echo "+ (cd $d && ./crab_submit.sh)"

@@ -45,7 +45,14 @@ NJOBS=4000
 NEVENTS=500
 BATCH=250            # 2 batches per job, as for QCD
 RUNTIME_MIN=1200     # 20 h; see "RUNTIME IS THE LEAST CERTAIN PART" above
-MEMORY=2500          # CRAB refuses a 1-core task above 3000; measured peak ~1.4 GB
+# The 2026-10-13 round requested 2500 MB on 1 core and lost 23% of its failures to
+# exit 50660 (HTCondor memory kills): measured 1631 MB average but 3958 MB peak over
+# 1827 failed jobs. The early "~1.4 GB peak" came from a handful of local runs and was
+# simply not representative. CRAB refuses more than 3000 MB for a 1-core task, so the
+# peak cannot be covered on one core - hence 2 cores. The chain is single-threaded, so
+# the second core buys the memory allowance, not speed.
+MEMORY=4000
+CORES=2
 WHITELIST=""
 # Sites that cannot run this chain, to be skipped by default.
 #
@@ -119,7 +126,7 @@ if [ -d "$d" ]; then
 else
     run python3 "$THISDIR/build_simpack.py" --proc "$PROC" \
         --njobs "$NJOBS" --nevents-per-job "$NEVENTS" --batch-size "$BATCH" \
-        --runtime-min "$RUNTIME_MIN" --memory "$MEMORY" \
+        --runtime-min "$RUNTIME_MIN" --memory "$MEMORY" --cores "$CORES" \
         --request-name "jetclass2_train_higgs2p" \
         --outlfn "$OUTLFN" $extra -o "$d"
 fi

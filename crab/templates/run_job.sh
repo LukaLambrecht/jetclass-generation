@@ -293,3 +293,37 @@ else
     "$EL7" --command-to-run "./run_job.sh --step merge $HERE/ntuple.root $files" || exit 1
 fi
 echo "=== done: $nok/$NBATCH batches -> $(stat -c %s "$HERE/ntuple.root") bytes ==="
+
+# ---------------------------------------------------------------------------
+# FrameworkJobReport.xml
+#
+# CRAB's wrapper (CMSRunAnalysis.py) parses this the moment the scriptExe returns.
+# If it is missing or unparseable the job is failed with exit code 50115 "BadFWJRXML"
+# and - this is the expensive part - NO STAGEOUT IS DONE, however well the physics
+# went. The 2026-10-13 round lost every one of 11 tasks this way: the application
+# exited 0 after hours of work, then "cat: FrameworkJobReport.xml: No such file or
+# directory" and the whole job was discarded.
+#
+# A scriptExe that runs cmsRun as its last act gets the report for free. Ours does
+# not - the ntuplizer is a standalone FWLite binary and the merge is a hadd - so we
+# have to write the report ourselves.
+#
+# It is an <AnalysisFile>, not a <File>. A <File> entry describes an EDM output, and
+# CRAB follows it up by reading the file's provenance with `edmProvDump`, which aborts
+# on our plain TTree and fails the job with exit code 56 - again only after all the
+# work is done. <AnalysisFile> is what cmsRun emits for a TFileService output, i.e.
+# for an ordinary ROOT file, which is exactly what the ntuplizer writes. Keep this in
+# step with the TFileService declaration in pset.py; the two together are what make
+# CRAB treat the ntuple as a TFile output rather than an EDM one.
+#
+# Both forms were taken from real `cmsRun -j` output rather than written from memory.
+NEV_DONE=$(( nok * BATCH ))
+cat > "$HERE/FrameworkJobReport.xml" <<EOF
+<FrameworkJobReport>
+<AnalysisFile>
+  <FileName>ntuple.root</FileName>
+  <Source  Value="TFileService" />
+</AnalysisFile>
+</FrameworkJobReport>
+EOF
+echo "=== wrote FrameworkJobReport.xml: ntuple.root, $NEV_DONE events ==="

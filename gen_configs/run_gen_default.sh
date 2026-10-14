@@ -35,7 +35,17 @@ if [ -f mg5_params.dat ]; then
 fi
 
 sed -i "s/\$NEVENT/$NEVENT/g" mg5_step2.dat # initialize nevent
-sed -i "s/\$SEED/$RANDOM/g" mg5_step2.dat # initialize seed, important!
+# MG5 seed. NOT bash's $RANDOM: that only spans 0-32767, so over the ~8000 MG5 runs
+# of a 4000-job signal round some ~980 PAIRS of batches draw the same iseed (birthday
+# problem). Today those pairs still differ, because `shuf` picks the (mass, pT_min)
+# point from a 4900-line grid independently - but that is the parameter grid rescuing
+# the seed, not the seed being sound, and it would stop being true for a process with
+# a smaller grid or none. $RANDOM can also return 0, which MG5 does not read as a
+# literal seed. Draw from /dev/urandom instead, over the same 9e8 range run_chain.sh
+# uses for the CMSSW seeds, which makes a collision in a full round ~1e-4 likely.
+MG5_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 900000000 + 1 ))
+sed -i "s/\$SEED/$MG5_SEED/g" mg5_step2.dat # initialize seed, important!
+echo "MG5 seed: $MG5_SEED"
 
 # if mg5_step2_run_card_templ exists, copy it to the MG dir
 if [ -f mg5_step2_run_card_templ.dat ]; then
