@@ -28,26 +28,13 @@
 // So these columns mean the same thing as in our Delphes ntuples and in central
 // JetClass(-II). To get CMS's own convention back: dxy_cm = -d0val/10.
 //
-// OFFLINE JET SELECTION: pT > 200 GeV, |eta| < 2.4, chosen to match the CMS
-// offline+scouting reference dataset this whole pipeline is reproducing
-// (/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/, see
-// hlteff/README.md "Data source"), whose own selection was measured to be a
-// hard edge at exactly those values: min fj_pt = 200.00 and max |fj_eta| =
-// 2.3999 over 1.2M jet pairs, with nothing below/beyond. It also matches the
+// OFFLINE JET SELECTION: pT > 200 GeV, |eta| < 2.4.Same as in the
 // Delphes backend, whose AK8 cards impose the same 200 GeV via their
-// FastJetFinder JetPTMin (so makeNtuplesPaired.C's literal 120 never binds -
-// copying that 120 here was a mistake, fixed 2026-10-05; it had let 23% extra,
-// 94%-QCD-labeled jets into the FullSim sample and inflated its QCD fraction
-// from 58% to 66%).
+// FastJetFinder JetPTMin.
 //
 // NO pT or eta requirement is applied to the matched HLT jet, deliberately -
 // see makeNtuplesPaired.C's docstring for why a vanished or merely-softer HLT
-// jet must stay distinguishable. The reference dataset does cut its scouting
-// jet at 170 GeV (also a hard edge, verified: zero jets below, 0.3% between 170
-// and 200), so a strict comparison against it should additionally require
-// hlt_jet_pt > 170 downstream - that removes 0.35% of FullSim and 3.4% of
-// Delphes jets. The reference applies no eta cut to the scouting jet (its
-// |scoutfj_eta| reaches 2.84, i.e. the offline 2.4 plus the matching cone).
+// jet must stay distinguishable.
 //
 // jet_sdmass and jet_tau1..4 are not stored in AODSIM for AK8 (and do not exist
 // at all for HLT jets), so they are computed here from the jet's constituents
