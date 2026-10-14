@@ -1,21 +1,22 @@
 # JetClass generation: installation notes
 
-Setup instructions for the JetClass dataset generation
-pipeline (MadGraph + Pythia8 + Delphes) on this machine (lxplus / EOS).
+Setup instructions for the JetClass dataset generation pipeline (MadGraph + Pythia8 + Delphes).
 
-There are two interchangeable detector **backends**, selected by `run.sh`'s first
-argument: `delphes` (steps 2-8 below) and `fullsim` (CMS full simulation in
-CMSSW, step 9). The generation side (MadGraph + Pythia8, steps 2-3) is shared, so
-a `fullsim` run needs the same MG5 install. See
-[`fullsim_configs/README.md`](fullsim_configs/README.md) for the FullSim backend
-itself.
+**Requirements for different generation setups and detector backends**  
+Note that depending on the workflow, not all these installation steps might be needed.
+- For the generation step, some processes (e.g. QCD background) use pure Pythia8 and do not need Madgraph.
+  This depends purely on the generated process independent of the detector backend.
+- For the detector simulation , the `delphes` option needs a Delphes installation while the `fullsim` option does not.
+- Moreover, for the `fullsim` backend, depending on how the generation and simulation are wired together,
+  a Pythia8 installation might not be needed as it is implicit in CMSSW.
+- See [`fullsim_configs/README.md`](fullsim_configs/README.md) for more information on installing and using the `fullsim` backend itself.
 
 ## 1. Clone the generation repo
 
 ```bash
 git clone https://github.com/LukaLambrecht/jetclass-generation.git
 ```
-To do: update with correct branch!
+Make sure to get and switch to the `offline-and-hlt` branch!
 
 ## 2. Install MG5aMC + Pythia8 + LHAPDF
 
@@ -92,8 +93,10 @@ grep -ac "PerEventSeed requires a nonzero global RandomSeed" libDelphes.so   # s
 
 ## 5. Link the pileup file
 
-Requires CERN EOS access. **The symlink must be created inside your Delphes install directory
-itself** (i.e. `$DELPHES_PATH/`), named exactly `MinBias_100k.pileup`:
+Note: the example file provided here requires CERN EOS access, but any other file containing pileup events will do.
+
+The symlink must be created inside your Delphes install directory
+itself (i.e. `$DELPHES_PATH/`), named exactly `MinBias_100k.pileup`:
 
 ```bash
 cd <your Delphes install dir>
@@ -123,21 +126,6 @@ LHAPDF_DATA_PATH=$MG5_PATH/HEPTools/lhapdf6_py3/share/LHAPDF
 PYTHIA8DATA=$MG5_PATH/HEPTools/pythia8/share/Pythia8/xmldoc
 ```
 
-## 6b. Submitting a full production
-
-Once a test job works, neither route below needs anything further configured:
-
-* **lxplus HTCondor** - [`condor/README.md`](condor/README.md). One command per
-  sample; needs no grid proxy. The signal additionally needs the MG5 install from
-  steps 2-3.
-* **CRAB / the CMS grid** - [`crab/README.md`](crab/README.md). Far more parallelism;
-  needs CMS VO membership and `voms-proxy-init -voms cms`. Ships a self-contained
-  "simpack" per task and fetches MG5 and the conditions itself, so a worker node
-  needs nothing preinstalled.
-
-Both use identical job splitting and produce the same output layout and ntuple
-schema, so they are interchangeable.
-
 ## 7. Run a test job
 
 ```bash
@@ -145,11 +133,7 @@ schema, so they are interchangeable.
 ./run.sh delphes jetclass2/train_higgs2p 10 10 0
 ```
 
-The first argument (the backend) is **required**, and is new: it used to be
-absent, Delphes being the only option, so an older command line needs `delphes`
-inserted in front of the process name.
-
-Note the process name is relative to `gen_configs/` and must **not** include a `gen_configs/`
+Note the process name is relative to `gen_configs/` and must not include a `gen_configs/`
 prefix — `./run.sh gen_configs/jetclass2/train_higgs2p ...` fails with a
 `cp: cannot stat '.../gen_configs/gen_configs/jetclass2/train_higgs2p/*'` error, because `run.sh`
 already resolves `$PROC` under its own `gen_configs/` directory.
@@ -161,11 +145,13 @@ A successful run produces, under `$OUTPUT_PATH/$PROC/<backend options>/`:
 
 ## 8. Ntuple production (built into run.sh)
 
-`run.sh` now runs `delphes_analyzers/makeNtuples.C` automatically as its last step, converting
-the Delphes ROOT file into the flat ntuple format described in the
-[sophon README](https://github.com/jet-universe/sophon?tab=readme-ov-file#variable-details). No
-extra action is needed — it's part of step 7 above. This runs the same macro the repo's own
-`README.md` documents for manual use:
+`run.sh` now runs an ntuplizer as its last step, converting
+the Delphes ROOT file (or equivalently, an AODSIM ROOT file in the `fullsim` backend)
+into the flat ntuple format described in the
+[sophon README](https://github.com/jet-universe/sophon?tab=readme-ov-file#variable-details).
+
+No extra action is needed — it's part of step 7 above, but in case manual running of this step is needed,
+this is how it goes:
 
 ```bash
 cd delphes_analyzers
@@ -176,8 +162,7 @@ root -b -q 'makeNtuples.C++("events_delphes.root", "ntuple.root", "JetPUPPIAK8",
 
 ## 9. The FullSim backend (CMSSW)
 
-Nothing has to be installed for this one, as long as the machine has CVMFS and
-`apptainer` (both are there on lxplus/lxbatch):
+In case your machine has CVMFS and `apptainer` installed, nothing extra is needed.
 
 ```bash
 ./run.sh fullsim jetclass2/train_qcd 4 2 0
@@ -185,39 +170,32 @@ Nothing has to be installed for this one, as long as the machine has CVMFS and
 
 It pulls CMSSW_10_6_30 and an SLC7 userland from the open-data container image on
 `/cvmfs/unpacked.cern.ch`, and the conditions from `/cvmfs/cms-opendata-conddb.cern.ch`.
-To run somewhere without CVMFS, fetch the container from Docker Hub
+
+To run somewhere without CVMFS, you can instead fetch the container from Docker Hub
 (`cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700`) and the two condition databases
 from the CERN Open Data portal, and point `FULLSIM_CONTAINER` / `FULLSIM_CONDDB`
-at your copies. The databases are published as ordinary xrootd-readable files and
-need **no credentials at all** (verified with `X509_USER_PROXY` unset; the copies
-are byte-identical to the CVMFS ones):
+at your copies. The databases are published as ordinary xrootd-readable files.
 
 ```bash
 xrdcp root://eospublic.cern.ch//eos/opendata/cms/conddb/102X_upgrade2018_design_v9.db .  # 1.00 GB, record 1807
 xrdcp root://eospublic.cern.ch//eos/opendata/cms/conddb/106X_mcRun2_asymptotic_v17.db .  #  664 MB, record 1819
 ```
 
-This is also how grid jobs get them when a site does not mount
-`/cvmfs/cms-opendata-conddb.cern.ch` — [`fullsim_configs/README.md`](fullsim_configs/README.md) lists the exact
-records and URLs, the other environment variables, and the caveats (no pile-up,
-2018 design conditions, ~2 min of CPU per event).
-
-Nothing about the Delphes install (steps 4-6) is needed for this backend, and
-nothing about this backend affects the Delphes one.
+See [`fullsim_configs/README.md`](fullsim_configs/README.md) for more information.
 
 ## 10. Installing an alternate MG5/Pythia8 toolchain (e.g. MG5 3.1.1, for toolchain-comparison tests)
 
 Central JetClass was originally produced with an older MG5/Pythia8 combination than the "main"
 install from step 2 above (MG5 3.7.2). To reproduce that more closely - e.g. to check whether the
 generator/shower vintage itself explains a discrepancy against central JetClass - it's useful to
-have a **second, separate** MG5 install (here: MG5 3.1.1, released 2021-05-28) alongside the main
+have a second, separate MG5 install (here: MG5 3.1.1, released 2021-05-28) alongside the main
 one, without disturbing it. This section documents that procedure end to end, including the
 pitfalls hit getting it working.
 
 ### 10.1. Install MG5 3.1.1 itself
 
 Same as step 2, but into its own directory (a sibling of the main install, not nested inside it -
-e.g. `MG5_aMC_v3_1_1` next to `MG5_aMC_v3_7_2`), and **do not** run `install pythia8`/
+e.g. `MG5_aMC_v3_1_1` next to `MG5_aMC_v3_7_2`), and do not run `install pythia8`/
 `install lhapdf6` yet - those need extra setup first (10.2-10.3 below) or you'll hit the crash
 described there.
 
@@ -350,4 +328,3 @@ python run_condor_loop.py --procs jetclass1/HToBB/precompiled --njobs 10 --neven
     --output-path /path/to/output --batch-size 12500 --delphes-cards JetClassI \
     --extra-env MG5_PATH=/path/to/MG5_aMC_v3_1_1,GRIDPACK_CACHE=/path/to/a/SEPARATE/gridpack/cache
 ```
-
