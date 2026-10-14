@@ -83,10 +83,20 @@ def make_progress_bar(progress_values):
     # - progress_values: a dict matching status names to percentages in str format,
     #   e.g. {'finished': '100%'}
     progress_str = ' '.join(['{}: {}'.format(key, val) for key, val in progress_values.items()])
+    # Note the ORDER matters: the bars are laid out left to right in this order, each
+    # starting where the previous one ended. It reads as a progression:
+    # finished -> transferring -> running -> toRetry -> failed.
+    #
+    # A status that is absent here gets no bar at all and simply shows the grey
+    # container background, which is why toRetry used to be indistinguishable from
+    # idle and unsubmitted. Those two are still intentionally uncoloured - they are
+    # "nothing has happened yet" - but toRetry means a job already ran and failed, so
+    # it earns its own (light orange) bar.
     colors = {
       'finished': 'lightgreen',
       'transferring': 'turquoise',
       'running': 'deepskyblue',
+      'toRetry': 'sandybrown',
       'failed': 'crimson'
     }
     html = '<td> <div class="progress-container">'
