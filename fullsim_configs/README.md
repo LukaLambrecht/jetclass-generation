@@ -1,40 +1,33 @@
 # FullSim backend: CMS full simulation with open tools only
 
 This directory holds everything the `fullsim` backend of `run.sh` needs to run
-CMS full simulation, reconstruction **and** the HLT inside CMSSW, starting from
+CMS full simulation, reconstruction and the HLT inside CMSSW, starting from
 the same generated events (`gen_configs/`) the Delphes backend reconstructs and
-writing the same ntuple schema.
+writing the same ntuple schema. The workflow implemented here uses only open-data
+and open-conditions tools.
 
-Nothing here needs a CERN account or CMS membership. That was the requirement
-that shaped every choice below, so each ingredient is named with where it comes
-from and how to get a local copy.
-
+**Example use**
 ```
 ./run.sh fullsim jetclass2/train_qcd 20 10 0            # 20 events, 2 batches
 python run_condor.py --backend fullsim --proc jetclass2/train_qcd --nevent 20 \
     --batch-size 10 --jobnum 0 --output-path /eos/user/.../output_fullsim_test
 ```
 
-## What it costs
-
-About **2 minutes of CPU per event** without pile-up (GEN,SIM ~70 s, DIGI+L1+HLT
+**What it costs**  
+About 1-2 minutes of CPU per event without pile-up (GEN,SIM ~70 s, DIGI+L1+HLT
 ~30 s, RECO ~38 s), i.e. three to four orders of magnitude more than Delphes.
 A 10M-jet dataset is of order 20 CPU-years; this backend is for reference samples
 and validation, not for replacing the Delphes production.
 
-## The three ingredients, and where they come from
-
 ### 1. Software: the open-data CMSSW container
 
-`cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700` on Docker Hub, used here through
-the CVMFS unpacked mirror
-`/cvmfs/unpacked.cern.ch/registry.hub.docker.com/cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700:latest`.
-It provides the SLC7 userland CMSSW_10_6_30 needs. Override with
-`FULLSIM_CONTAINER` (and `FULLSIM_CONTAINER_CMD` for `apptainer`/`singularity`).
+`cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700` from Docker Hub.
+It provides the SLC7 userland CMSSW_10_6_30 needs.
+Override with `FULLSIM_CONTAINER` (and `FULLSIM_CONTAINER_CMD` for `apptainer`/`singularity`).
 
-CMSSW itself is taken from `/cvmfs/cms.cern.ch` (`FULLSIM_CMSSW_DIR`); the
-container also bundles its own copy of the release, which is what makes a fully
-CVMFS-free installation possible.
+As an optional equivalent, in case CVMFS is available, the container can be taken from the CVMFS unpacked mirror
+`/cvmfs/unpacked.cern.ch/registry.hub.docker.com/cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700:latest`),
+and CMSSW itself can be taken from `/cvmfs/cms.cern.ch` (`FULLSIM_CMSSW_DIR`).
 
 ### 2. Conditions: two open condition databases
 
@@ -50,7 +43,7 @@ byte-identically on `/cvmfs/cms-opendata-conddb.cern.ch/`, which is the default
 and point `FULLSIM_CONDDB` at it. The full index of them is the
 [condition database guide](https://opendata.cern.ch/docs/cms-guide-for-condition-database).
 
-Note the container bundles only the 2016 UL file, not the 2018 one.
+Note the container (see above) bundles only the 2016 UL file, not the 2018 one.
 
 ### 3. Generator: our own events
 
@@ -59,14 +52,16 @@ the `events.hepmc` that `gen_configs/` already produces, so both backends start
 from literally the same generated events and the physics generation is not
 duplicated in CMSSW.
 
+This is optional; CMSSW's internal Pythia8 generator can be used as well.
+
 ## How two global tags are used at once
 
 Only one global tag is ever active. A global tag is a named mapping
 `record -> tag` (with validity intervals), and `process.GlobalTag.toGet` can
-override individual records, each with **its own** `connect`. So "2018 with a
+override individual records, each with its own `connect`. So "2018 with a
 2016 fallback" means the 2018 tag plus ~50 per-record overrides pointing at the
 2016 file. `patch_cond.py` builds that list automatically by diffing the two
-tags' mappings and overriding only records the 2018 tag lacks **entirely**: no
+tags' mappings and overriding only records the 2018 tag lacks entirely: no
 geometry, alignment or channel-status payload ever comes from the wrong year. The
 gap-filled records are year-independent detector-response parameterisations
 (ECAL pulse shape, SiStrip APV simulation parameters, e/gamma regressions, b-tag
@@ -87,7 +82,7 @@ The ntuplizer itself is `fullsim_analyzers/makeNtuplesFullSim.cc`.
 
 ## Why HLT, not scouting
 
-The 2018 **scouting** format (`ScoutingParticle`) stores only
+The 2018 scouting format (`ScoutingParticle`) stores only
 `(pt, eta, phi, m, pdgId, vertex)` — it has no impact parameters at all, and its
 jets are AK4. But `HLTScoutingPFProducer` is only a packer: it reads
 `reco::PFCandidate` from `hltParticleFlow` and throws the rest away to fit the
@@ -120,7 +115,7 @@ package `__init__.py` prepends `$LOCALRT/python/<Package>` to the package path, 
 is *added* with nothing shadowed. The module name is sanitised, because a process name
 like `QCD_PT-470to600` is not a valid Python identifier.
 
-Every batch gets a fresh random seed for **all** random-number modules (generator,
+Every batch gets a fresh random seed for all random-number modules (generator,
 vertex smearing, GEANT4, mixing) via CMSSW's `RandomNumberServiceHelper`, logged as
 `seed: <n>`. This is essential for fragment processes - all batches of a job share one
 config and would otherwise generate identical events - and it also fixed the HepMC
@@ -128,21 +123,17 @@ route, whose batches previously shared GEANT4 seeds.
 
 ### `jetclass2sb`: reproducing the reference dataset's spectrum
 
-`gen_configs/jetclass2sb/QCD_PT-*` are the ten pThat-binned fragments behind the CMS
-offline+scouting reference dataset, copied from the public
+`gen_configs/jetclass2sb/QCD_PT-*` are the ten pThat-binned fragments behind a reference dataset, copied from the
 [hww-tagging repository](https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3)
-(themselves the official CMS McM Summer23GS fragments). The one adaptation for
-CMSSW_10_6_30 is marked inline in each file: the Run-3 13.6 TeV CP5 tune module does
+The one adaptation for CMSSW_10_6_30 is marked inline in each file: the Run-3 13.6 TeV CP5 tune module does
 not exist in this release, so the import falls back to an inlined copy of that block
 from cms-sw/cmssw (Apache-2.0), differing only in `SigmaTotal:sigmaEl/sigmaTot`.
 
-The reference sample is **"PT-mixed": each of the ten bins was generated with an EQUAL
-number of events** (500 jobs x 500 events = 250k per bin), i.e. flat in pThat rather
-than cross-section weighted. That flat mixing - not the per-bin settings - is what
-makes its jet pT spectrum so much harder than our jetclass2 QCD (reference median
-gen-jet pT 871 GeV, which is exactly where flat mixing over these bins puts it).
+The reference sample is "PT-mixed": each of the ten bins was generated with an EQUAL
+number of events (500 jobs x 500 events = 250k per bin), i.e. flat in pThat rather
+than cross-section weighted.
 
-So reproduce it by submitting the **same number of jobs for every bin**:
+So reproduce it by submitting the same number of jobs for every bin:
 
 ```bash
 OUT=/eos/user/l/llambrec/jetclass/output_jetclass2sb
@@ -154,39 +145,23 @@ for b in 170to300 300to470 470to600 600to800 800to1000 \
 done
 ```
 
-Equal `--njobs` across bins is what makes the mix flat; scale `--njobs` to taste (the
-reference's own 250k events per bin would be ~3 CPU-years through full simulation).
+Equal `--njobs` across bins is what makes the mix flat; scale `--njobs` to taste.
 
 ### The two-prong signal is not wired up
 
 `submit_higgs2p.jdl` in the same repository uses
-`BulkGravitonToHHTo4QGluLTau_MX-600to6000_MH-15to650`, which is **not** a Pythia-only
+`BulkGravitonToHHTo4QGluLTau_MX-600to6000_MH-15to650`, which is not a Pythia-only
 fragment: it declares 3564 `RandomizedParameters` points (26 x 54 low-mass plus
 40 x 54 high-mass), each referencing its own MadGraph gridpack through a custom
-`instMG://` URL. That scheme is not a CMSSW feature (absent from both 10_6_30 and
-13_0_0) - the production patches `GeneratorInterface/Core/src/BaseHadronizer.cc` to
-swap the gridpack-fetching script for its own `run_instMG.sh`, which builds the
-gridpack for each mass point on the fly with MG5_aMC v2.9.18. Wiring that up is a
-separate project from the QCD side; see the notes in this repository's discussion.
+`instMG://` URL. This workflow is currently not supported here.
 
 ## Jet selection
 
-Offline jets: **pT > 200 GeV, |eta| < 2.4**, matching the CMS offline+scouting
-reference dataset this pipeline reproduces
-(`/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/`), whose selection was
-measured to be a hard edge at exactly those values (min `fj_pt` = 200.00, max
-`|fj_eta|` = 2.3999 over 1.2M jet pairs). The Delphes backend imposes the same
-200 GeV through its cards' `FastJetFinder JetPTMin`, so the two backends and the
-reference agree. Overridable per job with `NT_JETPTMIN` / `NT_JETETAMAX`.
+Offline jets: pT > 200 GeV, |eta| < 2.4.
 
 No pT or eta cut is applied to the matched HLT jet, on purpose - a vanished HLT
 jet has to stay distinguishable from a merely softer one (see
-`delphes_analyzers/makeNtuplesPaired.C`'s docstring). The reference *does* cut
-its scouting jet at **170 GeV** (also a hard edge: zero jets below it), and
-applies no eta cut there, so a strict comparison against the reference should
-add `hlt_jet_pt > 170` downstream. That removes 0.35% of FullSim jets and 3.4%
-of Delphes jets.
-
+`delphes_analyzers/makeNtuplesPaired.C`'s docstring).
 
 ## Pile-up: what works and what does not
 
