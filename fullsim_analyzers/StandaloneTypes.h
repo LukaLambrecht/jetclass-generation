@@ -3,19 +3,10 @@
 
 // Minimal stand-ins for the handful of Delphes classes the SHARED ntuplizer
 // headers need, so that delphes_analyzers/FatJetMatching.h, ParticleInfo.h and
-// ParticleID.h can be reused VERBATIM by a ntuplizer that has no Delphes at all
+// ParticleID.h can be reused verbatim by a ntuplizer that has no Delphes at all
 // (fullsim_analyzers/makeNtuplesFullSim.C, which reads CMSSW AODSIM instead).
 //
-// Why reuse rather than reimplement: FatJetMatching.h is ~1200 lines of subtle
-// gen-level jet-labelling logic, validated against central JetClass. Writing a
-// second copy of it against reco::GenParticle would be the single most likely
-// place for the two backends' labels to silently drift apart. Instead the
-// FullSim ntuplizer fills these structs from the CMSSW objects and runs the
-// exact same labelling code. FatJetMatching.h picks this header up instead of
-// classes/DelphesClasses.h when JETCLASS_STANDALONE_TYPES is defined.
-//
-// The only field set that matters is the one those three headers actually touch
-// (checked exhaustively, they use nothing else):
+// The only field set that matters is the one those three headers actually touch:
 //   GenParticle:              PID Status M1 M2 D1 D2 PT Eta Phi Mass Charge X Y Z T P4()
 //   ParticleFlowCandidate:    PID Charge PT Eta Phi Mass D0 ErrorD0 DZ ErrorDZ
 //   Jet:                      PT Eta Phi Mass P4()
