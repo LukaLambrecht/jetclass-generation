@@ -310,7 +310,11 @@ if __name__ == '__main__':
     workdirs = []
     crab_command_script = 'crab_command.sh'
     thisdir = os.path.abspath(os.path.dirname(__file__))
-    tmpfile = os.path.join(thisdir, 'monitor_tmp_log.txt')
+    # Per-process temp file. A single shared name races: this script is run both by
+    # hand and every 4 h from acron, it rm's this file at the top of each sample, and
+    # a concurrent run then fails with FileNotFoundError part-way through the loop -
+    # silently skipping every sample after that one, resubmits included.
+    tmpfile = os.path.join(thisdir, 'monitor_tmp_log_{}.txt'.format(os.getpid()))
     for fidx, f in enumerate(fproc):
         workdir = f.split('/crab_logs/')[0]
         exe = os.path.join(workdir, crab_command_script)
@@ -341,9 +345,14 @@ if __name__ == '__main__':
         attempt = 0
         while (attempt<5 and not success):
             os.system(status_cmd)
-            # check the output
-            with open(tmpfile, 'r') as fin:
-                outlines = fin.read().splitlines()
+            # check the output. A missing file counts as a failed attempt rather than
+            # an exception: an exception here aborts the whole loop, so every sample
+            # AFTER this one is skipped - including its resubmits - which is easy to
+            # miss because the script still exits 0.
+            outlines = []
+            if os.path.exists(tmpfile):
+                with open(tmpfile, 'r') as fin:
+                    outlines = fin.read().splitlines()
             thissucces = False
             if len(outlines) > 0:
                 outlines = [l for l in outlines if l.startswith('Jobs status:')]

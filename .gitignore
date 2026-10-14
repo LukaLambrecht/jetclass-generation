@@ -13,6 +13,7 @@ condor_*
 crab/production
 crab/monitoring/monitor_crab_jobs
 crab/monitoring/monitor.log
+crab/monitoring/monitor_tmp_log*.txt
 
 # ROOT / ACLiC compiled artifacts (machine- and ROOT-version-specific;
 # regenerated automatically by `root -b -q 'macro.C++(...)'`)

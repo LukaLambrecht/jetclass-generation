@@ -72,8 +72,17 @@ WHITELIST=""
 #                                               anyway, the waste outweighs the gain)
 # Every other site had ZERO such failures.
 #
+#   T3_US_PuertoRico  added 2026-10-14, from the round submitted that morning: all
+#                     three retries of a job landed there and died identically with
+#                     "fuse-overlayfs exited: fuse: device not found" before any work
+#                     started. Note this reports as 50115 BadFWJRXML, NOT as a
+#                     container error - run_job.sh writes the job report as its last
+#                     act, so any early death looks like a missing report. Read 50115
+#                     as "the script failed somewhere" and go to the job log for the
+#                     real cause.
+#
 # Re-check this list occasionally: it reflects site configuration, which changes.
-DEFAULT_BLACKLIST="T2_IT_Pisa,T2_AT_Vienna,T2_US_MIT,T2_BR_SPRACE,T2_LB_HPC4L"
+DEFAULT_BLACKLIST="T2_IT_Pisa,T2_AT_Vienna,T2_US_MIT,T2_BR_SPRACE,T2_LB_HPC4L,T3_US_PuertoRico"
 BLACKLIST=${BLACKLIST:-$DEFAULT_BLACKLIST}
 RUNTIME_MIN=900    # 15 h: above the ~10 h a slow 8 h job reaches, below the 24 h cap.
                    # Lower values match more sites during matchmaking; CRAB's own
