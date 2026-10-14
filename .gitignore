@@ -5,8 +5,7 @@
 hlteff/curves_qcd.json
 testing/test-generation-time/*.txt
 
-# job directories (submit files + logs). Note "condor_*", not "condor": the
-# condor/ directory itself is tracked source (the production submitters).
+# job directories (submit files + condor logs).
 condor_*
 
 # CRAB working directories and related stuff
@@ -45,10 +44,10 @@ gen_configs/*/*/py8_main
 gen_configs/*/*/py8.dat.bak
 
 # The FullSim ntuplizer binary, if build.sh is ever run inside the repository
-# instead of in a job's own scratch directory (which is what run_chain.sh does)
+# instead of in a job's own scratch directory
 fullsim_analyzers/makeNtuplesFullSim
 
-# OS / editor cruft
+# OS / editor stuff
 .DS_Store
 *.swp
 __pycache__/
