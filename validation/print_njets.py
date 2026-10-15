@@ -91,8 +91,10 @@ Usage:
 import os
 import sys
 import glob
+import time
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import uproot
@@ -122,7 +124,15 @@ FULLSIM_GLOB = 'dnnTuples_nanov15_*.root'  # fullsim - see ntuple_io.py
 LABEL_BRANCH = 'jet_label'  # int index into ntuple_io.load_label_names()'s list ("ours" only -
                              # same branch name in both makeNtuples.C and makeNtuplesPaired.C)
 
-DEFAULT_MAX_WORKERS = 32
+# PROCESSES, not threads. Reading one ntuple is dominated by uproot's own per-file
+# Python work (opening the file, parsing the directory/TTree structure), which holds
+# the GIL - measured on a full production: ~20 files/s regardless of whether 32, 64 or
+# 128 THREADS were used, with the process pegged at ~95% of a single core. Running 4
+# separate processes instead gave ~18 files/s EACH, i.e. it scales nearly linearly with
+# processes and not at all with threads. Left at a dozen or so rather than cpu_count()
+# because lxplus nodes are shared.
+DEFAULT_MAX_WORKERS = min(12, os.cpu_count() or 8)
+CHUNKSIZE = 8  # files per task sent to a worker process; amortizes IPC over ~10k files
 BYTES_PER_GB = 1e9  # decimal GB, matching how EOS/most tools report file sizes
 
 
@@ -219,6 +229,87 @@ def discover_ntuple_dirs(output_path):
         raise Exception('no {} or {} files found anywhere under {!r}'.format(
             NTUPLE_GLOB, FULLSIM_GLOB, output_path))
     return found
+
+
+def _count_one_cheap(path):
+    '''num_entries + size only, no branch data. Module level so a ProcessPoolExecutor
+    can pickle it.'''
+    try:
+        with uproot.open(path) as f:
+            return f[NTUPLE_TREE_NAME].num_entries, os.path.getsize(path)
+    except Exception as e:
+        print('  WARNING: could not read {} ({}: {})'.format(path, type(e).__name__, e), file=sys.stderr)
+        return None
+
+
+def _read_one_star(args):
+    '''read_one(*args), for ProcessPoolExecutor.map over an argument tuple.'''
+    return read_one(*args)
+
+
+class Progress:
+    '''"n/total files" progress indicator for the pooled reads below. Ticked from the
+    main process as results come back from the worker pool, so it needs no locking
+    across processes (the lock only guards against future in-process callers). A full production is ~10k files on EOS, each costing a network
+    round trip, so a run takes minutes with no output at all - this exists purely
+    so it is visible that something is happening, and roughly how long is left.
+
+    Writes to STDERR, so the tables on stdout stay clean and pipeable. On a tty it
+    rewrites one line with \r; when redirected it prints a new line every
+    PRINT_EVERY_FRAC of the total instead, so a log file gets a handful of lines
+    rather than thousands.'''
+
+    PRINT_EVERY_SEC = 0.5    # tty: at most this often
+    PRINT_EVERY_FRAC = 0.1   # non-tty: every 10% of the files
+
+    def __init__(self, total, label='reading', stream=sys.stderr):
+        self.total = total
+        self.label = label
+        self.stream = stream
+        self.isatty = hasattr(stream, 'isatty') and stream.isatty()
+        self.done = 0
+        self.failed = 0
+        self.t0 = time.time()
+        self.last_t = 0.0
+        self.next_frac = self.PRINT_EVERY_FRAC
+        self.lock = threading.Lock()
+
+    def tick(self, ok=True):
+        with self.lock:
+            self.done += 1
+            if not ok:
+                self.failed += 1
+            if self.isatty:
+                now = time.time()
+                if now - self.last_t < self.PRINT_EVERY_SEC and self.done < self.total:
+                    return
+                self.last_t = now
+                self.stream.write('\r' + self._line() + '   ')
+            else:
+                if self.done < self.total and self.done / self.total < self.next_frac:
+                    return
+                self.next_frac += self.PRINT_EVERY_FRAC
+                self.stream.write(self._line() + '\n')
+            self.stream.flush()
+
+    def _line(self):
+        el = time.time() - self.t0
+        rate = self.done / el if el > 0 else 0.0
+        eta = (self.total - self.done) / rate if rate > 0 else 0.0
+        msg = '  {} {}/{} files ({:.0f}%)  {:.0f} files/s'.format(
+            self.label, self.done, self.total, 100.0 * self.done / self.total, rate)
+        if self.done < self.total:
+            msg += '  eta {:.0f}s'.format(eta)
+        else:
+            msg += '  in {:.0f}s'.format(el)
+        if self.failed:
+            msg += '  [{} unreadable]'.format(self.failed)
+        return msg
+
+    def finish(self):
+        if self.isatty:
+            self.stream.write('\r' + self._line() + '   \n')
+            self.stream.flush()
 
 
 def read_one(path, family, nlabels, coarse):
@@ -424,9 +515,9 @@ if __name__ == '__main__':
              ' terms, since it doesn\'t collapse anything - see module docstring\'s'
              ' "Label scheme, per family"')
     parser.add_argument('--max-workers', type=int, default=DEFAULT_MAX_WORKERS,
-        help='how many files to read concurrently (default: {}) - reading each ntuple\'s'
-             ' jet_label branch is dominated by EOS network latency, not CPU, so this is a lot'
-             ' faster than reading files one at a time'.format(DEFAULT_MAX_WORKERS))
+        help='how many worker PROCESSES to read with (default: {}) - see DEFAULT_MAX_WORKERS:'
+             ' the per-file cost is uproot\'s own Python work, which is GIL-bound, so this'
+             ' scales with processes and not with threads'.format(DEFAULT_MAX_WORKERS))
     args = parser.parse_args()
 
     label_names = nio.load_label_names(args.label_header)
@@ -443,17 +534,14 @@ if __name__ == '__main__':
 
     if args.no_labels:
         # cheap path: num_entries + getsize only, no branch data read at all
-        def count_one_cheap(path):
-            try:
-                with uproot.open(path) as f:
-                    return f[NTUPLE_TREE_NAME].num_entries, os.path.getsize(path)
-            except Exception as e:
-                print('  WARNING: could not read {} ({}: {})'.format(path, type(e).__name__, e), file=sys.stderr)
-                return None
-
         all_files = [path for files in combos.values() for path in files]
-        with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
-            results = dict(zip(all_files, pool.map(count_one_cheap, all_files)))
+        progress = Progress(len(all_files), label='reading (no labels)')
+        results = {}
+        with ProcessPoolExecutor(max_workers=args.max_workers) as pool:
+            for path, r in zip(all_files, pool.map(_count_one_cheap, all_files, chunksize=CHUNKSIZE)):
+                results[path] = r
+                progress.tick(ok=r is not None)
+        progress.finish()
 
         rows_by_combo = []
         for combo in sorted(combos):
@@ -473,9 +561,14 @@ if __name__ == '__main__':
                      for path, family in file_family.items()}
 
     all_files = list(file_family.keys())
-    with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
-        results = dict(zip(all_files, pool.map(
-            lambda p: read_one(p, file_family[p], file_nlabels[p], args.coarse_labels), all_files)))
+    progress = Progress(len(all_files), label='reading')
+    work = [(p, file_family[p], file_nlabels[p], args.coarse_labels) for p in all_files]
+    results = {}
+    with ProcessPoolExecutor(max_workers=args.max_workers) as pool:
+        for path, r in zip(all_files, pool.map(_read_one_star, work, chunksize=CHUNKSIZE)):
+            results[path] = r
+            progress.tick(ok=r is not None)
+    progress.finish()
 
     def combine_cat_idx_partials(partials, nlabels):
         '''partials: list of per-file/per-combo cat_idx_partial arrays, possibly containing

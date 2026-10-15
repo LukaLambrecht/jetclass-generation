@@ -148,18 +148,15 @@ PARTICLE_TYPES = [
 
 
 def expand_files(patterns):
-    '''Glob-expand each pattern (quote globs on the command line so THIS expands them,
-    not the shell) - a pattern matching nothing is kept as a literal path, so a plain
-    existing file still works and a genuine typo fails loudly (on the actual read)
-    instead of silently vanishing here. Same as ../plot_particle_pt.py/plot_composition.py's
-    own expand_files().'''
-    files = []
-    for pattern in patterns:
-        matched = sorted(glob.glob(pattern))
-        files.extend(matched if matched else [pattern])
-    if not files:
-        raise ValueError('no files matched: {}'.format(patterns))
-    return files
+    '''Expand the command-line inputs into a file list, via
+    ntuple_io.expand_inputs(): a DIRECTORY is searched recursively for ntuples of
+    either schema (so a whole production tree can be passed as-is, exactly as
+    print_njets.py accepts), a glob is expanded, and a pattern matching nothing is
+    kept as a literal so a typo fails loudly on the read rather than vanishing here.
+    Shared with the other plotting scripts through ntuple_io so all of them accept
+    the same inputs.'''
+    return nio.expand_inputs(patterns)
+
 
 
 def read_jet_label(files):

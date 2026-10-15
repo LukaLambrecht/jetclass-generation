@@ -44,7 +44,9 @@ import subprocess
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(os.path.dirname(THISDIR))
 sys.path.append(os.path.join(REPO_DIR, 'jobtools'))
+sys.path.append(os.path.dirname(THISDIR))   # validation/, for ntuple_io
 import condortools as ct
+import ntuple_io as nio
 
 # The LCG view the jobs set up before running anything. The plotting scripts need
 # uproot/awkward/matplotlib, which interactively come from ~/.local - not a safe
@@ -100,15 +102,46 @@ JOBS = make_jobs()
 
 
 def expand_files(patterns):
-    '''Same glob-or-literal handling as the plotting scripts' own expand_files() - used
-    here only to fail fast on a pattern that matches nothing at all, since the jobs
-    themselves re-expand the ORIGINAL pattern (passed through verbatim, so a job's
-    command line stays short and readable rather than listing thousands of paths).'''
-    files = []
+    '''The plotting scripts' own expand_files(), i.e. ntuple_io.expand_inputs(): globs,
+    literal paths, and DIRECTORIES searched recursively. Used here only to see what the
+    inputs resolve to (how many files, which families) - the jobs are handed the
+    ORIGINAL arguments, so their command lines stay short rather than listing thousands
+    of paths, and a directory stays a directory all the way to the script.'''
+    return nio.expand_inputs(patterns)
+
+
+def split_by_family(patterns):
+    '''Group the inputs into one (family, [patterns]) sample per gen_configs family.
+
+    A production tree holds several families - jetclass2sb (the pThat-binned QCD set)
+    and jetclass2 (signal) - and pooling them would plot an arbitrary mixture of
+    background and signal. Within a family the processes ARE meant to be pooled: the
+    QCD bins only form their flat pT spectrum together.
+
+    Each family becomes the single directory argument <root>/<family>, which the
+    scripts expand themselves. Inputs that are not directories, or whose files sit
+    outside a recognized family (a reference dataset, or a directory that already IS
+    one family), come back as one unsplit sample with family None.
+    '''
+    families, plain = {}, []
     for pattern in patterns:
-        matched = sorted(glob.glob(pattern))
-        files.extend(matched if matched else [pattern])
-    return files
+        if not os.path.isdir(pattern):
+            plain.append(pattern)
+            continue
+        found = {}
+        for f in nio.discover_ntuples(pattern):
+            fam = nio.family_of(f, pattern)
+            if fam is None:
+                plain.append(pattern)
+                found = {}
+                break
+            found.setdefault(fam, os.path.join(pattern, fam))
+        for fam, path in found.items():
+            families.setdefault(fam, []).append(path)
+    samples = [(fam, pats) for fam, pats in sorted(families.items())]
+    if plain:
+        samples.append((None, plain))
+    return samples
 
 
 # Scripts that split their output per jet class and so accept --classes (see each
@@ -155,6 +188,16 @@ if __name__ == '__main__':
              ' is already skipped with a "no data" message, so this only avoids the empty'
              ' figures, e.g. the 9 signal classes of a QCD-only production like'
              ' jetclass2sb (gen_configs/jetclass2sb/README.md)')
+    parser.add_argument('--split-by', choices=['family', 'none'], default='family',
+        help='how to group a DIRECTORY input into samples (default: family). "family"'
+             ' plots each gen_configs family separately - jetclass2sb (QCD) and'
+             ' jetclass2 (signal) are different samples and pooling them would plot an'
+             ' arbitrary mixture - while still pooling the processes WITHIN a family,'
+             ' which for the QCD pThat bins is the whole point (only together do they'
+             ' form a flat pT spectrum). "none" pools everything into one sample.'
+             ' Ignored for inputs that are not directories')
+    parser.add_argument('--dry-run', action='store_true',
+        help='print the samples and the commands that would run, and submit nothing')
     args = parser.parse_args()
 
     selected = [j for j in JOBS
@@ -166,39 +209,70 @@ if __name__ == '__main__':
         if not os.path.exists(os.path.join(THISDIR, script)):
             raise Exception('{}: script {} not found next to this one'.format(name, script))
 
-    if not expand_files(args.files):
-        raise Exception('no input files given')
+    # One sample per family, unless --split-by says otherwise. Each sample gets the
+    # full set of `selected` jobs, into its own subdirectory of --outdir.
+    if args.split_by == 'family':
+        samples = split_by_family(args.files)
+    else:
+        samples = [(None, args.files)]
 
-    outdir = os.path.abspath(args.outdir)
-    os.makedirs(outdir, exist_ok=True)
-    print('Plots will be written to {}'.format(outdir))
+    outroot = os.path.abspath(args.outdir)
+    plan = []
+    for family, patterns in samples:
+        files = expand_files(patterns)
+        if not files:
+            raise Exception('no input files matched {}'.format(patterns))
+        sub = outroot if family is None else os.path.join(outroot, family)
+        plan.append((family, patterns, files, sub))
+
+    print('Input resolves to {} sample(s):'.format(len(plan)))
+    for family, patterns, files, sub in plan:
+        print('  {:<14} {:>6} file(s) -> {}'.format(family or '(single sample)', len(files), sub))
+    print('{} job(s) per sample, {} in total'.format(len(selected), len(selected) * len(plan)))
+    if args.dry_run:
+        for family, patterns, files, sub in plan:
+            for name, script, extras, _ in selected:
+                print('\n=== {}{} ===\n{}'.format(
+                    name, '' if family is None else ' [{}]'.format(family),
+                    build_command(script, patterns, extras, sub, args.classes)))
+        sys.exit(0)
+
+    for _, _, _, sub in plan:
+        os.makedirs(sub, exist_ok=True)
 
     if args.local:
-        for name, script, extras, _ in selected:
-            cmd = build_command(script, args.files, extras, outdir, args.classes)
-            print('\n=== {} ===\n{}'.format(name, cmd))
-            rc = subprocess.run(['bash', '-c', 'source {} >/dev/null 2>&1; {}'.format(LCG_VIEW, cmd)]).returncode
-            if rc != 0:
-                print('WARNING: {} exited with status {}'.format(name, rc))
+        for family, patterns, _, sub in plan:
+            for name, script, extras, _m in selected:
+                cmd = build_command(script, patterns, extras, sub, args.classes)
+                print('\n=== {}{} ===\n{}'.format(
+                    name, '' if family is None else ' [{}]'.format(family), cmd))
+                rc = subprocess.run(['bash', '-c', 'source {} >/dev/null 2>&1; {}'.format(LCG_VIEW, cmd)]).returncode
+                if rc != 0:
+                    print('WARNING: {} exited with status {}'.format(name, rc))
         sys.exit(0)
 
     condordir = os.path.abspath(args.condordir)
     os.makedirs(condordir, exist_ok=True)
     cwd = os.getcwd()
     os.chdir(condordir)   # jobtools writes its .sh/.txt relative to the cwd it submits from
+    nsub = 0
     try:
-        for name, script, extras, mem in selected:
-            cmd = build_command(script, args.files, extras, outdir, args.classes)
-            print('=== submitting {} ==='.format(name))
-            ct.submitCommandsAsCondorJob(
-                'plots_{}'.format(name),
-                ['cd {}'.format(THISDIR),
-                 'source {}'.format(LCG_VIEW),
-                 'echo "###starting###"',
-                 cmd,
-                 'echo "###done###"'],
-                home='auto', cpus=1, mem=mem, disk=10240, jobflavour=args.jobflavour)
+        for family, patterns, _, sub in plan:
+            for name, script, extras, mem in selected:
+                cmd = build_command(script, patterns, extras, sub, args.classes)
+                jobname = 'plots_{}'.format(name) if family is None \
+                    else 'plots_{}_{}'.format(family, name)
+                print('=== submitting {} ==='.format(jobname))
+                ct.submitCommandsAsCondorJob(
+                    jobname,
+                    ['cd {}'.format(THISDIR),
+                     'source {}'.format(LCG_VIEW),
+                     'echo "###starting###"',
+                     cmd,
+                     'echo "###done###"'],
+                    home='auto', cpus=1, mem=mem, disk=10240, jobflavour=args.jobflavour)
+                nsub += 1
     finally:
         os.chdir(cwd)
-    print('\nSubmitted {} job(s); submission files in {}'.format(len(selected), condordir))
-    print('Plots will appear in {}'.format(outdir))
+    print('\nSubmitted {} job(s); submission files in {}'.format(nsub, condordir))
+    print('Plots will appear under {}'.format(outroot))

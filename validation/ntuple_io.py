@@ -38,6 +38,7 @@ category rather than particle content.
 
 import os
 import re
+import glob
 
 import awkward as ak
 import numpy as np
@@ -50,6 +51,74 @@ DEFAULT_LABEL_HEADER = os.path.join(REPO_DIR, 'delphes_analyzers', 'FatJetMatchi
 
 OURS_MARKER = 'jet_label'
 FULLSIM_MARKER = 'fj_label'
+
+# ---------------------------------------------------------------------------
+# Input discovery, shared by every script that takes ntuples on the command line.
+# ---------------------------------------------------------------------------
+
+# Filename patterns of the two schemas: our own productions, and the CMS
+# offline+scouting reference dataset.
+NTUPLE_GLOBS = ('ntuple_*.root', 'dnnTuples_nanov15_*.root')
+
+# The process families our own productions write under <output-path>/<family>/<proc>/...
+# (i.e. the top-level subdirectory names of gen_configs/). Matched case-INSENSITIVELY,
+# so datasets produced before gen_configs/jetclass2SB was lowercased still parse. This
+# is the canonical list - validation/print_njets.py imports it from here.
+OURS_FAMILIES = ('jetclass1', 'jetclass2', 'jetclass2sb')
+
+
+def discover_ntuples(pattern):
+    """Expand ONE command-line input into a list of files.
+
+    A DIRECTORY is searched recursively for both schemas' ntuples, so a whole
+    production tree can be passed as-is - the same thing print_njets.py accepts,
+    rather than having to hand-write a glob whose depth matches the layout (which
+    differs: CRAB writes <family>/<proc>/<timestamp>/<counter>/, a local production
+    <family>/<proc>/.../<card>/, and a merged tree <family>/<proc>/merged/).
+
+    Anything else is glob-expanded as before, and a pattern matching nothing is
+    kept as a literal so a plain path still works and a typo fails loudly on the
+    actual read rather than vanishing silently here.
+    """
+    if os.path.isdir(pattern):
+        files = []
+        for g in NTUPLE_GLOBS:
+            files.extend(glob.glob(os.path.join(pattern, '**', g), recursive=True))
+        return sorted(files)
+    matched = sorted(glob.glob(pattern))
+    return matched if matched else [pattern]
+
+
+def expand_inputs(patterns):
+    """discover_ntuples() over several inputs, de-duplicated, order preserved."""
+    files, seen = [], set()
+    for pattern in patterns:
+        for f in discover_ntuples(pattern):
+            if f not in seen:
+                seen.add(f)
+                files.append(f)
+    if not files:
+        raise ValueError('no files matched: {}'.format(patterns))
+    return files
+
+
+def family_of(path, root):
+    """The gen_configs family a discovered file belongs to, or None.
+
+    `root` is the directory the user actually passed. The family is the first path
+    component below it, validated against OURS_FAMILIES - so pointing at a whole
+    production gives 'jetclass2sb'/'jetclass2', while pointing straight at one
+    family's own directory (or at the reference dataset) gives None, meaning "this
+    is already a single sample, do not split it further".
+    """
+    try:
+        rel = os.path.relpath(os.path.dirname(os.path.abspath(path)), os.path.abspath(root))
+    except ValueError:
+        return None
+    parts = [p for p in rel.split(os.sep) if p not in ('.', '')]
+    if len(parts) < 2:
+        return None
+    return parts[0] if parts[0].lower() in OURS_FAMILIES else None
 
 # per-particle fields load_particles() normalizes onto part_<suffix>/
 # hlt_part_<suffix> for both schemas
