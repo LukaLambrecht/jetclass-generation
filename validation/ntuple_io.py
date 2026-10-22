@@ -123,7 +123,12 @@ def family_of(path, root):
 # per-particle fields load_particles() normalizes onto part_<suffix>/
 # hlt_part_<suffix> for both schemas
 PARTICLE_SUFFIXES = ['px', 'py', 'charge', 'energy',
-                      'isElectron', 'isMuon', 'isPhoton', 'isChargedHadron', 'isNeutralHadron']
+                      'isElectron', 'isMuon', 'isPhoton', 'isChargedHadron', 'isNeutralHadron',
+                      # track impact parameters, transverse and longitudinal, in cm.
+                      # Only charged particles carry a track, so these are zero for
+                      # neutrals in our own schema and structurally absent from the
+                      # fullsim neutral collection - mask on 'charge' before using them.
+                      'd0val', 'dzval', 'd0err', 'dzerr']
 
 
 def _treepaths(files, treename):
@@ -195,12 +200,24 @@ FULLSIM_OFFLINE_FIELD = {
     'isChargedHadron':  ('cpfcandlt_isChargedHad', None),
     'isPhoton':         (None, 'npfcand_isGamma'),
     'isNeutralHadron':  (None, 'npfcand_isNeutralHad'),
+    # the reference calls these dxy/dz; d0 == dxy. No neutral counterpart exists
+    # (a neutral candidate has no track), so the neutral half is zero-filled, which
+    # is what our own schema stores there anyway.
+    'd0val':            ('cpfcandlt_dxy', None),
+    'dzval':            ('cpfcandlt_dz', None),
+    # the reference stores a pre-computed significance (dxysig/dzsig), not the error
+    # itself, so there is nothing to map these onto: zero-filled there, which callers
+    # must treat as "no error available" rather than "error is zero"
+    'd0err':            (None, None),
+    'dzerr':            (None, None),
 }
 FULLSIM_HLT_FIELD = {
     'px': 'scoutpfcand_px', 'py': 'scoutpfcand_py', 'charge': 'scoutpfcand_charge',
     'energy': 'scoutpfcand_energy', 'isElectron': 'scoutpfcand_isEl', 'isMuon': 'scoutpfcand_isMu',
     'isPhoton': 'scoutpfcand_isGamma', 'isChargedHadron': 'scoutpfcand_isChargedHad',
     'isNeutralHadron': 'scoutpfcand_isNeutralHad',
+    'd0val': 'scoutpfcand_dxy', 'dzval': 'scoutpfcand_dz',
+    'd0err': None, 'dzerr': None,   # see FULLSIM_OFFLINE_FIELD
 }
 
 
@@ -255,7 +272,7 @@ def load_particles(files, suffixes=None, treename='tree'):
     # would hold for a particle of that type anyway.
     charged_branches = sorted({FULLSIM_OFFLINE_FIELD[s][0] for s in read_suffixes if FULLSIM_OFFLINE_FIELD[s][0]})
     neutral_branches = sorted({FULLSIM_OFFLINE_FIELD[s][1] for s in read_suffixes if FULLSIM_OFFLINE_FIELD[s][1]})
-    hlt_branches = sorted({FULLSIM_HLT_FIELD[s] for s in read_suffixes})
+    hlt_branches = sorted({FULLSIM_HLT_FIELD[s] for s in read_suffixes if FULLSIM_HLT_FIELD[s]})
     raw = ['fj_pt', 'scoutfj_pt'] + charged_branches + neutral_branches + hlt_branches
     a = uproot.concatenate(paths, filter_name=raw, library='ak')
     njets = len(a['fj_pt'])
@@ -274,7 +291,9 @@ def load_particles(files, suffixes=None, treename='tree'):
         charged_part = a[charged_branch] if charged_branch else zeros_c
         neutral_part = a[neutral_branch] if neutral_branch else zeros_n
         out['part_' + suffix] = ak.concatenate([charged_part, neutral_part], axis=1)
-        out['hlt_part_' + suffix] = a[FULLSIM_HLT_FIELD[suffix]]
+        hlt_branch = FULLSIM_HLT_FIELD[suffix]
+        out['hlt_part_' + suffix] = a[hlt_branch] if hlt_branch \
+            else ak.zeros_like(a['scoutpfcand_px'])
 
     return out
 

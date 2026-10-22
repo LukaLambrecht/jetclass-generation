@@ -65,6 +65,8 @@ import matplotlib.pyplot as plt
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(THISDIR))  # validation/ - for ntuple_io
 import ntuple_io as nio
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import plot_style as ps
 # the class scheme comes from the sibling script, so the three scripts that split by
 # jet class can't drift apart in what "QCD" or "X_tauhtaul" means (it guards its own
 # command-line handling behind __main__, so importing it does nothing else)
@@ -91,12 +93,12 @@ plt.rcParams.update({
 # unclassified catch-all; legend label; bar color) - order determines
 # stacking order (left to right)
 CATEGORIES = [
-    ('electron',       lambda d, p: d[p + 'isElectron'] != 0,       'Electron',       'crimson'),
-    ('muon',           lambda d, p: d[p + 'isMuon'] != 0,           'Muon',           'rebeccapurple'),
-    ('charged_hadron', lambda d, p: d[p + 'isChargedHadron'] != 0,  'Charged hadron', 'darkorange'),
-    ('photon',         lambda d, p: d[p + 'isPhoton'] != 0,         'Photon',         'goldenrod'),
-    ('neutral_hadron', lambda d, p: d[p + 'isNeutralHadron'] != 0,  'Neutral hadron', 'teal'),
-    ('unclassified',   None,                                        'Unclassified',   'gray'),
+    ('electron',       lambda d, p: d[p + 'isElectron'] != 0,       'Electrons',       'crimson'),
+    ('muon',           lambda d, p: d[p + 'isMuon'] != 0,           'Muons',           'rebeccapurple'),
+    ('charged_hadron', lambda d, p: d[p + 'isChargedHadron'] != 0,  'Charged hadrons', 'darkorange'),
+    ('photon',         lambda d, p: d[p + 'isPhoton'] != 0,         'Photons',         'goldenrod'),
+    ('neutral_hadron', lambda d, p: d[p + 'isNeutralHadron'] != 0,  'Neutral hadrons', 'teal'),
+    ('unclassified',   None,                                        'Unclassified',    'gray'),
 ]
 
 ALL_SIDES = [('part_', 'Offline'), ('hlt_part_', 'HLT')]
@@ -164,7 +166,7 @@ def format_bin_label(lo, hi):
 
 
 def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labels,
-                label_threshold, title_text, outpath):
+                label_threshold, title_text, outpath, paper_style=False):
     '''One composition figure (Offline and, when present, HLT panel) for ONE jet class -
     everything below is the original whole-sample plotting code, now called once per
     class with that class's own already-masked arrays.'''
@@ -209,20 +211,27 @@ def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labe
                             ha='center', va='center', color='white', fontweight='bold', fontsize=12)
             left += vals
 
-        title = '{} ({})'.format(title_text, side_label) if title_text else side_label
-        ax.set_title(title, fontweight='bold', fontsize=17)
+        # paper style keeps only the side (Offline / HLT), which is the one thing a
+        # reader needs to tell the two panels apart; the class goes in the caption
+        if paper_style:
+            ax.set_title(side_label, fontweight='bold', fontsize=17)
+        else:
+            title = '{} ({})'.format(title_text, side_label) if title_text else side_label
+            ax.set_title(title, fontweight='bold', fontsize=17)
         ax.set_xlabel('Mean per-jet composition [%]')
         ax.set_xlim(0, 100)
-        ax.xaxis.grid(True, alpha=0.3)
-        ax.set_axisbelow(True)
+        # x only: the y axis is categorical (one row per pT bin), so a horizontal
+        # grid would just draw lines through the bars
+        ps.apply_grid(ax, axis='x')
         # per-bin (jets, HLT-match%) annotation on the right edge, so a thin/
         # low-statistics or poorly-matched bin is never silently indistinguishable
         # from a well-populated one
-        for i in range(nbins):
-            match_pct = 100.0 * nmatched_per_bin[i] / njets_per_bin[i] if njets_per_bin[i] else 0
-            annotation = '{} jets'.format(njets_per_bin[i]) if prefix != 'hlt_part_' \
-                else '{} jets ({:.0f}% matched)'.format(njets_per_bin[i], match_pct)
-            ax.text(101, y[i], annotation, ha='left', va='center', fontsize=10, color='dimgray')
+        if not paper_style:
+            for i in range(nbins):
+                match_pct = 100.0 * nmatched_per_bin[i] / njets_per_bin[i] if njets_per_bin[i] else 0
+                annotation = '{} jets'.format(njets_per_bin[i]) if prefix != 'hlt_part_' \
+                    else '{} jets ({:.0f}% matched)'.format(njets_per_bin[i], match_pct)
+                ax.text(101, y[i], annotation, ha='left', va='center', fontsize=10, color='dimgray')
 
     axes[0].set_yticks(y)
     axes[0].set_yticklabels(bin_labels)
@@ -240,6 +249,12 @@ def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labe
     if outdir and not os.path.exists(outdir):
         os.makedirs(outdir)
     fig.savefig(output, dpi=150, bbox_inches='tight')
+    # pyplot keeps every figure alive until it is closed explicitly. This is called
+    # once per jet class and, under --paper-style, twice (PNG and PDF), so without
+    # this the figures accumulate for the whole run - matplotlib starts warning past
+    # 20 of them, and the memory is held until the process exits. Every sibling
+    # script already closed its figures; this one did not.
+    plt.close(fig)
     print('Saved plot to {}'.format(output))
 
 
@@ -275,6 +290,7 @@ def main():
              ' averages over whatever class mix the input happens to have, which differs'
              ' between samples (e.g. 73%% vs 52%% QCD-sample jets for the CMS reference vs our'
              ' own fullsim production)'.format(', '.join(ALL_CLASSES)))
+    parser.add_argument('--paper-style', action='store_true', help=ps.PAPER_STYLE_HELP)
     parser.add_argument('--title', default=None,
         help='extra title text prepended to each panel title (e.g. a process name)')
     parser.add_argument('--output', default=DEFAULT_OUTPUT,
@@ -340,12 +356,15 @@ def main():
             cls_pt = jet_pt[sel]
             cls_fracs = {k: v[sel] for k, v in fracs.items()}
             cls_matched = hlt_matched[sel] if has_hlt else None
-        label = 'all classes' if class_name == 'all' else 'class: {}'.format(class_name)
+        label = 'all classes' if class_name == 'all' \
+            else 'class: {}'.format(ps.class_label(class_name))
         title_text = '{} | {}'.format(args.title, label) if args.title else label
         print('  {:<12} {} jets'.format(class_name, len(cls_pt)))
-        make_figure(class_name, cls_pt, cls_matched, cls_fracs, sides, pt_bins, bin_labels,
-                    args.label_threshold, title_text,
-                    '{}_{}{}{}'.format(outbase, class_name, tag, outext))
+        base = '{}_{}{}{}'.format(outbase, class_name, tag, outext)
+        for path, paper in ps.output_variants(base, args.paper_style):
+            make_figure(class_name, cls_pt, cls_matched, cls_fracs, sides, pt_bins,
+                        bin_labels, args.label_threshold, title_text, path,
+                        paper_style=paper)
 
 
 if __name__ == '__main__':

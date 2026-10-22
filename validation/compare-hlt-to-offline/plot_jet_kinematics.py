@@ -80,8 +80,9 @@ plt.rcParams.update({
     'legend.fontsize': 14,
 })
 
-OFFLINE_COLOR = 'dodgerblue'
-HLT_COLOR = 'darkorchid'
+import plot_style as ps
+OFFLINE_COLOR = ps.OFFLINE_COLOR
+HLT_COLOR = ps.HLT_COLOR
 
 DEFAULT_OUTDIR = os.path.join(THISDIR, 'output_plots')
 TREE_NAME = 'tree'
@@ -178,7 +179,8 @@ def read_all_classes(files, class_names, quantities, max_jets, min_jet_pt=None, 
     return results
 
 
-def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, overrides):
+def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, overrides,
+                paper_style=False):
     '''One jet class' panel for one quantity: Offline and HLT overlaid as normalized
     step histograms on a shared fixed binning, log-y (jet spectra span orders of
     magnitude), captioned with the class, its jet count/match rate and both medians -
@@ -186,50 +188,56 @@ def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, ov
     the other".'''
     edges, label, logx = bin_edges_for(key, overrides)
     if len(offline_vals) == 0:
-        ax.text(0.5, 0.5, '{}: no data'.format(class_name), ha='center', va='center',
-                transform=ax.transAxes)
+        ax.text(0.5, 0.5, '{}: no data'.format(ps.class_label(class_name)), ha='center',
+                va='center', transform=ax.transAxes)
         return
 
     series = [('Offline', offline_vals, OFFLINE_COLOR)]
     if hlt_vals is not None:
         series.append(('HLT', hlt_vals, HLT_COLOR))
     max_height = 0.0
+    handles, labels = [], []
     for series_label, vals, color in series:
         if len(vals) == 0:
             continue
-        counts, _, _ = ax.hist(vals, bins=edges, density=True, histtype='step',
-                               linewidth=2, color=color, label=series_label)
-        if len(counts):
-            max_height = max(max_height, counts.max())
+        # raw counts read here rather than via ax.hist(density=True), so the sqrt(N)
+        # band can be scaled by the same normalization as the nominal - see plot_style
+        nominal, err, hist_edges = ps.poisson_density(vals, edges)
+        handles.append(ps.step_band(ax, nominal, err, hist_edges, color))
+        labels.append(series_label)
+        if len(nominal):
+            max_height = max(max_height, (nominal + err).max())
 
     ax.set_xlabel(label)
     ax.set_ylabel('Number of jets (normalized)')
     if logx:
         ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.minorticks_on()
-    ax.grid(True, which='major', linestyle='-', alpha=0.4)
-    ax.grid(True, which='minor', linestyle=':', alpha=0.25)
+    ps.apply_grid(ax)
+    if logx:
+        # after set_xscale, which installs its own default locators/formatters
+        ps.log_x_ticks(ax)
     if max_height > 0:
         bottom, _ = ax.get_ylim()
         ax.set_ylim(bottom, max_height * 60)
 
-    info_lines = ['Jet class: {}'.format(class_name)]
-    if n_matched is not None:
-        info_lines.append('{} jets ({:.1f}% HLT matched)'.format(
-            njets, 100.0 * n_matched / njets if njets else 0))
-    else:
-        info_lines.append('{} jets'.format(njets))
-    info_lines.append('Offline median: {:.3g}'.format(np.median(offline_vals)))
-    if hlt_vals is not None and len(hlt_vals):
-        info_lines.append('HLT median: {:.3g}'.format(np.median(hlt_vals)))
-    for i, line in enumerate(info_lines):
-        ax.text(0.03, 0.96 - 0.065 * i, line, transform=ax.transAxes, ha='left', va='top',
-                fontsize=13)
-    ax.legend(loc='upper right')
+    # --paper-style keeps only what identifies the panel; the counts and medians are
+    # production-monitoring numbers, not part of the physics message
+    info_lines = ['Jet class: {}'.format(ps.class_label(class_name))]
+    if not paper_style:
+        if n_matched is not None:
+            info_lines.append('{} jets ({:.1f}% HLT matched)'.format(
+                njets, 100.0 * n_matched / njets if njets else 0))
+        else:
+            info_lines.append('{} jets'.format(njets))
+        info_lines.append('Offline median: {:.3g}'.format(np.median(offline_vals)))
+        if hlt_vals is not None and len(hlt_vals):
+            info_lines.append('HLT median: {:.3g}'.format(np.median(hlt_vals)))
+    ps.draw_info(ax, info_lines)
+    ps.legend_with_bands(ax, handles, labels, loc='upper right')
 
 
-def make_grid(results, classes, key, outpath, overrides):
+def make_grid(results, classes, key, outpath, overrides, paper_style=False):
     '''One figure per quantity: 2 rows x 5 columns of jet classes, same layout as
     plot_nparticles.py's own make_grid().'''
     # capped at the number of classes actually plotted, so a --classes subset smaller
@@ -243,7 +251,7 @@ def make_grid(results, classes, key, outpath, overrides):
         entry = results[name]
         offline_vals, hlt_vals = entry['q'][key]
         make_panel(ax, name, key, offline_vals, hlt_vals, entry['njets'], entry['n_matched'],
-                   overrides)
+                   overrides, paper_style=paper_style)
     for ax in axes[len(classes):]:
         ax.axis('off')
     fig.tight_layout()
@@ -292,6 +300,11 @@ if __name__ == '__main__':
         help='suffix added to the output file names, e.g. --tag ptmatched ->'
              ' jet_kinematics_pt_ptmatched.png - so a selected and an unselected version can'
              ' live side by side in one --outdir')
+    parser.add_argument('--paper-style', action='store_true', help=ps.PAPER_STYLE_HELP)
+    parser.add_argument('--single-class-figures', default=None,
+        help='comma-separated classes that ALSO get their own single-panel figure,'
+             ' beside the all-classes grid (default: {}; "none" to switch off). A class'
+             ' not present in this run is skipped'.format(','.join(ps.SINGLE_CLASS_FIGURES)))
     parser.add_argument('--outdir', default=DEFAULT_OUTDIR,
         help='directory to write plots into (default: {})'.format(DEFAULT_OUTDIR))
     args = parser.parse_args()
@@ -329,6 +342,15 @@ if __name__ == '__main__':
             offline_vals, hlt_vals = results[name]['q'][key]
             print_stats(name, 'offline', offline_vals)
             print_stats(name, 'hlt', hlt_vals)
-        make_grid(results, classes, key,
-                  os.path.join(args.outdir, 'jet_kinematics_{}{}.png'.format(key, suffix)),
-                  overrides)
+        base = os.path.join(args.outdir, 'jet_kinematics_{}{}.png'.format(key, suffix))
+        for path, paper in ps.output_variants(base, args.paper_style):
+            make_grid(results, classes, key, path, overrides, paper_style=paper)
+
+        # and the same quantity again for a few classes on their own. make_grid() lays
+        # out min(5, len(classes)) columns, so a one-element list IS the single-panel
+        # figure - no separate drawing code, and the two can never drift apart.
+        for name in ps.single_class_selection(args.single_class_figures, classes):
+            one = os.path.join(args.outdir,
+                               'jet_kinematics_{}_{}{}.png'.format(key, name, suffix))
+            for path, paper in ps.output_variants(one, args.paper_style):
+                make_grid(results, [name], key, path, overrides, paper_style=paper)

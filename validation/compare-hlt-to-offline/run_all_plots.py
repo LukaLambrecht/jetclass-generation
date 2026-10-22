@@ -63,42 +63,41 @@ LCG_VIEW = '/cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh'
 # plot_particle_pt read jagged per-particle branches for every jet of the sample at
 # once, which on a multi-million-jet sample is several GB; the jet-level ones read
 # flat scalars only and need almost nothing.
-# The CMS reference dataset's own offline selection. Every script can apply it, and
-# each gets a second "_ptmatched" job that does - see ntuple_io.jet_selection_mask()
-# for why: a sample that reaches below it (our fullsim ntuples made before 2026-10-05
-# start at 120 GeV) is otherwise not comparable to the reference, and the unmatched
-# version is still worth having since it uses all the data the sample contains.
-# A no-op on a sample already cut there, so producing both is always safe.
-PTMATCH_ARGS = ['--min-jet-pt', '200', '--max-jet-eta', '2.4', '--tag', 'ptmatched']
-
-# One entry per script: (job name, script, extra arguments, requested memory in MB).
+# One entry per job: (job name, script, extra arguments, requested memory in MB).
 # `{outdir}` is substituted with the resolved output directory. The input files are
-# inserted after the script name, before these extras. Each entry is submitted twice,
-# plain and with PTMATCH_ARGS appended (see make_jobs()).
+# inserted after the script name, before these extras.
+#
+# NOTE: there used to be a second "_ptmatched" job per script, re-running it with
+# --min-jet-pt 200 --max-jet-eta 2.4 so the sample could be compared with the CMS
+# reference dataset's own offline selection. Dropped 2026-10-22: that selection is
+# now applied in the production itself (NT_JETPTMIN/NT_JETETAMAX in the ntuplizer,
+# verified on the full-statistics round), so the two variants were identical and the
+# duplicate doubled the jobs for nothing. The scripts still ACCEPT those arguments,
+# so an older dataset that reaches below the cut can still be restricted by hand.
 #
 # Memory: the per-particle reads are what cost - plot_nparticles' "types" figures and
 # plot_particle_pt read jagged per-particle branches for every jet of the sample at
 # once, which on a multi-million-jet sample is several GB; the jet-level ones read
 # flat scalars only and need almost nothing.
-SCRIPTS = [
-    ('jet_kinematics', 'plot_jet_kinematics.py', ['--outdir', '{outdir}'], 4096),
-    ('particle_pt', 'plot_particle_pt.py', ['--output', '{outdir}/plot_particle_pt.png'], 16384),
-    ('composition', 'plot_composition.py', ['--output', '{outdir}/plot_composition.png'], 16384),
-    ('nparticles', 'plot_nparticles.py', ['--outdir', '{outdir}'], 16384),
+# The memory figures are MEASURED, from the 2026-10-15 full-statistics round (3.8M QCD
+# and 3.2M signal jets) - peak MemoryUsage read back out of the condor logs:
+#   jet_kinematics    55 MB        (jet-level scalars only)
+#   nparticles      2797-5301 MB
+#   composition     1743-7349 MB
+#   particle_pt     2206-8424 MB   <- the largest seen anywhere
+# They used to be requested at 16384 MB, which is ~2x the worst case ever observed and
+# matches far fewer slots than it needs to: an over-request costs queue time, every
+# time, for nothing. Sized here at roughly 1.2x the worst case for the per-particle
+# scripts, and generously for the jet-level one.
+JOBS = [
+    ('jet_kinematics', 'plot_jet_kinematics.py', ['--outdir', '{outdir}'], 2048),
+    ('particle_pt', 'plot_particle_pt.py', ['--output', '{outdir}/plot_particle_pt.png'], 10240),
+    ('composition', 'plot_composition.py', ['--output', '{outdir}/plot_composition.png'], 10240),
+    ('nparticles', 'plot_nparticles.py', ['--outdir', '{outdir}'], 10240),
+    # reads one file at a time and accumulates histograms, so its memory does not
+    # scale with the size of the production - 778 MB measured, 3 GB requested
+    ('impact_parameter', 'plot_impact_parameter.py', ['--outdir', '{outdir}'], 3072),
 ]
-
-
-def make_jobs():
-    '''Every script twice: as-is, and restricted to the reference dataset's own offline
-    selection (PTMATCH_ARGS). Returns [(job name, script, extras, memory)].'''
-    jobs = []
-    for name, script, extras, mem in SCRIPTS:
-        jobs.append((name, script, extras, mem))
-        jobs.append((name + '_ptmatched', script, extras + PTMATCH_ARGS, mem))
-    return jobs
-
-
-JOBS = make_jobs()
 
 
 def expand_files(patterns):
@@ -147,10 +146,11 @@ def split_by_family(patterns):
 # Scripts that split their output per jet class and so accept --classes (see each
 # one's own CLASSES list). plot_particle_pt.py pools every jet together instead and
 # has no such option, so --classes is simply not forwarded to it.
-CLASS_SPLIT_SCRIPTS = ('plot_jet_kinematics.py', 'plot_nparticles.py', 'plot_composition.py')
+CLASS_SPLIT_SCRIPTS = ('plot_jet_kinematics.py', 'plot_nparticles.py', 'plot_composition.py',
+                       'plot_impact_parameter.py')
 
 
-def build_command(script, files, extras, outdir, classes=None):
+def build_command(script, files, extras, outdir, classes=None, paper_style=False):
     '''The one shell command a job runs: the LCG view, then the script with the input
     patterns QUOTED (they contain globs and must reach python, not the job's own shell)
     and the job's own extra arguments.'''
@@ -158,6 +158,8 @@ def build_command(script, files, extras, outdir, classes=None):
     args = ' '.join(a.format(outdir=outdir) for a in extras)
     if classes and script in CLASS_SPLIT_SCRIPTS:
         args += ' --classes {}'.format(classes)
+    if paper_style:
+        args += ' --paper-style'
     return 'python3 {} {} {}'.format(os.path.join(THISDIR, script), quoted, args)
 
 
@@ -180,6 +182,10 @@ if __name__ == '__main__':
              ' plot output directory, which is --outdir')
     parser.add_argument('--jobflavour', default='workday',
         help='HTCondor job flavour (default: workday)')
+    parser.add_argument('--paper-style', action='store_true',
+        help='forward --paper-style to every script: in ADDITION to the usual PNGs,'
+             ' write a PDF of each figure with no title and no bookkeeping text (jet'
+             ' counts, HLT-matched fractions, medians), for use in a note or paper')
     parser.add_argument('--classes', default=None,
         help='comma-separated jet classes to restrict the per-class scripts to, e.g. "QCD"'
              ' for a QCD-only sample (default: every class each script knows about).'
@@ -234,7 +240,7 @@ if __name__ == '__main__':
             for name, script, extras, _ in selected:
                 print('\n=== {}{} ===\n{}'.format(
                     name, '' if family is None else ' [{}]'.format(family),
-                    build_command(script, patterns, extras, sub, args.classes)))
+                    build_command(script, patterns, extras, sub, args.classes, args.paper_style)))
         sys.exit(0)
 
     for _, _, _, sub in plan:
@@ -243,7 +249,7 @@ if __name__ == '__main__':
     if args.local:
         for family, patterns, _, sub in plan:
             for name, script, extras, _m in selected:
-                cmd = build_command(script, patterns, extras, sub, args.classes)
+                cmd = build_command(script, patterns, extras, sub, args.classes, args.paper_style)
                 print('\n=== {}{} ===\n{}'.format(
                     name, '' if family is None else ' [{}]'.format(family), cmd))
                 rc = subprocess.run(['bash', '-c', 'source {} >/dev/null 2>&1; {}'.format(LCG_VIEW, cmd)]).returncode
@@ -259,7 +265,7 @@ if __name__ == '__main__':
     try:
         for family, patterns, _, sub in plan:
             for name, script, extras, mem in selected:
-                cmd = build_command(script, patterns, extras, sub, args.classes)
+                cmd = build_command(script, patterns, extras, sub, args.classes, args.paper_style)
                 jobname = 'plots_{}'.format(name) if family is None \
                     else 'plots_{}_{}'.format(family, name)
                 print('=== submitting {} ==='.format(jobname))

@@ -105,7 +105,9 @@ SUFFIXES = ['px', 'py', 'charge', 'isElectron', 'isMuon', 'isPhoton', 'isCharged
 # offline-only "ours" production, e.g. output_jetclass2_5M's old single-card
 # form, has no HLT side at all; every fullsim input and every paired "ours"
 # production has both)
-ALL_SIDES = [('part_', 'Offline', 'dodgerblue'), ('hlt_part_', 'HLT', 'darkorchid')]
+import plot_style as ps
+from plot_nparticles import CLASSES, class_masks
+ALL_SIDES = [('part_', 'Offline', ps.OFFLINE_COLOR), ('hlt_part_', 'HLT', ps.HLT_COLOR)]
 
 
 def expand_files(patterns):
@@ -184,6 +186,12 @@ def main():
         help='suffix added to the output file names (e.g. --tag ptmatched ->'
              ' plot_particle_pt_all_ptmatched.png), so a selected and an unselected version'
              ' can share one output directory')
+    parser.add_argument('--classes', default=None,
+        help='comma-separated jet classes to restrict to (default: every class pooled'
+             ' together, labelled "all"). This script pools the jets it is given - it'
+             ' does NOT make one figure per class like its siblings; the selection is'
+             ' applied once and named in the panel text')
+    parser.add_argument('--paper-style', action='store_true', help=ps.PAPER_STYLE_HELP)
     parser.add_argument('--info', default=None,
         help='extra info text shown in the upper left corner of every plot'
              ' (e.g. a process name like "train_higgs2p"); the particle-type'
@@ -209,6 +217,19 @@ def main():
     # the denominator alike), so every curve keeps describing the same set of jets.
     keep = nio.jet_selection_mask(files, min_jet_pt=args.min_jet_pt,
                                   max_jet_eta=args.max_jet_eta, treename=args.treename)
+    class_label_text = 'all'
+    if args.classes is not None:
+        wanted = [c.strip() for c in args.classes.split(',') if c.strip()]
+        unknown = [c for c in wanted if c not in CLASSES]
+        if unknown:
+            raise SystemExit('unknown class(es) {} - known: {}'.format(unknown, CLASSES))
+        masks, _ = class_masks(files, wanted)
+        cls_mask = np.zeros(njets, dtype=bool)
+        for name in wanted:
+            cls_mask |= masks[name]
+        keep = cls_mask if keep is None else (keep & cls_mask)
+        class_label_text = ', '.join(ps.class_label(c) for c in wanted)
+
     if keep is not None:
         print('offline selection ({}) keeps {}/{} jets ({:.1f}%)'.format(
             nio.describe_jet_selection(args.min_jet_pt, args.max_jet_eta),
@@ -239,47 +260,58 @@ def main():
         return
 
     for category, mask_fn, category_label in CATEGORIES:
-        fig, ax = plt.subplots(figsize=(8, 6))
 
-        max_height = 0.0
-        for prefix, label, color in sides:
-            pt = data[prefix + 'pt'][mask_fn(data, prefix)] if mask_fn is not None else data[prefix + 'pt']
-            avg_mult, avg_mult_err = average_multiplicity_per_bin(pt, njets, bin_edges)
-            ax.step(bin_centers, avg_mult, where='mid', color=color, linewidth=3, label=label)
-            lower = np.clip(avg_mult - avg_mult_err, a_min=0, a_max=None)
-            upper = avg_mult + avg_mult_err
-            ax.fill_between(bin_centers, lower, upper, step='mid', color=color, alpha=0.3, linewidth=0)
-            if len(upper):
-                max_height = max(max_height, np.nanmax(upper))
+        def build(paper):
+            '''Render this category's figure. Called once per output variant, since
+            the reduced paper text changes the figure itself, not just the file.'''
+            fig, ax = plt.subplots(figsize=(8, 6))
+            max_height = 0.0
+            handles, labels = [], []
+            for prefix, label, color in sides:
+                pt = data[prefix + 'pt'][mask_fn(data, prefix)] if mask_fn is not None else data[prefix + 'pt']
+                avg_mult, avg_mult_err = average_multiplicity_per_bin(pt, njets, bin_edges)
+                ax.step(bin_centers, avg_mult, where='mid', color=color, linewidth=3)
+                lower = np.clip(avg_mult - avg_mult_err, a_min=0, a_max=None)
+                upper = avg_mult + avg_mult_err
+                ax.fill_between(bin_centers, lower, upper, step='mid', color=color,
+                                alpha=ps.BAND_ALPHA, linewidth=0)
+                handles.append(ps.legend_key(color, linewidth=3))
+                labels.append(label)
+                if len(upper):
+                    max_height = max(max_height, np.nanmax(upper))
 
-        ax.set_xlabel(r'Particle $p_{T}$ [GeV]')
-        ax.set_ylabel('Average number of particles / jet / bin')
-        if not args.linx:
-            ax.set_xscale('log')
-        if not args.liny:
-            ax.set_yscale('log')
-        ax.minorticks_on()
-        ax.grid(True, which='major', linestyle='-', alpha=0.4)
-        ax.grid(True, which='minor', linestyle=':', alpha=0.25)
-        # extra headroom above the curves so the info text (top-left) and legend
-        # (top-right) both have clear space above the data rather than overlapping it
-        if max_height > 0:
-            bottom, _ = ax.get_ylim()
-            ax.set_ylim(bottom, max_height * (25 if not args.liny else 1.6))
-        info_lines = [args.info] if args.info else []
-        info_lines.append('{} jets ({:.1f}% HLT-matched)'.format(njets, 100.0 * n_matched / njets)
-                           if has_hlt else '{} jets'.format(njets))
-        info_lines.append(category_label)
-        for i, line in enumerate(info_lines):
-            ax.text(0.03, 0.97 - 0.07 * i, line, transform=ax.transAxes, ha='left', va='top', fontsize=16)
-        ax.legend(loc='upper right')
-        fig.tight_layout()
+            ax.set_xlabel(r'Particle $p_{T}$ [GeV]')
+            ax.set_ylabel('Average number of particles / jet / bin')
+            if not args.linx:
+                ax.set_xscale('log')
+            if not args.liny:
+                ax.set_yscale('log')
+            ps.apply_grid(ax)
+            if not args.linx:
+                ps.log_x_ticks(ax)
+            # extra headroom above the curves so the info text (top-left) and legend
+            # (top-right) both have clear space above the data rather than overlapping it
+            if max_height > 0:
+                bottom, _ = ax.get_ylim()
+                ax.set_ylim(bottom, max_height * (25 if not args.liny else 1.6))
+            info_lines = [args.info] if args.info else []
+            info_lines.append('Jet class: {}'.format(class_label_text))
+            info_lines.append(category_label)
+            if not paper:
+                info_lines.append('{} jets ({:.1f}% HLT-matched)'.format(njets, 100.0 * n_matched / njets)
+                                   if has_hlt else '{} jets'.format(njets))
+            ps.draw_info(ax, info_lines, fontsize=16, y=0.97, dy=0.07)
+            ps.legend_with_bands(ax, handles, labels, loc='upper right')
+            fig.tight_layout()
+            return fig
 
-        outpath = '{}_{}{}{}'.format(outbase, category,
-                                     '_{}'.format(args.tag) if args.tag else '', outext)
-        fig.savefig(outpath, dpi=150)
-        plt.close(fig)
-        print('Saved plot to {}'.format(outpath))
+        base = '{}_{}{}{}'.format(outbase, category,
+                                  '_{}'.format(args.tag) if args.tag else '', outext)
+        for outpath, paper in ps.output_variants(base, args.paper_style):
+            fig = build(paper)
+            fig.savefig(outpath, dpi=150)
+            plt.close(fig)
+            print('Saved plot to {}'.format(outpath))
 
 
 if __name__ == '__main__':

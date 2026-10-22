@@ -97,8 +97,9 @@ plt.rcParams.update({
     'ytick.labelsize': 14,
     'legend.fontsize': 13,
 })
-OFFLINE_COLOR = 'dodgerblue'
-HLT_COLOR = 'darkorchid'
+import plot_style as ps
+OFFLINE_COLOR = ps.OFFLINE_COLOR
+HLT_COLOR = ps.HLT_COLOR
 
 DEFAULT_OUTDIR = os.path.join(THISDIR, 'output_plots')
 TREE_NAME = 'tree'
@@ -354,40 +355,48 @@ def _draw_hist(ax, offline_vals, hlt_vals):
         series.append(('HLT', hlt_vals, HLT_COLOR))
 
     max_height = 0.0
+    handles, labels = [], []
     for series_label, vals, color in series:
         if len(vals) == 0:
             continue
-        counts, _, _ = ax.hist(vals, bins=bins, density=True, histtype='step', linewidth=2, color=color,
-                                label=series_label)
-        if len(counts):
-            max_height = max(max_height, counts.max())
+        # raw counts read here rather than via ax.hist(density=True), so the sqrt(N)
+        # band can be scaled by the same normalization as the nominal - see plot_style
+        nominal, err, edges = ps.poisson_density(vals, bins)
+        handles.append(ps.step_band(ax, nominal, err, edges, color))
+        labels.append(series_label)
+        if len(nominal):
+            max_height = max(max_height, (nominal + err).max())
     ax.set_yscale('log')
     ax.set_ylabel('Number of jets (normalized)')
+    ps.apply_grid(ax)
     if max_height > 0:
         bottom, _ = ax.get_ylim()
         ax.set_ylim(bottom, max_height * 25)
+    ps.legend_with_bands(ax, handles, labels, loc='upper right')
     return True
 
 
-def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched):
+def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched, paper_style=False):
     '''Same look as ../compare-to-central-jetclass2/plot_nparticles.py's own make_plot(),
     Offline vs HLT instead of central vs ours, plus a jet-count/match-rate caption.'''
     if not _draw_hist(ax, offline_vals, hlt_vals):
-        ax.text(0.5, 0.5, '{}: no data'.format(label), ha='center', va='center', transform=ax.transAxes)
+        ax.text(0.5, 0.5, '{}: no data'.format(ps.class_label(label)), ha='center',
+                va='center', transform=ax.transAxes)
         return
     ax.set_xlabel('Particles per jet')
 
-    info_lines = ['Jet class: {}'.format(label)]
-    if n_matched is not None:
-        info_lines.append('{} jets ({:.1f}% HLT matched)'.format(njets, 100.0 * n_matched / njets if njets else 0))
-    else:
-        info_lines.append('{} jets'.format(njets))
-    for i, line in enumerate(info_lines):
-        ax.text(0.03, 0.95 - 0.07 * i, line, transform=ax.transAxes, ha='left', va='top', fontsize=14)
-    ax.legend(loc='upper right')
+    info_lines = ['Jet class: {}'.format(ps.class_label(label))]
+    if not paper_style:
+        if n_matched is not None:
+            info_lines.append('{} jets ({:.1f}% HLT matched)'.format(
+                njets, 100.0 * n_matched / njets if njets else 0))
+        else:
+            info_lines.append('{} jets'.format(njets))
+    ps.draw_info(ax, info_lines, fontsize=14, y=0.95, dy=0.07)
+    # legend is created by _draw_hist(), with the line-over-band keys
 
 
-def make_grid(results, classes, outpath):
+def make_grid(results, classes, outpath, paper_style=False):
     '''One multi-axes ("small multiples") figure, 2 rows x 5 columns, all `classes` together -
     same layout as the sibling script's own make_grid().'''
     # capped at the number of classes actually plotted, so a --classes subset smaller
@@ -399,7 +408,7 @@ def make_grid(results, classes, outpath):
     axes = np.atleast_1d(axes).flatten()
     for ax, name in zip(axes, classes):
         offline_vals, hlt_vals, njets, n_matched = results[name]
-        make_plot(ax, name, offline_vals, hlt_vals, njets, n_matched)
+        make_plot(ax, name, offline_vals, hlt_vals, njets, n_matched, paper_style=paper_style)
     for ax in axes[len(classes):]:
         ax.axis('off')
     fig.tight_layout()
@@ -408,30 +417,36 @@ def make_grid(results, classes, outpath):
     print('wrote {}'.format(outpath))
 
 
-def make_type_plot(ax, type_name, offline_vals, hlt_vals):
+def make_type_plot(ax, type_name, offline_vals, hlt_vals, class_name=None, paper_style=False):
     '''One panel of a per-type figure: the same Offline-vs-HLT step histograms
     make_plot() draws, but for ONE particle type's per-jet count, captioned with that
     type's own Offline/HLT means and their ratio - the number this whole comparison is
     really about, readable straight off each panel instead of only from the printed
     table.'''
     if not _draw_hist(ax, offline_vals, hlt_vals):
-        ax.text(0.5, 0.5, '{}: no data'.format(type_name), ha='center', va='center', transform=ax.transAxes)
+        ax.text(0.5, 0.5, '{}: no data'.format(ps.type_label(type_name)), ha='center',
+                va='center', transform=ax.transAxes)
         return
-    ax.set_xlabel('{}s per jet'.format(type_name))
+    ax.set_xlabel('{} per jet'.format(ps.type_label(type_name)))
 
-    info_lines = [type_name]
-    off_mean = offline_vals.mean() if len(offline_vals) else float('nan')
-    info_lines.append('Offline mean: {:.2f}'.format(off_mean))
-    if hlt_vals is not None:
-        hlt_mean = hlt_vals.mean() if len(hlt_vals) else float('nan')
-        ratio = hlt_mean / off_mean if off_mean else float('nan')
-        info_lines.append('HLT mean: {:.2f}  ({:.2f}x)'.format(hlt_mean, ratio))
-    for i, line in enumerate(info_lines):
-        ax.text(0.03, 0.95 - 0.07 * i, line, transform=ax.transAxes, ha='left', va='top', fontsize=14)
-    ax.legend(loc='upper right')
+    # the jet class is in the figure title too, but a single panel lifted out of the
+    # grid should still say which class it is - so it goes FIRST, above the type
+    info_lines = []
+    if class_name is not None:
+        info_lines.append('Jet class: {}'.format(ps.class_label(class_name)))
+    info_lines.append(ps.type_label(type_name))
+    if not paper_style:
+        off_mean = offline_vals.mean() if len(offline_vals) else float('nan')
+        info_lines.append('Offline mean: {:.2f}'.format(off_mean))
+        if hlt_vals is not None:
+            hlt_mean = hlt_vals.mean() if len(hlt_vals) else float('nan')
+            ratio = hlt_mean / off_mean if off_mean else float('nan')
+            info_lines.append('HLT mean: {:.2f}  ({:.2f}x)'.format(hlt_mean, ratio))
+    ps.draw_info(ax, info_lines, fontsize=14, y=0.95, dy=0.07)
+    # legend is created by _draw_hist(), with the line-over-band keys
 
 
-def make_type_grid(class_name, entry, outpath):
+def make_type_grid(class_name, entry, outpath, paper_style=False):
     '''One figure for ONE jet class: 1 row x 5 columns, one panel per PARTICLE_TYPES
     type (see make_type_plot()), with the jet class itself (and its jet count/HLT match
     rate - per class, so it belongs here rather than repeated in every panel) as the
@@ -441,16 +456,21 @@ def make_type_grid(class_name, entry, outpath):
     axes = np.atleast_1d(axes).flatten()
     for ax, (type_name, _) in zip(axes, PARTICLE_TYPES):
         offline_vals, hlt_vals = per_type[type_name]
-        make_type_plot(ax, type_name, offline_vals, hlt_vals)
+        make_type_plot(ax, type_name, offline_vals, hlt_vals, class_name=class_name,
+                       paper_style=paper_style)
 
-    title = 'Jet class: {}'.format(class_name)
-    if n_matched is not None:
-        title += '   -   {} jets ({:.1f}% HLT matched)'.format(
-            njets, 100.0 * n_matched / njets if njets else 0)
+    # in paper style the title goes entirely: every panel already names the class
+    if paper_style:
+        fig.tight_layout()
     else:
-        title += '   -   {} jets'.format(njets)
-    fig.suptitle(title, fontsize=18)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+        title = 'Jet class: {}'.format(ps.class_label(class_name))
+        if n_matched is not None:
+            title += '   -   {} jets ({:.1f}% HLT matched)'.format(
+                njets, 100.0 * n_matched / njets if njets else 0)
+        else:
+            title += '   -   {} jets'.format(njets)
+        fig.suptitle(title, fontsize=18)
+        fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(outpath, dpi=150)
     plt.close(fig)
     print('wrote {}'.format(outpath))
@@ -481,6 +501,11 @@ if __name__ == '__main__':
     parser.add_argument('--max-jets', type=int, default=None,
         help='cap on jets read in total (across all `files`, before bucketing) - default:'
              ' no cap (read everything available)')
+    parser.add_argument('--paper-style', action='store_true', help=ps.PAPER_STYLE_HELP)
+    parser.add_argument('--single-class-figures', default=None,
+        help='comma-separated classes that ALSO get their own single-panel figure,'
+             ' beside the all-classes grid (default: {}; "none" to switch off). A class'
+             ' not present in this run is skipped'.format(','.join(ps.SINGLE_CLASS_FIGURES)))
     parser.add_argument('--outdir', default=DEFAULT_OUTDIR,
         help='directory to write plots into (default: {})'.format(DEFAULT_OUTDIR))
     parser.add_argument('--min-jet-pt', type=float, default=None,
@@ -538,9 +563,18 @@ if __name__ == '__main__':
             print_stats(name, 'offline', offline_vals)
             print_stats(name, 'hlt', hlt_vals)
 
-        make_grid(results, classes,
-                  os.path.join(args.outdir,
-                               'nparticles_offline_vs_hlt_all_classes{}.png'.format(suffix)))
+        base = os.path.join(args.outdir,
+                            'nparticles_offline_vs_hlt_all_classes{}.png'.format(suffix))
+        for path, paper in ps.output_variants(base, args.paper_style):
+            make_grid(results, classes, path, paper_style=paper)
+
+        # and a few classes on their own. A one-element class list through the same
+        # make_grid() gives exactly a single-panel figure - see the sibling script.
+        for name in ps.single_class_selection(args.single_class_figures, classes):
+            one = os.path.join(args.outdir,
+                               'nparticles_offline_vs_hlt_{}{}.png'.format(name, suffix))
+            for path, paper in ps.output_variants(one, args.paper_style):
+                make_grid(results, [name], path, paper_style=paper)
 
     if 'types' in plots:
         by_type = read_all_classes_by_type(files, classes, max_jets, keep=keep)
@@ -572,6 +606,7 @@ if __name__ == '__main__':
             print()
 
         for name in classes:
-            make_type_grid(name, by_type[name],
-                           os.path.join(args.outdir,
-                                        'nparticles_by_type_{}{}.png'.format(name, suffix)))
+            base = os.path.join(args.outdir,
+                                'nparticles_by_type_{}{}.png'.format(name, suffix))
+            for path, paper in ps.output_variants(base, args.paper_style):
+                make_type_grid(name, by_type[name], path, paper_style=paper)
