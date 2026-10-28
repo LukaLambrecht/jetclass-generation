@@ -101,19 +101,41 @@ i.e. expensive bins get fewer events per job and proportionally MORE jobs. Varyi
 job size without adjusting `--njobs` would change the events per bin and therefore skew
 the mixture — the one thing this whole setup exists to get right. See "Timing".
 
-## Adaptation for CMSSW_10_6_30
+## Departures from the reference fragments
 
-The fragments are copied **verbatim**, with exactly one change, marked inline in each
-file: the Run-3 13.6 TeV CP5 tune module (`Configuration.Generator.MCTunesRun3ECM13p6TeV`)
-does not exist in this release, which ships only the 13 TeV `MCTunes2017` variant. The
-import therefore falls back to an inlined copy of that block from `cms-sw/cmssw`
-(Apache-2.0). The two differ **only** in `SigmaTotal:sigmaEl` (21.89 → 22.08) and
-`SigmaTotal:sigmaTot` (100.309 → 101.037).
+The fragments come from the reference production, with two deliberate changes (2026-10-28),
+both marked inline in each file. Both follow from one decision: **generate at the beam
+energy the detector conditions correspond to.**
 
-Beam energy is **13.6 TeV** as in the reference, while the detector conditions are
-**2018 / Run 2** — a deliberate choice (the open conditions have no Run-3 option). The
-detector simulation does not use the beam energy directly, but the mismatch is real and
-should be stated when these samples are compared with the reference.
+| | reference | here |
+|---|---|---|
+| `comEnergy` | 13600 GeV | **13000 GeV** |
+| CP5 tune | `MCTunesRun3ECM13p6TeV` | **`MCTunes2017`** (the 13 TeV tune) |
+| `SigmaTotal:sigmaEl` / `sigmaTot` | 22.08 / 101.037 | **21.89 / 100.309** |
+
+**Why 13 TeV.** The detector conditions are 2018 / Run 2 throughout, because the open
+conditions have no Run-3 option, and Run 2 ran at 13 TeV. The `jetclass2` signal is
+generated at 13 TeV too (MadGraph's default 6500 GeV beams). Leaving the QCD at the
+reference's 13.6 TeV made the background inconsistent with both the signal and the
+conditions; moving it to 13 TeV makes all three agree.
+
+**The tune had to move with it.** CP5 is tuned *per beam energy*, so changing
+`comEnergy` alone would have been half a fix. Conveniently this also removed the one
+piece of hand-maintained divergence: CMSSW_10_6_30 has no Run-3 13.6 TeV tune module,
+so the fragments used to carry an inlined copy of it; the 13 TeV `MCTunes2017` module
+is shipped natively, so that fallback is gone.
+
+**What this costs.** The reference dataset remains a 13.6 TeV Run-3 sample, so direct
+comparisons against it are now across beam energies. That is a real caveat and should
+be stated — but it replaces a worse one, where our own signal and background did not
+match each other.
+
+`crossSection` in every fragment is set to a dummy `1`. It is untracked metadata that
+only fills `GenRunInfoProduct`'s external cross section, never affects generation, and
+nothing in this repository reads it — we generate a flat mixture (equal events per
+pThat bin), not a cross-section-weighted one. The reference's own values were copy-paste
+artifacts: `648.174` appeared in eight bins spanning pThat 170-3200 GeV, over which the
+true cross section falls by roughly six orders of magnitude.
 
 ## The two-prong signal is NOT wired up
 

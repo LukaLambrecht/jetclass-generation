@@ -125,9 +125,11 @@ route, whose batches previously shared GEANT4 seeds.
 
 `gen_configs/jetclass2sb/QCD_PT-*` are the ten pThat-binned fragments behind a reference dataset, copied from the
 [hww-tagging repository](https://github.com/colizz/hww-tagging/tree/dev-miniaods/event_producer/cmsconnect_miniaods_scouting_Run3)
-The one adaptation for CMSSW_10_6_30 is marked inline in each file: the Run-3 13.6 TeV CP5 tune module does
-not exist in this release, so the import falls back to an inlined copy of that block
-from cms-sw/cmssw (Apache-2.0), differing only in `SigmaTotal:sigmaEl/sigmaTot`.
+Two changes from the reference are marked inline in each file (2026-10-28): `comEnergy` is
+**13 TeV**, not the reference's 13.6 TeV, and the CP5 tune is correspondingly the 13 TeV
+`MCTunes2017` one rather than the Run-3 13.6 TeV retune. This matches the beam energy to the
+2018 / Run 2 conditions used throughout and to the `jetclass2` signal, which is also 13 TeV.
+See gen_configs/jetclass2sb/README.md for the full reasoning and what it costs.
 
 The reference sample is "PT-mixed": each of the ten bins was generated with an EQUAL
 number of events (500 jobs x 500 events = 250k per bin), i.e. flat in pThat rather
