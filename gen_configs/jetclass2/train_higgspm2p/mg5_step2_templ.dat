@@ -1,5 +1,11 @@
 shower=OFF
 done
+# Added here, on top of the JetClass2 cards this was copied from: upstream sets no beam
+# energy at all, so it came silently from MadGraph's run_card default. Pinned to 13 TeV
+# to match the Run-2 conditions and the jetclass2sb QCD, and so an upstream default
+# change cannot move it unnoticed.
+set ebeam1 6500
+set ebeam2 6500
 set pdlabel lhapdf
 set lhaid 315000
 set use_syst False
