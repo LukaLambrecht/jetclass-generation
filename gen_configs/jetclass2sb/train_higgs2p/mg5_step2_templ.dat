@@ -1,0 +1,22 @@
+# Run settings. $1 = graviton mass mX, $2 = Higgs-like mass mH (see mg5_params.dat);
+# run_gen_default.sh substitutes them per batch, exactly as the reference's
+# run_instMG.sh substitutes the same two arguments into its customize card.
+shower=OFF
+done
+# 13 TeV, NOT the reference's 13.6: this repository simulates 2018 / Run-2 conditions
+# throughout and the jetclass2sb QCD is generated at 13 TeV, so the signal matches both.
+set ebeam1 6500
+set ebeam2 6500
+# Same PDF as the QCD side uses for its shower/MPI (CP5's NNPDF31_nnlo_as_0118), rather
+# than the reference's 325500 (NNPDF31_nnlo_as_0118_nf_4_mc_hessian), so that signal and
+# background share one PDF.
+set pdlabel lhapdf
+set lhaid 303600
+set use_syst False
+set nevents $NEVENT
+set iseed $SEED
+# narrow resonance: 1 MeV width, as in the reference's customize card
+set param_card mass 39 $1
+set param_card decay 39 1.000000e-03
+set param_card mass 25 $2
+done

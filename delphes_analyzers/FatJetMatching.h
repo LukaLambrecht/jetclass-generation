@@ -1189,6 +1189,27 @@ private:
         // v1's own single catch-all background label (see qcdLabelV1()) -
         // NOT one of the v2 QCD_* flavors above, which v1 never assigns
         "QCD_all",
+
+        // APPENDED 2026-11-11, deliberately AT THE END rather than in their natural
+        // positions above. These five labels can all be assigned by the code below but
+        // were missing from this list, so producing one threw
+        //   [FatJetInfoFiller::fill]: unexpected label <X>
+        // and killed the job. They were unreachable for the JetClass2 signal, whose
+        // Higgs never decays to b sbar - hence the inline remark on the X_bs assignment
+        // that it should not happen in the main sample. gen_configs/jetclass2sb/train_higgs2p
+        // reproduces the reference's decay table, which DOES include H -> b sbar at
+        // 11.25%, making X_bs common and the four merged-jet (YY) combinations below
+        // reachable whenever one jet captures both Higgses.
+        //
+        // Order matters: jet_label is stored as an INDEX into this vector, so inserting
+        // them next to their relatives would renumber every later label and silently
+        // mislabel every ntuple produced so far. Appending leaves all existing indices
+        // untouched, at the cost of this list no longer matching the XDecay enum order.
+        "X_bs",
+        "X_YY_bbcs",
+        "X_YY_bbsq",
+        "X_YY_ssbc",
+        "X_YY_ssbq",
     };
 };
 

@@ -28,6 +28,19 @@ fi
 # the MG process dir
 MDIR=proc
 
+# MG5 needs ~/.mg5/mg5_configuration.txt to find lhapdf-config; see the identical
+# block in run_gen_default.sh for why. Only written when absent, so a user's own
+# configuration is never overwritten.
+if [ ! -f "$HOME/.mg5/mg5_configuration.txt" ]; then
+    LHA=$MG5_PATH/HEPTools/lhapdf6_py3/bin/lhapdf-config
+    if [ -x "$LHA" ]; then
+        mkdir -p "$HOME/.mg5"
+        { echo "lhapdf_py3 = $LHA"; echo "lhapdf = $LHA"; } > "$HOME/.mg5/mg5_configuration.txt"
+        echo "MG5 lhapdf config written: $LHA"
+    fi
+fi
+
+
 # persistent, shared cache of extracted+patched gridpacks: populated once
 # (by whichever job needs it first), reused by every later job/process
 GRIDPACK_CACHE=${GRIDPACK_CACHE:-/eos/user/l/llambrec/jetclass/gridpack_cache}

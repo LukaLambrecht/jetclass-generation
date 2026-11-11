@@ -1,0 +1,27 @@
+# MadGraph process setup for the reference dataset's two-prong signal: a narrow spin-2
+# Bulk Graviton decaying to two Higgs-like bosons of variable mass.
+#
+# Taken from the reference production's own cards, public at
+#   colizz/hww-tagging @ dev-miniaods
+#   event_producer/cmsconnect_miniaods_scouting_Run3/inputs/InputCards/
+#       BulkGravitonToHH_{proc,run,customizecards}_card_instMG.dat
+# which that production feeds to MadGraph through its `instMG://` mechanism - a patched
+# CMSSW that builds a gridpack per mass point inside the GEN step. We do NOT need any
+# of that: this repository already runs MadGraph standalone and hands the LHE to Pythia
+# and then to CMSSW (the "hepmc" route, see run.sh), which is what the gridpack
+# machinery was working around. The physics is the cards, and those are reproduced here.
+#
+# The model ships with this process in model/RS_bulk_ktilda (from the public
+# dibosonResonanceModel.tar.gz in the same repository). It is a PYTHON-2 era UFO, so it
+# must be converted before import - MG5 3.x cannot read it directly. The reference's own
+# proc card does the same `convert model` step.
+set group_subprocesses Auto
+set ignore_six_quark_processes False
+set gauge unitary
+set complex_mass_scheme False
+set auto_update 0
+convert model ./model/RS_bulk_ktilda
+import model ./model/RS_bulk_ktilda
+define p = g u c d s u~ c~ d~ s~
+generate p p > y, ( y > H H )
+output proc -nojpeg

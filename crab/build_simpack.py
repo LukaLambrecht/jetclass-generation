@@ -16,7 +16,7 @@ unmodified on the grid:
         run_in_container.sh  scriptExe: launches the container on the worker node
         run_job.sh           inside the container: run_chain.sh setup + batches + hadd
         payload/cfg/         patch_*.py, run_chain.sh, <fragment>.py  (fragment processes)
-        payload/gen/         mg5_*.dat, py8.dat, run_gen.sh            (hepmc processes)
+        payload/gen/         mg5_*.dat, py8.dat, run_gen.sh, model/     (hepmc processes)
         payload/ana/         ntuplizer sources (shared headers included)
 
 Both process kinds are supported, detected exactly as run.sh detects them:
@@ -179,6 +179,12 @@ if __name__ == '__main__':
             src = os.path.join(procdir, f)
             if os.path.isfile(src):
                 shutil.copy(src, os.path.join(gendst, f))
+            elif os.path.isdir(src):
+                # subdirectories too, not just files: jetclass2sb/train_higgs2p ships
+                # its UFO model in model/RS_bulk_ktilda, and a process whose model is
+                # silently left behind fails on the worker node with an unhelpful
+                # "no model" error rather than at build time.
+                shutil.copytree(src, os.path.join(gendst, f))
         own = os.path.join(procdir, 'run_gen.sh')
         driver = own if os.path.exists(own) else os.path.join(REPO_DIR, 'gen_configs',
                                                               'run_gen_default.sh')

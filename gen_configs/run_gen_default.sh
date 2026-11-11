@@ -18,6 +18,26 @@ if [ -f mg5_params.dat ]; then
 fi
 
 # step1: setup the MG dir for the first time
+# MG5 looks up lhapdf-config by BARE NAME and it is on PATH nowhere, so without a user
+# config generate_events dies with "lhapdf executable (lhapdf-config) is not found on
+# your system" for any process whose run card asks for pdlabel=lhapdf. On a developer's
+# lxplus account this is masked by an existing ~/.mg5/mg5_configuration.txt; on a bare
+# worker node there is none. crab/templates/run_job.sh writes one for the CRAB route,
+# which is why that route works - this covers every other way of invoking the chain
+# (run.sh directly, run_condor*.py, a fresh checkout).
+#
+# Only written when absent, so a user's own configuration is never overwritten.
+if [ ! -f "$HOME/.mg5/mg5_configuration.txt" ]; then
+    LHA=$MG5_PATH/HEPTools/lhapdf6_py3/bin/lhapdf-config
+    if [ -x "$LHA" ]; then
+        mkdir -p "$HOME/.mg5"
+        { echo "lhapdf_py3 = $LHA"; echo "lhapdf = $LHA"; } > "$HOME/.mg5/mg5_configuration.txt"
+        echo "MG5 lhapdf config written: $LHA"
+    else
+        echo "WARNING: no lhapdf-config at $LHA; MG5 will fail if the run card uses lhapdf" >&2
+    fi
+fi
+
 if [ ! -d $MDIR ]; then
     echo "Setup MG dir"
     $MG5_PATH/bin/mg5_aMC mg5_step1.dat
