@@ -95,4 +95,14 @@ rm -f events.hepmc
 # to their own default (1000), causing a hang when the LHEF has fewer events.
 # Set it explicitly to the requested count instead.
 sed -i "s/^Main:numberOfEvents.*/Main:numberOfEvents      = $NEVENT/" py8.dat
-LD_LIBRARY_PATH=$MG5_PATH/HEPTools/lib:$LD_LIBRARY_PATH $MG5_PATH/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface py8.dat
+# Pythia reads `PDF:pSet = LHAPDF6:...` (set by the CP5 tune block) by dlopen'ing
+# libpythia8lhapdf6.so *by bare name*. That plugin lives in HEPTools/pythia8/lib,
+# not HEPTools/lib, and the only thing that used to find it was the absolute ELF
+# RPATH baked into the MG5 build, which names this install's own EOS prefix. On a
+# grid worker node the tarball unpacks elsewhere and that prefix does not exist, so
+# the dlopen failed and Pythia aborted with "could not set up PDF for beam A".
+# List every directory holding the plugin and its NEEDED libs explicitly, so the
+# lookup never depends on RPATH. These are relative symlinks into bin/HEPTools and
+# are preserved by the tarball, so they resolve wherever MG5 is unpacked.
+PY8_LD_PATH=$MG5_PATH/HEPTools/lib:$MG5_PATH/HEPTools/pythia8/lib:$MG5_PATH/HEPTools/lhapdf6_py3/lib
+LD_LIBRARY_PATH=$PY8_LD_PATH:$LD_LIBRARY_PATH $MG5_PATH/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface py8.dat
