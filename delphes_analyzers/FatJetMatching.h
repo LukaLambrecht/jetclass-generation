@@ -8,11 +8,9 @@
 #include "TClonesArray.h"
 #include "Math/LorentzVector.h"
 #include <Math/Vector4D.h>
-// Delphes' own classes, EXCEPT when this header is reused by a ntuplizer that
-// has no Delphes at all (fullsim_analyzers/makeNtuplesFullSim.C) - that one
-// defines JETCLASS_STANDALONE_TYPES and supplies the same few class names
-// itself, see fullsim_analyzers/StandaloneTypes.h for why and for what has to
-// match. Nothing changes for the Delphes ntuplizers.
+// Delphes' own classes, except when this header is reused by a ntuplizer that has no
+// Delphes: makeNtuplesFullSim.cc defines JETCLASS_STANDALONE_TYPES and supplies the
+// same class names itself, see fullsim_analyzers/StandaloneTypes.h.
 #ifdef JETCLASS_STANDALONE_TYPES
 #include "StandaloneTypes.h"
 #else
@@ -22,9 +20,23 @@
 #include "ParticleID.h"
 #include "ParticleInfo.h"
 
+// Assign a truth label to a reconstructed fat jet, by matching it against the
+// generator-level decay products in the event.
+//
+// Two label schemes are supported, selected by useV1Labels_:
+//   v2 (default) a generic scalar resonance X, labelled by the flavours of the decay
+//                products found inside the jet (X_bb, X_cc, ... and the X_YY_*
+//                merged-jet cases), with a QCD_* flavour fallback.
+//   v1           real SM top/W/Z/Higgs, giving the original JetClass-I label strings
+//                and a single QCD_all fallback.
+//
+// A jet is given a resonance label only if all of that decay's products lie within
+// jetR_ of the jet axis; otherwise it falls through to the QCD labels.
 class FatJetMatching {
 
 public:
+    // The label and the generator particles it was derived from, for the ntuplizer to
+    // write out as auxiliary information.
     struct FatJetMatchingResult {
         std::string label;
         std::vector<const GenParticle*> resParticles;
@@ -33,6 +45,7 @@ public:
         std::vector<const GenParticle*> qcdPartons;
     };
     FatJetMatchingResult& getResult() { return result_; }
+    // Back to the "no label yet" state, before trying another candidate resonance.
     void clearResult() {
         result_.label = "Invalid";
         result_.resParticles.clear();
@@ -42,22 +55,16 @@ public:
     }
 
     // ============================================================
-    // JetClass-I (v1) "is_signal" rejection, ported from the original
-    // jet-universe/jetclass_generation makeNtuples.C. That reference
-    // rejects any jet whose matching search touched a truth top/Higgs/W/Z
-    // decay (eventTypeV1() != QCD) unless the FINAL label is one of a
-    // specific "fully merged" whitelist per type - a partial merge
-    // (Top_bc/Top_bq), a Top-triggered search that only found a bystander
-    // W_cq/W_qq (topLabelV1's own fallback below), or no match at all
-    // (including one that fell through to a QCD_* flavor label via
-    // qcdLabel()) are all dropped, not kept or miscounted as generic QCD.
-    // A jet whose search never touched any resonance at all
-    // (eventTypeV1() stays QCD - true QCD/ISR jets in any sample,
-    // including non-signal jets within signal-process events) is never
-    // rejected by this. Only meaningful/called when useV1Labels_ is set;
-    // eventTypeV1_ stays QCD for the entire v2 scheme, so this always
-    // returns false there. See FatJetMatching.h's own V1-scheme section
-    // below for where eventTypeV1_ actually gets set.
+    // v1 "is_signal" rejection.
+    //
+    // A jet whose matching search touched a truth top/Higgs/W/Z decay is dropped
+    // unless its final label is one of the fully merged ones listed below. So a
+    // partial merge, a top search that only found a bystander W, and no match at all
+    // are all discarded rather than kept or counted as generic QCD.
+    //
+    // A jet whose search never touched a resonance - a genuine QCD or ISR jet, even
+    // inside a signal event - is never rejected. Only meaningful under useV1Labels_;
+    // eventTypeV1_ stays QCD throughout the v2 scheme, so this is always false there.
     // ============================================================
     enum class EventTypeV1 { QCD = 0, Top, Higgs, W, Z };
     EventTypeV1 eventTypeV1() const { return eventTypeV1_; }
@@ -84,11 +91,16 @@ public:
 
     virtual ~FatJetMatching() {}
 
-    // `branchParticle` is typed as the TObjArray BASE of TClonesArray (only
-    // GetEntriesFast()/At() are used): the Delphes ntuplizers keep passing their
-    // TClonesArray* unchanged, while the FullSim one can pass a plain TObjArray of
-    // the stand-in GenParticles it builds from reco::GenParticle (no ROOT
-    // dictionary needed for those - see fullsim_analyzers/StandaloneTypes.h)
+    // Label one jet, leaving the result in getResult().
+    //
+    // Walks the generator particles, and for each candidate resonance tries the
+    // matcher for the active scheme, stopping at the first one that yields a label.
+    // Falls back to the QCD labels if none does and assignQCDLabel_ is set.
+    //
+    // `branchParticle` is typed as the TObjArray base of TClonesArray, since only
+    // GetEntriesFast() and At() are used: the Delphes ntuplizers pass their
+    // TClonesArray unchanged, while the FullSim one passes a plain TObjArray of the
+    // stand-in GenParticles it builds itself.
     void getLabel(const Jet *jet, const TObjArray *branchParticle) {
 
         genParticles_.clear();
@@ -96,10 +108,9 @@ public:
         genParticles_.push_back((GenParticle *)branchParticle->At(i));
         }
         processed_.clear();
-        // reset once per jet (per getLabel() call), same granularity as the
-        // reference's own event_type_ - persists/accumulates across multiple
-        // candidate attempts WITHIN this call (clearResult() below does NOT
-        // touch it), same as the reference
+        // Reset once per jet, not per candidate: it must accumulate across every
+        // candidate tried within this call, which is why clearResult() leaves it
+        // alone.
         eventTypeV1_ = EventTypeV1::QCD;
 
         if (debug_) {
@@ -119,8 +130,7 @@ public:
 
         auto pdgid = std::abs(gp->PID);
         if (useV1Labels_) {
-            // JetClass-I (v1) labeling scheme: real SM top/W/Z/Higgs, dedicated
-            // matchers reproducing the original jetclass_generation labels exactly.
+            // v1: real SM top/W/Z/Higgs, each with its own matcher.
             if (pdgid == ParticleID::p_t) {
                 clearResult();
                 topLabelV1(jet, gp);
@@ -147,7 +157,7 @@ public:
                 }
             }
         } else {
-            // JetClass-II (v2) labeling scheme: generic scalar resonance(s), unchanged.
+            // v2: a generic scalar resonance.
             if (pdgid == ParticleID::p_h0 || pdgid == ParticleID::p_H0 || pdgid == ParticleID::p_Hplus) {
                 clearResult();
                 res2PLabel(jet, gp);
@@ -164,9 +174,7 @@ public:
         if (assignQCDLabel_) {
             clearResult();
             if (useV1Labels_) {
-                // JetClass-I (v1): a single catch-all "QCD_all" label, not
-                // v2's flavor-split QCD_bb/QCD_cc/.../QCD_light breakdown -
-                // see qcdLabelV1()'s own comment for why.
+                // v1 has one catch-all QCD label, not v2's flavour split.
                 qcdLabelV1();
             } else {
                 qcdLabel(jet);
@@ -174,6 +182,8 @@ public:
         }
     }
 
+    // The index of the current label in labels_, which is what gets written to the
+    // ntuple. Throws on an unknown label rather than writing a wrong index.
     int findLabelIndex() {
 
         if (getResult().label == "Invalid") {
@@ -192,6 +202,9 @@ public:
 
 private:
 
+    // v2 matcher for a resonance X. Dispatches on what X decays to: a pair of Ys
+    // (handed to res34PLabel), a tau pair, or two other prongs. A label is assigned
+    // only if every prong lies within jetR_ of the jet axis.
     void res2PLabel(const Jet *jet, const GenParticle *parton) {
 
         auto res = getFinal(parton);
@@ -397,6 +410,9 @@ private:
         }
     }
 
+    // v2 matcher for X -> YY, where one jet may capture three or four prongs.
+    // Classifies each Y's decay, counts how many of the four daughters are inside the
+    // jet, and builds the X_YY_* label from the two Y modes.
     void res34PLabel(const Jet* jet, std::vector<const GenParticle*>& yy_daughters)
     {
         enum XDecay {X_bb, X_cc, X_ss, X_qq, X_bc, /*X_bs*,*/ X_cs, X_bq, X_cq, X_sq, X_gg, X_ee, X_mm, X_ev, X_mv, X_tauhtaue, X_tauhtaum, X_tauhtauh, X_tauev, X_taumv, X_tauhv, X_null};
@@ -677,13 +693,12 @@ private:
     }
 
     // ============================================================
-    // JetClass-I (v1) labeling scheme, ported from the original
-    // jet-universe/jetclass_generation makeNtuples.C so that jets from
-    // jetclass1/* processes get exactly the original v1 label strings
-    // (Top_*, W_*, Z_*, H_*). Only active when useV1Labels_ is set;
-    // the v2 scheme above (res2PLabel/res34PLabel/qcdLabel) is untouched.
+    // The v1 label scheme: real SM top/W/Z/Higgs, giving the original JetClass-I
+    // label strings. Only active when useV1Labels_ is set.
     // ============================================================
 
+    // v1 matcher for a top quark: looks for the b and the W's own decay products.
+    // Falls back to labelling the jet by the W alone when the b escaped the cone.
     void topLabelV1(const Jet *jet, const GenParticle *parton) {
         auto top = getFinal(parton);
         const GenParticle *w_from_top = nullptr, *b_from_top = nullptr;
@@ -774,6 +789,8 @@ private:
         }
     }
 
+    // v1 matcher for a W: labelled by the flavours of its two quarks, if both are
+    // inside the jet.
     void wLabelV1(const Jet *jet, const GenParticle *parton) {
         auto w = getFinal(parton);
         if (isHadronic(w)) {
@@ -805,6 +822,8 @@ private:
         }
     }
 
+    // v1 matcher for a Z: labelled by the flavours of its two quarks, if both are
+    // inside the jet.
     void zLabelV1(const Jet *jet, const GenParticle *parton) {
         auto z = getFinal(parton);
         if (isHadronic(z)) {
@@ -838,6 +857,8 @@ private:
         }
     }
 
+    // v1 matcher for a Higgs: handles the direct h->qq/gg decays and the h->WW cases
+    // that JetClass-I defines, counting how many quarks and leptons fall in the jet.
     void higgsLabelV1(const Jet *jet, const GenParticle *parton) {
         auto higgs = getFinal(parton);
         auto daus = getDaughters(higgs);
@@ -935,18 +956,14 @@ private:
     }
 
     void qcdLabelV1() {
-        // JetClass-I (v1) background jets get a single catch-all label, not
-        // qcdLabel()'s v2-only flavor breakdown (QCD_bb/QCD_cc/.../
-        // QCD_light) - mirrors the original jet-universe/jetclass_generation
-        // FatJetLabel enum, whose only non-signal outcome is QCD_all (its
-        // own getLabel() dispatch falls straight through to
-        // `return {FatJetLabel::QCD_all, nullptr}` with no further
-        // sub-typing), and its postprocessing/rename.py, which defines the
-        // final published label as the single boolean `label_QCD = 1 -
-        // is_signal` - never split by flavor.
+        // v1 background jets get one catch-all label rather than qcdLabel()'s
+        // flavour breakdown, because the published v1 label is a single
+        // signal-or-not boolean and is never split by flavour.
         getResult().label = "QCD_all";
     }
 
+    // v2 fallback for a jet with no resonance match: count the b, c and s quarks
+    // inside it just before hadronization, and name it after that flavour content.
     void qcdLabel(const Jet* jet) {
 
         int n_b=0, n_c=0, n_s=0;
@@ -995,6 +1012,7 @@ private:
     }
 
 private:
+    // Column header for the debug dump of the generator particles.
     void printGenInfoHeader() const {
         using namespace std;
         cout << right << setw(6) << "#"
@@ -1006,6 +1024,7 @@ private:
             << " " << setw(30) << "Daughters" << endl;
     }
 
+    // One generator particle as a line of debug output.
     void printGenParticleInfo(const GenParticle *genParticle, const int idx) const {
         using namespace std;
         cout << right << setw(3) << genParticle->Status;
@@ -1038,6 +1057,8 @@ private:
         cout << " " << setw(30) << daughters << endl;
     }
 
+    // Follow a particle through its self-copies to the last one before it decays,
+    // marking the intermediate copies as processed so they are not tried again.
     const GenParticle *getFinal(const GenParticle *particle) {
         // will mark intermediate particles as processed
         if (!particle)
@@ -1061,6 +1082,7 @@ private:
         return final;
     }
 
+    // True if this particle decays to quarks (optionally counting gluons).
     bool isHadronic(const GenParticle *particle, bool allow_gluon = false) const {
         // particle needs to be the final version before decay
         if (!particle)
@@ -1075,6 +1097,7 @@ private:
         return false;
     }
 
+    // A particle's immediate daughters.
     std::vector<const GenParticle *> getDaughters(const GenParticle *particle) const {
         std::vector<const GenParticle *> daughters;
         for (int idau = particle->D1; idau <= particle->D2; ++idau) {
@@ -1083,6 +1106,7 @@ private:
         return daughters;
     }
 
+    // A particle's daughters, keeping only the quarks (optionally also gluons).
     std::vector<const GenParticle *> getDaughterQuarks(const GenParticle *particle, bool allow_gluon = false) {
         std::vector<const GenParticle *> daughters;
         for (int idau = particle->D1; idau <= particle->D2; ++idau) {
@@ -1098,6 +1122,8 @@ private:
         return daughters;
     }
 
+    // A tau's decay products, with its decay mode: 0 for electronic, 1 for muonic,
+    // 2 for hadronic.
     std::pair<std::vector<const GenParticle*>, int> getTauDaughters(const GenParticle* particle) {
         const auto tau = getFinal(particle);
         auto daughters = getDaughters(tau);
@@ -1190,21 +1216,16 @@ private:
         // NOT one of the v2 QCD_* flavors above, which v1 never assigns
         "QCD_all",
 
-        // APPENDED 2026-11-11, deliberately AT THE END rather than in their natural
-        // positions above. These five labels can all be assigned by the code below but
-        // were missing from this list, so producing one threw
-        //   [FatJetInfoFiller::fill]: unexpected label <X>
-        // and killed the job. They were unreachable for the JetClass2 signal, whose
-        // Higgs never decays to b sbar - hence the inline remark on the X_bs assignment
-        // that it should not happen in the main sample. gen_configs/jetclass2sb/train_higgs2p
-        // reproduces the reference's decay table, which DOES include H -> b sbar at
-        // 11.25%, making X_bs common and the four merged-jet (YY) combinations below
-        // reachable whenever one jet captures both Higgses.
+        // These labels sit at the end rather than next to their relatives, and any
+        // further label must be appended here too.
         //
-        // Order matters: jet_label is stored as an INDEX into this vector, so inserting
-        // them next to their relatives would renumber every later label and silently
-        // mislabel every ntuple produced so far. Appending leaves all existing indices
-        // untouched, at the cost of this list no longer matching the XDecay enum order.
+        // jet_label is stored as an INDEX into this vector, so inserting a label in
+        // its natural position renumbers every later one and silently mislabels every
+        // ntuple produced so far. Appending keeps all existing indices valid, at the
+        // cost of this list not matching the XDecay enum order.
+        //
+        // X_bs is reachable for any process whose resonance decays to b sbar, which
+        // the jetclass2sb decay table does.
         "X_bs",
         "X_YY_bbcs",
         "X_YY_bbsq",

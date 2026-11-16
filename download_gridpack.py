@@ -1,32 +1,24 @@
 #!/usr/bin/env python3
 
 '''
-Pre-populate the persistent gridpack cache (see
-gen_configs/populate_gridpack_cache.sh) for one or more jetclass1
+Pre-populate the persistent gridpack cache for one or more jetclass1
 "precompiled" processes, without generating any events.
 
-run_gen_precompiled.sh already does this lazily, as a side effect of the
-first generation job that needs a given process - this script just does that
-same download+extract+patch step ahead of time, for as many processes as
-asked, in parallel condor jobs by default (one job per process). Useful to
-run once before submitting the actual generation jobs, so:
-  - the (network-bound, ~1 min) download only ever happens once per process,
-    instead of racing across many simultaneous generation jobs the first
-    time each process is used;
-  - generation jobs never pay that latency themselves.
+run_gen_precompiled.sh does this lazily anyway, as a side effect of the first
+generation job that needs a process. Doing it here ahead of time, in one condor
+job per process, means the network-bound download happens once per process
+instead of racing across many simultaneous generation jobs, and no generation
+job pays that latency itself.
 
-This only touches the gridpack cache - it does not generate LHE/HepMC events
-and does not touch $OUTPUT_PATH. The cache layout this produces is exactly
-the one run_gen_precompiled.sh itself produces and expects (both call the
-same gen_configs/populate_gridpack_cache.sh), so its output for a given
-process is indistinguishable from that process having simply been run once
-already - e.g. for HToBB/HToCC, already populated by earlier generation runs.
+Only the gridpack cache is touched: no events are generated and $OUTPUT_PATH is
+left alone. Both this and run_gen_precompiled.sh call the same
+gen_configs/populate_gridpack_cache.sh, so the resulting cache is
+indistinguishable from the process having been run once already.
 
-Note this really is just a download: the "precompiled" gridpacks are fetched
-already-compiled from https://github.com/jet-universe/jetclass_generation
-(see populate_gridpack_cache.sh) - nothing is recompiled from the raw
-MadGraph process cards here (that only happens for the non-precompiled
-"raw" configs, via the normal run.sh/run_gen_default.sh path).
+This really is only a download: the "precompiled" gridpacks are fetched
+already-compiled from https://github.com/jet-universe/jetclass_generation.
+Nothing is built from the raw MadGraph cards here, which is what the
+non-precompiled "raw" configs do instead.
 
 Usage:
   # submit one condor job per process, populating the shared default cache
@@ -53,8 +45,8 @@ THISDIR = os.path.dirname(os.path.abspath(__file__))
 GENCFG_PATH = os.path.join(THISDIR, 'gen_configs')
 JETCLASS1_DIR = os.path.join(GENCFG_PATH, 'jetclass1')
 
-# same defaults as run.sh, so the cache this populates is the one
-# run.sh/run_gen_precompiled.sh actually read from unless overridden
+# Same defaults as run.sh, so this populates the cache the generation jobs
+# actually read from unless overridden.
 DEFAULT_MG5_PATH = '/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2'
 DEFAULT_GRIDPACK_CACHE = '/eos/user/l/llambrec/jetclass/gridpack_cache'
 
@@ -69,10 +61,10 @@ def normalize_proc(proc):
 
 def gridpack_name_for_proc(proc):
     '''
-    Read GRIDPACK_NAME out of gen_configs/jetclass1/<proc>/precompiled/run_gen.sh,
-    rather than assuming it always equals `proc` (true for every process
-    today, but that file is the actual source of truth the generation jobs
-    themselves use, so read it rather than duplicate the assumption here).
+    Read GRIDPACK_NAME out of gen_configs/jetclass1/<proc>/precompiled/run_gen.sh.
+
+    That file is what the generation jobs themselves use, so it is read rather
+    than assuming the gridpack name always equals the process name.
     '''
     run_gen = os.path.join(JETCLASS1_DIR, proc, 'precompiled', 'run_gen.sh')
     if not os.path.exists(run_gen):
@@ -147,8 +139,8 @@ if __name__ == '__main__':
         for proc in procs:
             gridpack_name = gridpack_names[proc]
             jobname = 'download_gridpack_{}'.format(proc)
-            # explicit cd, same reasoning as run_condor.py: makes the job
-            # work regardless of where download_gridpack.py was invoked from
+            # Explicit cd, so the job works wherever this script was invoked
+            # from.
             commands = [
                 'cd {}'.format(THISDIR),
                 'echo "###starting###"',

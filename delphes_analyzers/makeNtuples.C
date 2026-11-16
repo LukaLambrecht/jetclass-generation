@@ -16,17 +16,14 @@
 // class ExRootTreeReader;
 // #endif
 
-// keepGenParticles/keepAuxGenParticles/keepGenJet: all default to false, so
-// the default output only has the branches that match the officially
-// published JetClass files (part_*, jet_*) plus the single jet_label int.
-// Enabling any of them adds a *second*, generator-level-truth copy of the
-// per-particle data on top of that (genpart_* mirrors part_* at the same
-// per-jet multiplicity, aux_genpart_* the matched resonance/tau-decay
-// chain, genjet_* the matched gen-jet's own summary) - useful for
-// validation/cross-checking during pipeline development, but roughly
-// doubles the per-jet ntuple size when enabled (see
-// testing/test-generation-time/README.md's ntuple-size comparison against
-// the official release for the measurement behind this default).
+// Ntuplize one Delphes file: one row per selected jet, with its constituents.
+//
+// keepGenParticles/keepAuxGenParticles/keepGenJet all default to false, so the output
+// carries only the branches the published JetClass files have, plus jet_label.
+// Enabling any of them adds a second, generator-level copy of the per-particle data:
+// genpart_* mirrors part_* at the same per-jet multiplicity, aux_genpart_* the matched
+// resonance and tau-decay chain, genjet_* the matched gen-jet's summary. Useful for
+// cross-checks, but roughly doubles the ntuple size.
 void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8", bool assignQCDLabel = false, bool debug = false, bool useV1Labels = false,
                   bool keepGenParticles = false, bool keepAuxGenParticles = false, bool keepGenJet = false) {
     // gSystem->Load("libDelphes");
@@ -34,9 +31,8 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
     TFile *fout = new TFile(outputFile, "RECREATE");
     TTree *tree = new TTree("tree", "tree");
 
-    // define branches - always the reco-level ones (matching the official
-    // JetClass release exactly); the generator-level-truth groups below are
-    // appended only if their own keep* flag is set
+    // Define the branches. The reco-level ones always, matching the published
+    // JetClass release; the generator-level groups only if their keep* flag is set.
     std::vector<std::pair<std::string, std::string>> branchList = {
         // particle (jet constituent) features
         {"part_px", "vector<float>"},
@@ -166,13 +162,9 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Jet
             if (fjlabel == "Invalid")
                 continue;
 
-            // JetClass-I (v1) only: reject any jet whose matching search
-            // touched a truth top/Higgs/W/Z decay but didn't end up fully
-            // merged - mirrors the original jet-universe/jetclass_generation
-            // makeNtuples.C's own "is_signal" rejection exactly (see
-            // FatJetMatching::shouldRejectV1()'s own docstring for the full
-            // reasoning). Not applied for v2 (useV1Labels false) - jetclass2
-            // processing is unchanged, matching jet-universe/jetclass2_generation.
+            // v1 only: reject a jet whose matching search touched a truth
+            // top/Higgs/W/Z decay without ending up fully merged. See
+            // FatJetMatching::shouldRejectV1(). Never applies under v2.
             if (useV1Labels && fjmatch.shouldRejectV1())
                 continue;
 

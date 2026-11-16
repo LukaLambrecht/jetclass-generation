@@ -1,24 +1,16 @@
 #!/usr/bin/env python3
 
-'''
-Plot ntuple file size (size_bytes=, see run_timing_scan.py/backfill_size.py)
-versus NEVENT and NJETS, fitting the same "fixed overhead + linear" model
-plot_timing.py uses for runtime:
+'''Plot ntuple file size against NEVENT and NJETS, fitting the same "fixed overhead plus
+linear" model plot_timing.py uses for runtime:
 
     size_MB = intercept + slope * NEVENT   (or NJETS)
 
-The intercept is a per-file fixed overhead (ROOT/TTree file structure -
-headers, branch metadata, basket bookkeeping - present even for a
-near-empty ntuple); the slope is the marginal size per event/jet actually
-written.
+The intercept is the per-file overhead of the ROOT file structure, present even for a
+near-empty ntuple; the slope is the marginal size per event or jet written.
 
-This script does not reimplement any of the fitting/plotting/printing -
-it calls straight into plot_timing.py's generate_all_plots() (see there
-for the full behavior: one color per process, combined + individual
-plots, log-log versions, "<process> measured"/"Fit: ..." legends for the
-individual ones, etc.) with ntuple size (converted from the stored
-size_bytes to MB) as the y-quantity instead of elapsed_sec, and its own
-"size_scan" file-naming prefix instead of "timing_scan".
+None of the fitting or plotting is reimplemented: this calls plot_timing.py's
+generate_all_plots() with ntuple size as the y-quantity instead of elapsed time, and
+its own file-naming prefix.
 
 Usage:
   python plot_size.py timing_results_HToBB.txt timing_results_HToCC.txt timing_results_TTBar.txt

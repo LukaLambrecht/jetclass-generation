@@ -1,90 +1,55 @@
 #!/usr/bin/env python3
 
-'''
-Generate the HLT-like Delphes card from the offline-like Delphes card plus
-the data-driven curves produced by derive_curves.py. Almost every number
-written into the output card is either read out of the offline card
-(treated as the given baseline) or read out of curves_qcd.json (treated as
-the measurement) - see README.md for the method. The one exception is
-ECal/HCal, which use a small number of explicit, documented hand-set
-placeholder values instead ("plan B" - see apply_calo_plan_b() and
-hlteff/calorimeters/README.md for why the data-driven approach doesn't work
-there).
+'''Generate the HLT-like Delphes card from the offline-like card plus the data-driven
+curves derive_curves.py produced.
 
-Two combination rules are used, chosen per module by what physically makes
-sense for that quantity:
+Almost every number written out is either read from the offline card, treated as the
+baseline, or from the curves file, treated as the measurement. The one exception is
+ECal/HCal, which use a few explicit hand-set values instead; see apply_calo_plan_b().
 
-Multiplicative (a 0-1 efficiency, or a scale factor with no natural bound):
-    HLT value(pt,eta bin) = offline value(pt,eta bin) * data ratio(pt,eta bin)
-  Applies to: ChargedHadronTrackingEfficiency, ElectronTrackingEfficiency,
-  MuonTrackingEfficiency (data ratio = fraction of offline candidates matched
-  at scouting level), and JetEnergyScalePUPPIAK8 (data ratio = real
-  scoutfj_pt/fj_pt).
+Two combination rules are used, chosen per module by what makes sense for the quantity:
 
-Quadrature (a resolution/spread, where the data measures an *extra*,
-independent smearing on top of whatever the offline formula already has):
-    HLT value(pt,eta bin) = sqrt(offline value(pt,eta bin)^2 + extra(pt,eta bin)^2)
-  Applies to: ChargedHadronMomentumSmearing, ElectronMomentumSmearing,
-  MuonMomentumSmearing (extra = spread of (pt_scout-pt_offline)/pt_offline
-  for matched pairs of that category), and TrackSmearing's D0/DZResolutionFormula
-  (extra = spread of (dxy_scout-dxy_offline) / (dz_scout-dz_offline) for
-  matched pairs, pooled across categories, in mm).
+Multiplicative, for an efficiency or a scale factor:
+    HLT = offline * measured ratio
+  Used for the tracking efficiencies, where the ratio is the fraction of offline
+  candidates matched at scouting level, and for the jet energy scale, where it is the
+  measured HLT/offline jet-pT ratio.
 
-Every generated table is written as an explicit (eta bin x pt bin)
-piecewise-constant table, in the same style already used elsewhere in these
-cards (e.g. the hand-written TrackSmearing D0/DZ tables) - not as a symbolic
-rescaling of the offline formula, so the resulting card is self-contained
-and human-inspectable.
+Quadrature, for a resolution, where the data measures extra smearing on top of what the
+offline formula already has:
+    HLT = sqrt(offline^2 + extra^2)
+  Used for the momentum-smearing modules and for TrackSmearing's d0 and dz resolutions.
 
-Bins with too little data to trust (below --min-count/--min-pairs, or - for
-resolution - a suspiciously large sigma, see --max-sigma) fall back to the
-nearest bin in the same eta row with usable data (pT bins are ordered, so
-this is a simple forward/backward fill); if an entire eta row has no usable
-data the fallback is "no measured degradation" (ratio 1, extra 0), and a
-warning is printed - this can happen at very high pT where statistics run
-out, or for electrons (see README "Notable findings").
+Every generated table is written as an explicit (eta bin x pT bin) piecewise-constant
+table, in the style already used in these cards, rather than as a symbolic rescaling of
+the offline formula, so the result is self-contained and inspectable.
 
-ECal/HCal ResolutionFormula are set to (offline formula) *
---calo-resolution-degradation (default 1.1, i.e. a 10% degradation; 1.0
-keeps the offline resolution), and both modules' tower grids can additionally
-be coarsened by --calo-granularity-factor (default 1.0, i.e. offline
-granularity, no coarsening) - hand-set assumptions, not measurements; see
-apply_calo_plan_b() and hlteff/calorimeters/README.md.
+A bin with too little data to trust, or an implausibly large sigma, falls back to the
+nearest usable bin in the same eta row. If a whole eta row is unusable the fallback is
+"no measured degradation" and a warning is printed; that can happen at very high pT
+where the statistics run out.
 
-Charged/Electron/Muon TrackingEfficiency are additionally hard-set to 0 in
-every pT bin entirely below --charged-eff-pt-floor (default 0.5 GeV), all
-|eta| - a hand override of the data-driven curves, which return a small
-nonzero efficiency there that is not trusted.
+Several values are deliberately not data-driven:
+  * ECal/HCal resolutions are the offline formula times
+    --calo-resolution-degradation, and both tower grids can be coarsened by
+    --calo-granularity-factor;
+  * the tracking efficiencies are hard-set to 0 below --charged-eff-pt-floor, where the
+    measured curves return a small value that is not trusted;
+  * PUPPI is copied through untouched except for RunPUPPIBase's UseCharged flags, which
+    --puppi-use-charged can turn off. That scores PUPPI's alpha against all particles
+    rather than leading-vertex charged tracks only - a population the tracking retuning
+    does not deplete - which largely removes the neutral-per-jet deficit this card
+    otherwise has against real scouting data; see apply_puppi_use_charged();
+  * the FastJetFinder JetPTMin is lowered to --hlt-jet-pt-min rather than copied from
+    the offline card. That is a structural requirement of the paired-ntuple workflow,
+    which selects on the offline jet and keeps whatever HLT jet matches it, however
+    soft: if this card never constructs a degraded jet at all, the distinction between
+    "HLT jet exists but is soft" and "HLT jet is gone" is lost before the ntuplizer
+    sees it. The jet energy scale table is generated to extend sensibly into that
+    newly reachable low-pT region, rather than evaluating to a phantom zero below the
+    lowest measured bin.
 
-PUPPI is copied through from the offline card untouched EXCEPT for
-RunPUPPIBase's own UseCharged flags, settable via --puppi-use-charged
-(default "true" = the offline card's own value, i.e. genuinely untouched).
-Setting it "false" scores PUPPI's alpha against ALL particles instead of
-leading-vertex CHARGED TRACKS only - a reference population the HLT tracking
-retuning above does not deplete - which largely removes the reconstructed
-neutral-hadron/photon-per-jet deficit this card otherwise has relative to
-real scouting data; see apply_puppi_use_charged() for the full reasoning.
-
-Everything else (the rest of PUPPI, TrackPileUpSubtractor.ZVertexResolution,
-JetEnergyScalePUPPIAK15) is still genuinely untouched - see README.md
-("Known limitations / not yet data-driven").
-
-FastJetFinderPUPPIAK8/AK15's own JetPTMin is lowered to --hlt-jet-pt-min
-(default 1.0 GeV, i.e. effectively "no cut" - see its own --help) instead of
-being copied unchanged from the offline card (200/120 GeV). This is not a
-data-driven measurement either, but a structural requirement for the
-offline<->HLT jet-matching workflow (delphes_analyzers/makeNtuplesPaired.C):
-that ntuplizer applies pT/eta selection to the OFFLINE jet only and keeps
-whatever HLT jet matches it regardless of the HLT jet's own pT - including
-one that fell below any nominal HLT threshold. If this card's own
-FastJetFinder silently never constructs/writes a jet that degraded below
-200/120 GeV in the first place, that distinction (HLT jet exists but is
-soft vs. HLT jet is genuinely gone) is lost before the ntuplizer ever sees
-it. JetEnergyScalePUPPIAK8's ScaleFormula is generated to cover this newly-
-reachable low-pT region sensibly (extending the lowest measured bin's value
-downward - see format_piecewise_table()'s own docstring) rather than the
-phantom-zero it would otherwise evaluate to below JET_PT_EDGES[0] (200 GeV,
-itself just this measurement's own data baseline, not a physical floor).
+Everything else, including the rest of PUPPI, is genuinely untouched.
 
 Usage:
   python generate_hlt_card.py [--curves PATH] [--offline-card PATH]
@@ -112,9 +77,9 @@ DEFAULT_OFFLINE_CARD = os.path.join(REPO_DIR, 'delphes_cards', 'delphes_card_CMS
 DEFAULT_OUTPUT = os.path.join(REPO_DIR, 'delphes_cards', 'delphes_card_CMS_JetClassII_onlyFatJet_HLT.tcl')
 DEFAULT_OUTPUT_NOPU = os.path.join(REPO_DIR, 'delphes_cards', 'delphes_card_CMS_JetClassII_onlyFatJet_HLT_noPU.tcl')
 
-# category -> Delphes module name for its tracking-efficiency / momentum-
-# resolution modules (same category names key both, since the offline card
-# names them consistently)
+# Category to Delphes module name, for both the tracking-efficiency and the
+# momentum-resolution modules: the offline card names them consistently, so one set of
+# category names keys both.
 EFFICIENCY_MODULES = {
     'chargedHadron': 'ChargedHadronTrackingEfficiency',
     'electron': 'ElectronTrackingEfficiency',
@@ -186,32 +151,26 @@ def build_ratio_table(ratio_grid, n_grid, offline_formula, eta_edges, pt_edges,
     return table
 
 
-# lower edges (GeV) of the coarse track-pT groups whose |d0| SHAPE is used as
-# the fallback for (eta, pt, d0) bins with too few offline tracks (see
-# build_ip_ratio_table); fine pT bins below the first edge join the first group
+# Lower edges, in GeV, of the coarse track-pT groups whose |d0| shape is the fallback
+# for (eta, pt, d0) bins with too few offline tracks. Fine pT bins below the first edge
+# join the first group.
 IP_PT_GROUP_EDGES = [0.5, 1.2, 3.0, 10.0, 40.0]
 
 
 def build_ip_ratio_table(n_off, n_match, offline_formula, eta_edges, pt_edges, d0_edges, min_count, label,
                          fallback_2d=None, fallback_shapes=None):
-    '''
-    Multiplicative combination with a third, |d0| axis (see derive_ip_curves.py):
-    HLT(pt,eta,d0) = offline_formula(pt,eta) * ratio(eta,pt,d0), clipped to [0,1].
-    ratio is n_matched/n_offline of the (eta,pt,d0) bin itself when that bin has at
-    least min_count offline tracks; otherwise the product of
-      - the bin's d0-INCLUSIVE ratio (same denominator; pT gaps filled from the
-        nearest valid pT bin, as fill_missing() does elsewhere) - or, for an eta
-        row with no usable d0-inclusive data at all, the (eta, pt) ratio row of
-        fallback_2d = (ratio_grid, n_grid) from curves_qcd.json (what the
-        default card uses), rather than a blind ratio of 1; and
-      - the |d0| SHAPE of the bin's coarse pT group (IP_PT_GROUP_EDGES):
-        ratio(eta,group,d0) / ratio(eta,group,inclusive), itself filled along d0
-        from the nearest valid d0 bin where the group is also short of data - or,
-        for a group with no usable d0 data at all, fallback_shapes[eta][group]
-        (e.g. the charged-hadron shapes, for muons) if given.
-    Using the offline formula as the base assumes the offline efficiency is
-    uniform in d0 (the same assumption the measurement needs).
-    Returns (table, shapes), shapes[eta][group] being the d0 shapes used.
+    '''Multiplicative combination with a third, |d0| axis:
+        HLT(pt, eta, d0) = offline(pt, eta) * ratio(eta, pt, d0), clipped to [0, 1].
+
+    The ratio is the bin's own matched fraction where that bin has enough offline tracks.
+    Otherwise it is the product of the bin's d0-inclusive ratio and the |d0| shape of its
+    coarse pT group, each filled from the nearest valid neighbour where it too is short of
+    data, and from the supplied fallbacks where a whole eta row or group is unusable.
+
+    Using the offline formula as the base assumes the offline efficiency is uniform in d0,
+    the same assumption the measurement needs.
+
+    Returns (table, shapes), with shapes[eta][group] the d0 shapes used.
     '''
     n_off = np.asarray(n_off, dtype=float)
     n_match = np.asarray(n_match, dtype=float)
@@ -310,26 +269,29 @@ def build_quadrature_table(sigma_grid, n_grid, offline_formula, eta_edges, pt_ed
     return table
 
 
-# ECal/HCal: unlike every other module above, this is NOT derived from
-# curves_qcd.json. Two closure checks (see hlteff/calorimeters/README.md)
-# found the matched-pair approach doesn't work for the calorimeters the way
-# it does for tracking - ECal's is workably-close-but-imprecise, HCal's
-# breaks down outright (a real energy-attribution effect, most likely
-# offline-lost charged tracks' calo deposits reappearing online as "extra"
-# neutral hadron candidates with no clean 1-to-1 offline counterpart, not a
-# resolution or granularity effect - see hlteff/calorimeters/README.md
-# "Findings"). A tower-granularity scan (also documented there) confirmed
-# that coarsening HCal's grid does not reproduce the observed real-data
-# multiplicity pattern either (it can only ever reduce candidate count, but
-# real scouting has *more* candidates than offline through most of the
-# spectrum) - so these are deliberate, hand-set placeholder assumptions
-# ("plan B"), not a fit to data, applied identically to both modules for
-# consistency even though the granularity scan itself only tested HCal.
-# Revisit if a better-founded measurement becomes available.
+# ECal/HCal are not derived from the curves file, unlike every module above. Two closure
+# checks found the matched-pair approach does not carry over to the calorimeters: ECal's
+# is close but imprecise, and HCal's breaks down outright. The most likely cause is a
+# real energy-attribution effect, with offline-lost charged tracks' calorimeter deposits
+# reappearing online as extra neutral candidates having no clean offline counterpart,
+# rather than a resolution or granularity effect.
+#
+# A tower-granularity scan confirmed coarsening HCal's grid does not reproduce the
+# observed multiplicity pattern either: it can only ever reduce the candidate count,
+# while real scouting has more candidates than offline over most of the spectrum.
+#
+# So these are deliberate hand-set placeholders, not a fit to data, applied identically
+# to both modules even though only HCal was scanned. See hlteff/calorimeters/README.md,
+# and revisit if a better-founded measurement becomes available.
 CALO_MODULES = ['ECal', 'HCal']
 
 
 def apply_calo_plan_b(text, resolution_factor, calo_granularity_factor):
+    '''Set ECal/HCal resolutions to the offline formula times a factor, and optionally coarsen
+    their tower grids.
+
+    Hand-set rather than measured: see the module docstring and the comment on the defaults.
+    '''
     for module in CALO_MODULES:
         offline_formula = extract_formula_block(text, module, 'ResolutionFormula')
         new_formula = '({}) * {:.6g}'.format(offline_formula.strip(), resolution_factor)
@@ -347,25 +309,22 @@ PUPPI_MODULE = 'RunPUPPIBase'
 
 
 def apply_puppi_use_charged(text, use_charged):
-    '''
-    Set RunPUPPIBase's own UseCharged flags (one per eta bin) on the generated HLT card.
-    PUPPI is otherwise copied through from the offline card untouched (see the module
-    docstring) - this is the ONE PUPPI setting the HLT card is allowed to differ in.
+    '''Set RunPUPPIBase's per-eta UseCharged flags on the generated HLT card.
 
-    What it does, and why it is an HLT knob at all: with UseCharged true (the offline
-    card's own value) each candidate's PUPPI "alpha" is computed against LEADING-VERTEX
-    CHARGED TRACKS only, and the median/RMS calibration is built from pileup-charged
-    candidates only. That reference population is exactly what our HLT tracking
-    retuning depletes (~40% of charged tracks are lost), so jet-core NEUTRALS look
-    artificially isolated, score pileup-like, and get weighted to ~0 - measured as a
-    large deficit of reconstructed neutral hadrons/photons per jet relative to offline,
-    where real scouting data shows a large EXCESS (see validation/compare-hlt-to-offline/
-    plot_nparticles.py). With UseCharged false the alpha reference becomes ALL particles
-    instead, a population tracking losses do not deplete (neutrals are unaffected).
+    This is the one PUPPI setting the HLT card may differ in; the rest is copied through
+    untouched.
 
-    Only the flags inside the RunPUPPIBase module block are touched (the offline card is
-    the input and is never written), and the number of flags is preserved, since
-    RunPUPPI::Init() requires every per-eta-bin list to be the same length.
+    With UseCharged true, the offline card's value, each candidate's PUPPI alpha is
+    computed against leading-vertex charged tracks only, and the calibration is built from
+    pile-up charged candidates only. That reference population is exactly what the HLT
+    tracking retuning depletes, so jet-core neutrals look artificially isolated, score as
+    pile-up and are weighted to nearly zero - which shows up as a large deficit of
+    reconstructed neutrals per jet, where real scouting data shows an excess. With
+    UseCharged false the reference becomes all particles, which tracking losses do not
+    deplete.
+
+    Only the flags inside the RunPUPPIBase block are touched, and their number is
+    preserved, since RunPUPPI requires every per-eta list to be the same length.
     '''
     module_pat = re.compile(r'^module\s+RunPUPPI\s+' + re.escape(PUPPI_MODULE) + r'\s*\{', re.MULTILINE)
     m = module_pat.search(text)
@@ -422,6 +381,7 @@ def _module_span(text, module_type, module_name):
 
 
 def _replace_in_module(text, module_type, module_name, old, new):
+    '''Replace `old` with `new` inside one named module's body only.'''
     start, end = _module_span(text, module_type, module_name)
     block = text[start:end]
     if block.count(old) != 1:
@@ -433,31 +393,24 @@ HLT_JET_INPUT_PT_FILTER = 'HLTEFlowPtFilter'
 
 
 def apply_no_puppi(text, z_window_mm=None, pf_pt_min=None):
-    '''
-    Build the HLT jets WITHOUT PUPPI (and without CHS): real scouting AK8 jets are
-    plain anti-kT over all scouting particles (see delphes_cards/KNOWN_ISSUES.md).
-    Adds a Merger (HLT_JET_INPUT_MERGER) of the energy-flow tracks + ECal photons +
-    HCal neutral hadrons, and points FastJetFinderPUPPIAK8/AK15 and the
-    ParticleFlowCandidate TreeWriter branch at it instead of RunPUPPI/PuppiParticles.
-    (The module/branch names keep their "PUPPI" labels, so the ntuplizer and
-    run.sh work unchanged; PUPPI itself still runs, but nothing uses its output.)
+    '''Build the HLT jets without PUPPI or CHS, since real scouting AK8 jets are plain anti-kT
+    over all scouting particles.
 
-    z_window_mm None: the tracks are ALL energy-flow tracks (HCal/eflowTracks), i.e.
-    every pile-up track the tracking-efficiency modules let through.
-    z_window_mm given: emulates HLT tracking's limited z acceptance around the
-    leading vertex, which a Delphes formula can't express (its dz is absolute): the
-    tracks are TrackPileUpSubtractor/eflowTracks with ZVertexResolution set to that
-    window, i.e. pile-up tracks farther than z_window_mm from the primary vertex are
-    dropped (by truth) and nearer ones kept - not CHS in the sense of an
-    algorithm run on reconstructed tracks, but a stand-in for tracks HLT never
-    reconstructs.
+    Adds a merger of the energy-flow tracks, ECal photons and HCal neutral hadrons, and
+    points the jet finders and the candidate TreeWriter branch at it instead of PUPPI's
+    output. The module and branch names keep their PUPPI labels, so the ntuplizer and run.sh
+    work unchanged; PUPPI still runs, but nothing reads it.
 
-    pf_pt_min given: additionally drop every candidate (charged or neutral) with
-    reconstructed pT below it before jet clustering / writing, as the scouting
-    producer does (HLTScoutingPFProducer stores only candidates with pT > 0.6 GeV;
-    all ScoutingAK8 scouting candidates have pT >= 0.600). Implemented as a
-    PdgCodeFilter (HLT_JET_INPUT_PT_FILTER) with only a PTMin (no PDG codes listed,
-    so nothing else is filtered).
+    With no z_window_mm the tracks are every energy-flow track, i.e. every pile-up track
+    the efficiency modules let through. With one, it emulates HLT tracking's limited z
+    acceptance around the leading vertex, which a Delphes formula cannot express because
+    its dz is absolute: pile-up tracks farther than the window from the primary vertex are
+    dropped by truth. That is a stand-in for tracks HLT never reconstructs, not CHS in the
+    sense of an algorithm run on reconstructed tracks.
+
+    With pf_pt_min, every candidate below it is dropped before clustering, as the scouting
+    producer does. Implemented as a filter carrying only a pT threshold, so nothing else is
+    filtered.
     '''
     tracks = 'TrackPileUpSubtractor/eflowTracks' if z_window_mm is not None else 'HCal/eflowTracks'
     merger = ('module Merger {name} {{\n'
@@ -522,6 +475,9 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
                  hlt_jet_pt_min, charged_eff_pt_floor, puppi_use_charged,
                  ip_curves_path=None, ip_curves=None, ip_categories=(), no_puppi=False, z_window_mm=None,
                  pf_pt_min=None, jes_correction_path=None, jes_correction=None):
+    '''Build the comment header written at the top of the generated card, recording what it
+    was generated from and with which options.
+    '''
     src = curves['source']
 
     # extra paragraphs for the opt-in options only (empty by default, so the
@@ -672,6 +628,9 @@ def make_header(curves_path, curves, offline_card_path, calo_resolution_degradat
 
 
 def main():
+    '''Read the offline card and the curves, build every retuned table, and write the HLT card
+    or cards.
+    '''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--curves', default=DEFAULT_CURVES)

@@ -6,20 +6,18 @@
 #   ./crab_command.sh resubmit crab_logs/crab_<name>
 #   ./crab_command.sh kill    crab_logs/crab_<name>
 #
-# This exists mainly for crab/monitoring/, which shells out to exactly this script in
-# each simpack rather than calling crab itself - the convention of the upstream
-# private-sample-production repo this workflow is based on. It is also the easiest way
-# to drive crab by hand without setting up an environment first.
+# Copied into every simpack by build_simpack.py, as the easiest way to drive crab
+# by hand against that task without setting up an environment first.
 #
-# NOTE the `set +u`: crab.sh reads unbound variables, and under `set -u` an unbound
-# variable in a SOURCED script exits the shell outright rather than returning non-zero,
-# which fails silently. The same trap bit crab/site-probe/collect_probe.sh.
+# NOTE the `set +u`, and do not remove it: crab.sh reads unbound variables, and
+# under `set -u` an unbound variable in a SOURCED script exits the shell outright
+# rather than returning non-zero, which fails silently.
 set +u
 source /cvmfs/cms.cern.ch/cmsset_default.sh >/dev/null 2>&1
 
-# Prefer the CMSSW area crab_submit.sh already made in this simpack; otherwise fall back
-# to a release on cvmfs. Either works - crab only needs *a* CMSSW environment, not the
-# one the jobs run (that is CMSSW_10_6_30 inside the container, see run_job.sh).
+# Prefer the CMSSW area crab_submit.sh made in this simpack, else a release on
+# cvmfs. Either works: crab needs only some CMSSW environment, not the release the
+# jobs themselves run.
 if [ -d CMSSW_14_0_0/src ]; then
     export SCRAM_ARCH=el9_amd64_gcc12
     pushd CMSSW_14_0_0/src >/dev/null && eval "$(scram runtime -sh)" && popd >/dev/null

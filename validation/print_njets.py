@@ -1,90 +1,52 @@
 #!/usr/bin/env python3
 
-'''
-Diagnostics for a production output directory: per (family/proc/card) and
-per-process ("gridpack type", e.g. train_higgs2p vs train_qcd, or HToBB vs
-TTBar) jet yield (ROOT tree entry count, i.e. njets - one entry per jet, per
-makeNtuples.C/makeNtuplesPaired.C) and ntuple size on disk, PLUS a full
-per-label breakdown (jet_label branch) with QCD_* vs everything-else
-aggregates - e.g. to check what fraction of a jetclass2 signal process' own
-output is actually signal-labeled vs QCD-fallback-labeled (see
-compare-to-central-jetclass2/ and the X->ff njets/event discussion this was
-written for), or to sanity-check a process' label composition against its
-own py8.dat decay branching ratios.
+'''Diagnostics for a production output directory: jet yield and ntuple size per
+(family/proc/card) and per process, plus a full per-label breakdown with QCD against
+everything-else aggregates.
 
-Directories are auto-discovered under --output-path (rather than assuming a
-fixed jetclass1 process list/layout) by globbing for ntuple_*.root and
-parsing each file's path relative to --output-path as
-<family>/<proc>/.../<card>/ntuple_*.root - i.e. "jetclass1/HToBB/precompiled/
-onlyFatJetNoPU/...", "jetclass2/train_higgs2p/onlyFatJet/..." or
-"jetclass2sb/QCD_PT-470to600/fullsim_offline+hlt/..." (proc is
-always the path component right after the family, whatever comes between
-proc and card - "precompiled"/"raw" for jetclass1, nothing for jetclass2).
-This works unchanged for both process families and needs no update when new
-processes are added under gen_configs/. --procs/--cards optionally restrict
-to a subset (bare names, e.g. "HToBB,TTBar" or "train_higgs2p").
+Useful to check what fraction of a signal process' output is actually signal-labelled
+rather than QCD-fallback-labelled, or to sanity-check a process' label composition
+against its own decay branching ratios.
 
-The SAME --output-path can also point at the real FullSim/scouting
-reference dataset this whole Delphes pipeline is trying to mimic (see
-hlteff/README.md's own "Data source" section and ntuple_io.py for the full
-description) - e.g. --output-path /eos/cms/store/cmst3/group/vhcc/
-ScoutingAK8/2024/train, which holds <sample>/dnnTuples_nanov15_*.root.
-Those are auto-discovered too (family="fullsim", proc=<sample>,
-card="paired" - offline+HLT are already one combined row there, see
-ntuple_io.py), letting the exact same command compare our own output
-against it directly - see "Cross-schema label handling" below.
+Directories are auto-discovered under --output-path by globbing for ntuples and parsing
+each path relative to it as <family>/<proc>/.../<card>/, with proc always the component
+right after the family, whatever lies between proc and card. This works unchanged for
+every process family and needs no update when processes are added. --procs and --cards
+optionally restrict to a subset.
 
-Per-label counts are read directly off each file's jet_label branch (an int
-index into FatJetMatching.h's own labels_ vector - see ntuple_io.load_label_names(),
-which parses that vector straight out of the header so it can never drift
-out of sync with it) and aggregated with np.bincount, so this reads the
-same amount of data uproot would need anyway for num_entries plus the
-label values - no extra passes over the files.
+The same --output-path can point at the CMS offline+scouting reference dataset instead,
+whose samples are discovered the same way, letting one command compare our output
+against it directly.
 
-Label scheme, per family - two independent choices, see --coarse-labels:
+Per-label counts are read off each file's label branch and aggregated with bincount, so
+this reads no more data than the entry count alone would need.
 
-  - DEFAULT (each dataset's own native/raw labels, not cross-schema
-    comparable by name): "ours" procs use our own fine-grained v2
-    X_*/QCD_*/... (or v1 Top_*/W_*/Z_*/H_*) label scheme (see
-    ntuple_io.load_label_names()); "fullsim" procs use fullsim's own
-    native fj_label integer code directly (see
-    ntuple_io.load_fullsim_raw_labels()) - printed as "fj_label=<N>" since
-    we don't have DNNTuples' own (unpublished) string names for it, just
-    the raw codes themselves. This is what you want to study a single
-    dataset's own composition on its own terms.
+The label scheme is chosen with --coarse-labels:
 
-  - --coarse-labels: both families collapse onto ntuple_io.py's own
-    coarse, cross-schema CATEGORY_NAMES buckets instead (Top/W/Z/H2p/HWW/
-    HZZ/QCD/other) - "ours" via each fine-grained label's name (see
-    ntuple_io.classify_ours_label()), "fullsim" via its own boolean
-    category flags (see ntuple_io.load_fullsim_categories()). This is what
-    you want to compare an "ours" proc against a "fullsim" one directly,
-    at the cost of not being a fine-grained comparison (the two schemes'
-    fine-grained label names don't correspond 1:1 - see classify_ours_label()'s
-    own docstring for why these 8 buckets do correspond well enough).
+  - by default each dataset uses its own native labels, which is what you want to study
+    one dataset's composition on its own terms. The reference dataset's labels print as
+    raw codes, since the upstream string names are not published.
+  - with --coarse-labels both collapse onto ntuple_io.py's coarse cross-schema
+    categories, which is what you want to compare the two directly, at the cost of not
+    being fine-grained: the two fine-grained schemes do not correspond one to one.
 
-Either way, the per-proc summary table's QCD_*/non-QCD split is unaffected
-by this choice - it's always computed the same way (fullsim's own
-fj_isQCD flag, read alongside fj_label even in the default raw-fj_label
-mode, so a raw label's QCD-ness doesn't require knowing DNNTuples' own
-name for it either).
+Either way the per-proc QCD against non-QCD split is unaffected, being always computed
+the same way, so a raw label's QCD-ness never requires knowing its upstream name.
 
 Usage:
   python3 print_njets.py --output-path /eos/user/l/llambrec/jetclass/output_jetclass2_5M
 
-  # compare directly against the real FullSim/scouting reference dataset -
-  # each shown with its own native/raw labels by default
+  # compare directly against the reference dataset, each with its own native labels
   python3 print_njets.py --output-path /eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train
 
-  # ...or --coarse-labels for a directly comparable Top/W/Z/H2p/HWW/HZZ/QCD/other
-  # breakdown across an "ours" proc and a fullsim one
+  # ...or a directly comparable coarse breakdown across both
   python3 print_njets.py --output-path /eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train --coarse-labels
 
   # a subset of processes/cards, and/or a different njobs expectation
-  python3 print_njets.py --output-path /eos/user/l/llambrec/jetclass/output_jetclass1_10M \\
+  python3 print_njets.py --output-path /eos/user/l/llambrec/jetclass/output_jetclass1_10M \
       --procs HToBB,TTBar --cards onlyFatJetNoPU,onlyFatJetHLTNoPU --njobs-expected 13
 
-  # skip the (possibly long) per-label table, just the njets/size summary
+  # skip the (possibly long) per-label table
   python3 print_njets.py --output-path /eos/user/l/llambrec/jetclass/output_jetclass2_5M --no-labels
 '''
 
@@ -112,10 +74,9 @@ DEFAULT_LABEL_HEADER = nio.DEFAULT_LABEL_HEADER
 # added - "jetclass2sb" is the pThat-binned QCD set behind the offline+scouting
 # reference dataset, see gen_configs/jetclass2sb/README.md.
 #
-# Matched case-INSENSITIVELY (see discover_ntuple_dirs()): a production writes this
-# directory from its own --procs argument, so datasets generated before gen_configs/
-# jetclass2SB was lowercased to jetclass2sb carry the old capitalization inside them
-# and would otherwise stop being readable. Keep the entries here lowercase.
+# Matched case-insensitively (see discover_ntuple_dirs()): a production writes this
+# directory name from its own --procs argument, so a dataset whose family name was
+# capitalized differently stays readable. Keep the entries here lowercase.
 OURS_FAMILIES = ('jetclass1', 'jetclass2', 'jetclass2sb')
 
 NTUPLE_TREE_NAME = 'tree'  # see makeNtuples.C/makeNtuplesPaired.C: one entry per jet
@@ -137,37 +98,15 @@ BYTES_PER_GB = 1e9  # decimal GB, matching how EOS/most tools report file sizes
 
 
 def nlabels_for(family, label_names, coarse):
-    '''How long a (family, coarse) combo's raw bincount is, at READ time (see read_one()) -
-    "ours" is always its own fine-grained list regardless of --coarse-labels (collapsing
-    "ours" onto the coarse scheme happens as a display-time post-processing step instead,
-    see resolve_display(), since it doesn't change what needs to be read); a "fullsim" proc
-    reads either the coarse category flags (len(CATEGORY_NAMES)) or raw fj_label
-    (FULLSIM_RAW_LABEL_CAP) depending on --coarse-labels, since those are different branches.'''
+    '''How long one (family, coarse) combination's raw bincount is at read time.'''
     if family != 'fullsim':
         return len(label_names)
     return len(nio.CATEGORY_NAMES) if coarse else nio.FULLSIM_RAW_LABEL_CAP
 
 
 def resolve_display(family, counts, cat_idx_partial, label_names, coarse):
-    '''
-    Turns one proc's raw (counts, cat_idx_partial) - as read by read_one()/aggregated by
-    the caller - into (display_names, display_counts, qcd_mask) ready for
-    print_per_proc_summary()/print_label_breakdown(), applying whichever label scheme
-    --coarse-labels selects (see module docstring's "Label scheme, per family"):
-
-      - fullsim + coarse: names=CATEGORY_NAMES, counts unchanged (already read that way),
-        qcd_mask = name == 'QCD'.
-      - fullsim + raw (default): names resolved per-value via
-        ntuple_io.resolve_fullsim_label_names(), from cat_idx_partial (the
-        combined-across-files per-value category index - see read_one()); qcd_mask =
-        category == 'QCD'. A value with no resolved category at all (cat_idx_partial
-        entry still -1 - shouldn't happen for a value with nonzero count, but a defensive
-        fallback rather than an IndexError if it somehow does) prints as plain
-        "fj_label=<N>".
-      - ours + coarse: counts COLLAPSED from the fine-grained label_names onto
-        CATEGORY_NAMES via ntuple_io.classify_ours_label(), qcd_mask = name == 'QCD'.
-      - ours + raw (default): unchanged fine-grained label_names/counts, qcd_mask via
-        ntuple_io.is_qcd_label().
+    '''Turn one proc's raw counts into (names, counts, qcd_mask) ready for display, resolving
+    the label names for its family and scheme.
     '''
     if family == 'fullsim':
         if coarse:
@@ -196,15 +135,7 @@ def resolve_display(family, counts, cat_idx_partial, label_names, coarse):
 
 
 def discover_ntuple_dirs(output_path):
-    '''
-    Find every directory under output_path holding either NTUPLE_GLOB
-    ("ours") or FULLSIM_GLOB (fullsim) files, and group their paths by
-    (family, proc, card) parsed out of each file's path relative to
-    output_path - see module docstring for the layouts this covers.
-    Returns {(family, proc, card): [file paths...]}, files sorted, dict
-    insertion-ordered by first appearance (stably re-sorted by the caller
-    before printing).
-    '''
+    '''Find every directory under output_path holding ntuples of either schema.'''
     found = {}
     for path in sorted(glob.glob(os.path.join(output_path, '**', NTUPLE_GLOB), recursive=True)):
         rel = os.path.relpath(os.path.dirname(path), output_path)
@@ -232,8 +163,9 @@ def discover_ntuple_dirs(output_path):
 
 
 def _count_one_cheap(path):
-    '''num_entries + size only, no branch data. Module level so a ProcessPoolExecutor
-    can pickle it.'''
+    '''Entry count and size only, with no branch data. At module level so a process pool can
+    pickle it.
+    '''
     try:
         with uproot.open(path) as f:
             return f[NTUPLE_TREE_NAME].num_entries, os.path.getsize(path)
@@ -243,26 +175,20 @@ def _count_one_cheap(path):
 
 
 def _read_one_star(args):
-    '''read_one(*args), for ProcessPoolExecutor.map over an argument tuple.'''
+    '''read_one(*args), for mapping a process pool over argument tuples.'''
     return read_one(*args)
 
 
 class Progress:
-    '''"n/total files" progress indicator for the pooled reads below. Ticked from the
-    main process as results come back from the worker pool, so it needs no locking
-    across processes (the lock only guards against future in-process callers). A full production is ~10k files on EOS, each costing a network
-    round trip, so a run takes minutes with no output at all - this exists purely
-    so it is visible that something is happening, and roughly how long is left.
-
-    Writes to STDERR, so the tables on stdout stay clean and pipeable. On a tty it
-    rewrites one line with \r; when redirected it prints a new line every
-    PRINT_EVERY_FRAC of the total instead, so a log file gets a handful of lines
-    rather than thousands.'''
+    '''"n of total files" progress indicator for the pooled reads, ticked from the main
+    process.
+    '''
 
     PRINT_EVERY_SEC = 0.5    # tty: at most this often
     PRINT_EVERY_FRAC = 0.1   # non-tty: every 10% of the files
 
     def __init__(self, total, label='reading', stream=sys.stderr):
+        '''Start the counter at zero.'''
         self.total = total
         self.label = label
         self.stream = stream
@@ -275,6 +201,7 @@ class Progress:
         self.lock = threading.Lock()
 
     def tick(self, ok=True):
+        '''Record one more finished file and redraw the line.'''
         with self.lock:
             self.done += 1
             if not ok:
@@ -293,6 +220,7 @@ class Progress:
             self.stream.flush()
 
     def _line(self):
+        '''Write the current progress line in place.'''
         el = time.time() - self.t0
         rate = self.done / el if el > 0 else 0.0
         eta = (self.total - self.done) / rate if rate > 0 else 0.0
@@ -307,32 +235,15 @@ class Progress:
         return msg
 
     def finish(self):
+        '''Close off the progress line.'''
         if self.isatty:
             self.stream.write('\r' + self._line() + '   \n')
             self.stream.flush()
 
 
 def read_one(path, family, nlabels, coarse):
-    '''
-    Per-file (label_counts, size_bytes, cat_idx_partial): label_counts is an
-    nlabels-length np.bincount over whichever category index applies to
-    (family, coarse) - see nlabels_for() for which branches that reads and
-    resolve_display() for how it's turned into display names - and
-    size_bytes is the file's size on disk. Reading the branch(es) already
-    costs what num_entries alone would (uproot has to read the basket to
-    get either), so this gets the full per-label breakdown for free.
-    cat_idx_partial is only ever non-None for fullsim's raw (non-coarse)
-    mode: an nlabels-length int8 array, cat_idx_partial[value] = the index
-    into ntuple_io.CATEGORY_NAMES[:-1] that raw fj_label VALUE co-occurred
-    with in THIS file, or -1 if never seen here. The caller combines these
-    across every file for a proc (a value is consistently exactly one
-    category dataset-wide - see ntuple_io.load_fullsim_raw_labels()'s own
-    docstring) to recover each value's true category, which resolve_display()
-    then turns into both a fine-grained name (via
-    ntuple_io.resolve_fullsim_label_names()) and QCD-ness. Returns None
-    (rather than raising) if the file can't be read (e.g. a job still
-    mid-write), so the caller can skip it with a warning instead of the
-    whole run aborting.
+    '''Per-file (label_counts, size_bytes, cat_idx_partial), with label_counts a bincount over
+    the file's label branch.
     '''
     try:
         size_bytes = os.path.getsize(path)
@@ -374,17 +285,13 @@ def read_one(path, family, nlabels, coarse):
 
 
 def format_bytes(n):
+    '''Human-readable size.'''
     return '{:.2f} GB'.format(n / BYTES_PER_GB) if n >= BYTES_PER_GB else '{:.1f} MB'.format(n / 1e6)
 
 
 def print_overview_table(rows_by_combo, njobs_expected):
-    '''Per (family, proc, card) table: njobs, njets, size, njets/job, bytes/jet - the
-    same table print_njets.py always printed, just auto-discovered instead of assuming
-    a fixed jetclass1 proc/card list. family/proc/card column widths are sized to
-    whatever's actually longest (rather than a fixed guess) - needed once fullsim procs
-    entered the picture (e.g. "QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new" is 41 chars,
-    far past what any of our own proc names ever needed), same reasoning as
-    print_per_proc_summary()'s own dynamic proc_width.'''
+    '''Per (family, proc, card): job count, jets, size, jets per job and bytes per jet.
+    '''
     combo_keys = [combo for combo, _ in rows_by_combo]
     family_width = max([len('family')] + [len(f) for f, _, _ in combo_keys]) + 2
     proc_width = max([len('proc')] + [len(p) for _, p, _ in combo_keys]) + 2
@@ -416,13 +323,9 @@ def print_overview_table(rows_by_combo, njobs_expected):
 
 
 def print_per_proc_summary(per_proc):
-    '''Per gridpack type/sample (proc, summed over cards): njets/size, plus how many of
-    its jets are signal-labeled vs QCD-fallback-labeled - the "aggregated counts for QCD_*
-    and everything else, per gridpack type" the diagnostics were asked for. `per_proc` is
-    a list of (proc_label, names, counts, qcd_mask, size_bytes) - already resolved by
-    resolve_display() (see __main__), so this table's QCD/non-QCD split is the same
-    numbers either way regardless of --coarse-labels, only the per-row names/counts
-    passed to print_label_breakdown() alongside it differ.'''
+    '''Per process, summed over cards: jets and size, plus how many of its jets are signal
+    rather than QCD-labelled.
+    '''
     # proc here is "<family>/<proc>" (see per_proc_rows in __main__), which can run
     # well past a fixed 16-char width (e.g. "jetclass2/train_higgs2p" = 23 chars) -
     # size the column to whatever's actually longest instead of a fixed guess, so
@@ -457,8 +360,7 @@ def print_per_proc_summary(per_proc):
 
 
 def print_label_breakdown(proc, names, counts, qcd_mask, top_labels, coarse):
-    '''names/counts/qcd_mask are resolve_display()'s own output for this proc (see
-    module docstring's "Label scheme, per family" for what `coarse` selects).'''
+    '''The per-label table for one proc, from resolve_display()'s output.'''
     njets = int(counts.sum())
     print('\n{} - per-{}label breakdown ({} jets total):'.format(
         proc, 'coarse (cross-schema) ' if coarse else '', njets))
@@ -571,12 +473,9 @@ if __name__ == '__main__':
     progress.finish()
 
     def combine_cat_idx_partials(partials, nlabels):
-        '''partials: list of per-file/per-combo cat_idx_partial arrays, possibly containing
-        None (fullsim-coarse/"ours" files never produce one - see read_one()) - combine
-        them (first non--1 entry wins per value; a value's category is consistent
-        dataset-wide by construction, so there's nothing to actually reconcile - see
-        ntuple_io.load_fullsim_raw_labels()'s own docstring), or return None if none of
-        them produced one (nothing to aggregate).'''
+        '''Merge the per-file category observations into one value-to-category mapping, tolerating
+        the files that carry none.
+        '''
         real = [p for p in partials if p is not None]
         if not real:
             return None

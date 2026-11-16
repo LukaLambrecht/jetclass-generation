@@ -1,45 +1,40 @@
 #!/usr/bin/env python3
 
-'''
-Assemble a "simpack": one self-contained directory holding everything a CRAB job
+"""Assemble a "simpack": one self-contained directory holding everything a CRAB job
 needs to run the fullsim chain, plus the CRAB config to submit it.
 
-Why a simpack rather than submitting the repo: CRAB ships `JobType.inputFiles` to
-every worker node, so the job has to be given an explicit, closed set of files. The
-layout mirrors what backends/fullsim.sh builds locally, so run_chain.sh runs
-unmodified on the grid:
+CRAB ships JobType.inputFiles to every worker node, so a job must be given an
+explicit, closed set of files rather than the repository. The layout mirrors what
+backends/fullsim.sh builds locally, so run_chain.sh runs unmodified on the grid:
 
     <simpack>/
         crab_config.py       rendered from crab/templates/
         crab_submit.sh
         pset.py              dummy; CRAB reads the output file name from it
         run_in_container.sh  scriptExe: launches the container on the worker node
-        run_job.sh           inside the container: run_chain.sh setup + batches + hadd
+        run_job.sh           inside the container: setup + batches + hadd
         payload/cfg/         patch_*.py, run_chain.sh, <fragment>.py  (fragment processes)
         payload/gen/         mg5_*.dat, py8.dat, run_gen.sh, model/     (hepmc processes)
         payload/ana/         ntuplizer sources (shared headers included)
 
-Both process kinds are supported, detected exactly as run.sh detects them:
-  * a process WITH gen_configs/<proc>/fragment.py (jetclass2sb/*) has CMSSW generate
-    its own events - nothing else is needed;
-  * a process WITHOUT one (jetclass2/*) needs a standalone MadGraph5 + Pythia8 run
-    first, writing events.hepmc. The MG5 install is fetched over xrootd at job start
-    (see --mg5-url and crab/make_mg5_tarball.sh) because it is ~850 MB and the CVMFS
-    copy is a different major version.
+Both process kinds are supported, detected as run.sh detects them:
+  * a process with gen_configs/<proc>/fragment.py has CMSSW generate its own events,
+    and needs nothing further;
+  * a process without one needs a standalone MadGraph5 + Pythia8 run first, writing
+    events.hepmc. The MG5 install is fetched over xrootd at job start, since it is
+    far over the sandbox limit and the CVMFS copy is a different major version.
 
-The one site-dependent prerequisite is /cvmfs/cms-opendata-conddb.cern.ch, which is
-NOT in the cern.ch domain config that grid sites auto-mount, and at ~1.6 GB cannot be
-shipped in the sandbox. run_job.sh therefore checks for it and exits 65 immediately if
-it is missing, and falls back to fetching them from the CERN Open Data portal over
-xrootd, so NO site whitelist is required (see crab/README.md "Conditions"). The
-optional site probe, which measures which sites avoid that download, lives in
+The one site-dependent prerequisite is the open conditions database, which grid sites
+do not auto-mount and which is too large to ship in the sandbox. run_job.sh falls back
+to fetching it from the CERN Open Data portal over xrootd, so no site whitelist is
+needed. The optional probe that measures which sites avoid that download lives in
 crab/site-probe/.
 
 Usage:
   # a real (small) production
-  python3 build_simpack.py --proc jetclass2sb/QCD_PT-470to600 \\
+  python3 build_simpack.py --proc jetclass2sb/QCD_PT-470to600 \
       --njobs 2 --nevents-per-job 10 --batch-size 5 -o /tmp/simpack_test
-'''
+"""
 
 import os
 import re
@@ -55,10 +50,9 @@ CONDDB_FILES = ['102X_upgrade2018_design_v9.db', '106X_mcRun2_asymptotic_v17.db'
 
 INPUTFILES = ['run_job.sh', 'payload']   # what the job needs on the worker node
 
-# Where a hepmc process gets MadGraph5 from. The install is ~850 MB (over the CRAB
-# sandbox limit) and /cvmfs/cms.cern.ch has only madgraph5amcatnlo 2.x while this setup
-# needs v3.7.2, so jobs fetch a staged tarball over xrootd. Make it with
-# crab/make_mg5_tarball.sh.
+# Where a hepmc process gets MadGraph5 from. The install is far over the CRAB sandbox
+# limit, and the CVMFS copy is a different major version, so jobs fetch a staged
+# tarball over xrootd. Make it with crab/make_mg5_tarball.sh.
 DEFAULT_MG5_URL = ('root://eosuser.cern.ch//eos/user/{}/{}/jetclass/crab_inputs/'
                    'MG5_aMC_v3_7_2.tar.gz').format(os.environ.get('USER', 'x')[0],
                                                    os.environ.get('USER', 'x'))
@@ -76,10 +70,11 @@ ANA_FILES = [
 
 
 def check_inputfiles(outdir, inputfiles):
-    """CRAB refuses to submit if anything in JobType.inputFiles is missing, and the
-    error surfaces only at submit time - after the simpack looks fine. Catch it here:
-    a probe simpack listing 'payload' (which it has no reason to contain) is exactly
-    how this went wrong once."""
+    """Fail now if anything in JobType.inputFiles is missing.
+
+    CRAB refuses to submit in that case, but only reports it at submit time, once the
+    simpack already looks fine.
+    """
     missing = [f for f in inputfiles if not os.path.exists(os.path.join(outdir, f))]
     if missing:
         raise Exception('simpack lists input file(s) it does not contain: {} - CRAB would '
@@ -87,6 +82,7 @@ def check_inputfiles(outdir, inputfiles):
 
 
 def render(src, dst, subs):
+    """Copy src to dst, applying the placeholder substitutions in subs."""
     with open(src) as f:
         text = f.read()
     for k, v in subs.items():
@@ -150,8 +146,8 @@ if __name__ == '__main__':
     fragname = re.sub(r'[^A-Za-z0-9_]', '_', args.proc)
     reqname = args.request_name or fragname
     user = os.environ.get('USER', 'unknown')
-    # one base for a whole production; CRAB appends <family>/<proc>/... under it, so
-    # the result is directly readable by the validation scripts
+    # One base directory for a whole production. CRAB appends <family>/<proc>/... under
+    # it, so the result is directly readable by the validation scripts.
     outlfn = args.outlfn or '/store/user/{}/jetclass/{}/'.format(user, reqname)
 
     out = os.path.abspath(args.outdir)
@@ -169,10 +165,9 @@ if __name__ == '__main__':
         shutil.copy(os.path.join(procdir, 'fragment.py'),
                     os.path.join(out, 'payload', 'cfg', fragname + '.py'))
     else:
-        # the generator pack: every card in the process directory, plus the generation
-        # driver. run.sh falls back to gen_configs/run_gen_default.sh when a process
-        # has no run_gen.sh of its own - reproduce that choice here, once, so the job
-        # does not have to.
+        # The generator pack: every card in the process directory, plus the generation
+        # driver. run.sh falls back to gen_configs/run_gen_default.sh for a process with no
+        # run_gen.sh of its own, so make that choice here, once, rather than on the worker.
         gendst = os.path.join(out, 'payload', 'gen')
         os.makedirs(gendst)
         for f in sorted(os.listdir(procdir)):
@@ -180,10 +175,9 @@ if __name__ == '__main__':
             if os.path.isfile(src):
                 shutil.copy(src, os.path.join(gendst, f))
             elif os.path.isdir(src):
-                # subdirectories too, not just files: jetclass2sb/train_higgs2p ships
-                # its UFO model in model/RS_bulk_ktilda, and a process whose model is
-                # silently left behind fails on the worker node with an unhelpful
-                # "no model" error rather than at build time.
+                # Subdirectories too, not just files: a process may ship its own UFO model, and one
+                # silently left behind fails on the worker node with an unhelpful error rather than
+                # here at build time.
                 shutil.copytree(src, os.path.join(gendst, f))
         own = os.path.join(procdir, 'run_gen.sh')
         driver = own if os.path.exists(own) else os.path.join(REPO_DIR, 'gen_configs',
@@ -200,7 +194,7 @@ if __name__ == '__main__':
     render(os.path.join(TEMPLATES, 'pset.py'), os.path.join(out, 'pset.py'),
            {'__CORES__': args.cores})
     shutil.copy(os.path.join(TEMPLATES, 'crab_submit.sh'), os.path.join(out, 'crab_submit.sh'))
-    # driver for any crab subcommand; crab/monitoring/ shells out to it per simpack
+    # driver for any crab subcommand, for driving this task by hand
     shutil.copy(os.path.join(TEMPLATES, 'crab_command.sh'), os.path.join(out, 'crab_command.sh'))
     os.chmod(os.path.join(out, 'crab_command.sh'), 0o755)
     os.chmod(os.path.join(out, 'run_in_container.sh'), 0o755)
@@ -220,11 +214,10 @@ if __name__ == '__main__':
         '__TOTALUNITS__': nev * args.njobs,
         '__OUTLFN__': outlfn,
         # CRAB writes <outLFNDirBase>/<primaryDataset>/<datasetTag>/<timestamp>/<counter>/.
-        # Naming these after the family and the process makes that path parse exactly
-        # like a local production - validation/print_njets.py splits the path relative
-        # to --output-path as <family>/<proc>/.../<card>/ntuple_*.root and checks the
-        # family against OURS_FAMILIES. Call the primary dataset 'JetClass2SB' instead
-        # and every file is silently skipped.
+        # Naming these after the family and the process makes that path parse exactly like a
+        # local production, which is what lets validation/print_njets.py find the files: it
+        # splits the path as <family>/<proc>/.../<card>/ntuple_*.root and checks the family
+        # against OURS_FAMILIES. A primary dataset named anything else is silently skipped.
         '__PRIMARYDS__': family,
         '__DATASETTAG__': procname,
         '__INPUTFILES__': INPUTFILES,

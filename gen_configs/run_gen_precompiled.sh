@@ -1,22 +1,18 @@
 #!/bin/bash -x
 
-# Shared logic for generating events using a precompiled JetClass-I (v1)
-# gridpack (from https://github.com/jet-universe/jetclass_generation) instead
-# of compiling the process from scratch. This skips MG5's "output proc" +
-# first compile step entirely, which is the dominant per-job cost for
-# fixed-parameter processes (skipping it turned a ~30 minute from-scratch
-# compile into a ~30 second reuse in local testing).
+# Generate events from a precompiled JetClass-I gridpack, taken from
+# https://github.com/jet-universe/jetclass_generation, instead of building the
+# process from scratch. This skips MG5's "output proc" and first compile, which
+# dominates the per-job cost for a fixed-parameter process: minutes become
+# seconds.
 #
-# Not meant to be run directly: invoked by each process's own
-# gen_configs/jetclass1/<PROC>/precompiled/run_gen.sh, which first cds into
-# its own directory (so relative paths below resolve against it) and sets
-# GRIDPACK_NAME (matching the gridpack's name on the URL above) before
-# calling this script - so this script operates on the caller's cwd.
+# Not run directly. Each process' own
+# gen_configs/jetclass1/<PROC>/precompiled/run_gen.sh cds into its directory and
+# sets GRIDPACK_NAME before calling this, so the relative paths below resolve
+# against the caller's cwd.
 #
-# Caveat: this reuses precompiled Fortran/C++ binaries built years ago on a
-# different machine. It worked in local testing on this cluster (shared
-# libraries resolved, LHAPDF/couplings loaded correctly), but is not
-# guaranteed portable to every condor worker node architecture/glibc.
+# Caveat: these are binaries built elsewhere, on another machine, so portability
+# to an arbitrary worker node's architecture and glibc is not guaranteed.
 
 NEVENT=$1
 
@@ -29,8 +25,7 @@ fi
 MDIR=proc
 
 # MG5 needs ~/.mg5/mg5_configuration.txt to find lhapdf-config; see the identical
-# block in run_gen_default.sh for why. Only written when absent, so a user's own
-# configuration is never overwritten.
+# block in run_gen_default.sh. Only written when absent.
 if [ ! -f "$HOME/.mg5/mg5_configuration.txt" ]; then
     LHA=$MG5_PATH/HEPTools/lhapdf6_py3/bin/lhapdf-config
     if [ -x "$LHA" ]; then
@@ -41,14 +36,13 @@ if [ ! -f "$HOME/.mg5/mg5_configuration.txt" ]; then
 fi
 
 
-# persistent, shared cache of extracted+patched gridpacks: populated once
-# (by whichever job needs it first), reused by every later job/process
+# Persistent shared cache of extracted and patched gridpacks, populated by
+# whichever job needs an entry first and reused by every later one.
 GRIDPACK_CACHE=${GRIDPACK_CACHE:-/eos/user/l/llambrec/jetclass/gridpack_cache}
 CACHED_PROC=$GRIDPACK_CACHE/$GRIDPACK_NAME/proc
 
-# step1: populate the cache for this process, if not already there (shared
-# with ../download_gridpack.py, which can do this ahead of time for many
-# processes in parallel - see populate_gridpack_cache.sh for the logic)
+# step1: populate this process' cache entry if it is not there yet. The same
+# script is used by ../download_gridpack.py to do this ahead of time.
 GRIDPACK_CACHE=$GRIDPACK_CACHE MG5_PATH=$MG5_PATH $GENCFG_PATH/populate_gridpack_cache.sh $GRIDPACK_NAME
 
 # step2: reuse the cached, precompiled process for this job
@@ -62,14 +56,10 @@ fi
 ## write mg5_step2.dat
 cp -f mg5_step2_templ.dat mg5_step2.dat
 sed -i "s/\$NEVENT/$NEVENT/g" mg5_step2.dat # initialize nevent
-# MG5 seed. NOT bash's $RANDOM: that only spans 0-32767, so over the ~8000 MG5 runs
-# of a 4000-job signal round some ~980 PAIRS of batches draw the same iseed (birthday
-# problem). Today those pairs still differ, because `shuf` picks the (mass, pT_min)
-# point from a 4900-line grid independently - but that is the parameter grid rescuing
-# the seed, not the seed being sound, and it would stop being true for a process with
-# a smaller grid or none. $RANDOM can also return 0, which MG5 does not read as a
-# literal seed. Draw from /dev/urandom instead, over the same 9e8 range run_chain.sh
-# uses for the CMSSW seeds, which makes a collision in a full round ~1e-4 likely.
+# MG5 seed, drawn from /dev/urandom rather than bash's $RANDOM: that spans only
+# 0-32767, so a few thousand batches would repeat seeds often, and it can return 0,
+# which MG5 does not read as a literal seed. The 9e8 range matches the one used for
+# the CMSSW seeds and makes a collision over a full round negligible.
 MG5_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 900000000 + 1 ))
 sed -i "s/\$SEED/$MG5_SEED/g" mg5_step2.dat # initialize seed, important!
 echo "MG5 seed: $MG5_SEED"
@@ -99,14 +89,12 @@ fi
 rm -f events.hepmc
 # see run_gen_default.sh for why this substitution is needed
 sed -i "s/^Main:numberOfEvents.*/Main:numberOfEvents      = $NEVENT/" py8.dat
-# Pythia reads `PDF:pSet = LHAPDF6:...` (set by the CP5 tune block) by dlopen'ing
-# libpythia8lhapdf6.so *by bare name*. That plugin lives in HEPTools/pythia8/lib,
-# not HEPTools/lib, and the only thing that used to find it was the absolute ELF
-# RPATH baked into the MG5 build, which names this install's own EOS prefix. On a
-# grid worker node the tarball unpacks elsewhere and that prefix does not exist, so
-# the dlopen failed and Pythia aborted with "could not set up PDF for beam A".
-# List every directory holding the plugin and its NEEDED libs explicitly, so the
-# lookup never depends on RPATH. These are relative symlinks into bin/HEPTools and
-# are preserved by the tarball, so they resolve wherever MG5 is unpacked.
+# `PDF:pSet = LHAPDF6:...` makes Pythia dlopen libpythia8lhapdf6.so by bare name.
+# That plugin lives in HEPTools/pythia8/lib, not HEPTools/lib, and would otherwise
+# only be found through the absolute RPATH baked into the MG5 build - which does
+# not exist on a node where the tarball was unpacked elsewhere. Name every
+# directory holding the plugin and its dependencies, so the lookup never depends
+# on RPATH. These are relative symlinks into bin/HEPTools, preserved by the
+# tarball, so they resolve wherever MG5 is unpacked.
 PY8_LD_PATH=$MG5_PATH/HEPTools/lib:$MG5_PATH/HEPTools/pythia8/lib:$MG5_PATH/HEPTools/lhapdf6_py3/lib
 LD_LIBRARY_PATH=$PY8_LD_PATH:$LD_LIBRARY_PATH $MG5_PATH/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface py8.dat

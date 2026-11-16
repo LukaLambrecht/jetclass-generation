@@ -1,41 +1,25 @@
 #!/bin/bash -x
 
-# Generate a jetclass dataset: event generation (MG5_aMC + Pythia8) followed by
-# detector simulation and ntupling by one of two interchangeable BACKENDS.
+# Generate a jetclass dataset: event generation followed by detector simulation
+# and ntupling by one of two interchangeable backends.
 #
 #   ./run.sh <backend> <proc> <nevent> <nevent_gen> <jobnum> [<backend_opts>] [<output_path>] [<keep_intermediate>]
 #
-# BACKEND (arg 1, required - this is new; it used to be absent and Delphes was
-# the only option, so an old command line needs "delphes" inserted in front):
-#   delphes   fast parameterised simulation (backends/delphes.sh) - what every
-#             dataset up to and including output_jetclass2_10M_20260919_nopuppi
-#             was made with; unchanged
-#   fullsim   CMS full simulation + reconstruction + HLT in CMSSW, using only
-#             openly available software and conditions (backends/fullsim.sh)
-# Both write the SAME ntuple schema, so a downstream script does not need to
-# know which one produced its input.
-#
-# PROC         process config under gen_configs/, e.g. jetclass2/train_qcd
-# NEVENT       total number of events for this job
-# NEVENT_GEN   events generated per batch; NEVENT/NEVENT_GEN batches are run,
-#              each its own generation + reconstruction, merged at the end
-# JOBNUM       job number, used for the output file name
-# BACKEND_OPTS backend-specific (arg 6); defaults to the backend's own default:
-#   delphes: comma-separated Delphes cards, e.g. "onlyFatJet" (default) or
-#            "onlyFatJet,onlyFatJetHLT". An entry can also be an offline+HLT
-#            PAIR joined by "+" (e.g. "onlyFatJet+onlyFatJetHLT") - jet-matched
-#            into ONE combined ntuple instead of two independent ones, so an
-#            offline jet's own HLT reconstruction is directly recoverable - see
-#            delphes_analyzers/makeNtuplesPaired.C's own docstring.
-#   fullsim: "offline+hlt" (default) or "offline" - see backends/fullsim.sh.
-# OUTPUT_PATH  output directory, in place of the default below - lets a
-#              one-off/exploratory run (e.g. a timing scan) be pointed at a
-#              completely separate directory instead of mixing its output into
-#              the default one
-# KEEP_INTERMEDIATE  whether to also copy the backend's intermediate detector
-#              files (Delphes: events_delphes_*.root; FullSim: the CMSSW
-#              GEN-SIM/RAW/AODSIM files) to the output directory - default
-#              false, production runs only need the ntuples
+# BACKEND       delphes (fast parameterised simulation) or fullsim (CMS full
+#               simulation + reconstruction + HLT in CMSSW). Both write the same
+#               ntuple schema, so downstream scripts need not know which ran.
+# PROC          process config under gen_configs/, e.g. jetclass2/train_qcd
+# NEVENT        total number of events for this job
+# NEVENT_GEN    events per batch; NEVENT/NEVENT_GEN batches run, each its own
+#               generation + reconstruction, merged at the end
+# JOBNUM        job number, used for the output file name
+# BACKEND_OPTS  backend-specific; defaults to the backend's own default.
+#               delphes: comma-separated Delphes cards, where an entry may be an
+#               offline+HLT pair joined by "+" to produce one jet-matched ntuple.
+#               fullsim: "offline+hlt" or "offline".
+# OUTPUT_PATH   output directory, in place of the default below
+# KEEP_INTERMEDIATE  also copy the backend's intermediate detector files, not
+#               just the ntuples (default false)
 BACKEND=${1:?usage: run.sh <backend> <proc> <nevent> <nevent_gen> <jobnum> [opts] [output_path] [keep_intermediate]}
 PROC=$2
 NEVENT=$3
@@ -44,33 +28,25 @@ JOBNUM=$5
 
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# The backend contributes: BACKEND_DEFAULT_OPTS, and the functions
-# backend_setup / backend_run_batch <i> / backend_intermediate_merge <i> /
-# backend_finalize. See backends/delphes.sh for the reference implementation and
-# for what each one is called with.
+# The backend supplies BACKEND_DEFAULT_OPTS and the functions backend_setup /
+# backend_run_batch <i> / backend_intermediate_merge <i> / backend_finalize.
 BACKEND_FILE=$REPO_DIR/backends/$BACKEND.sh
 if [ ! -f "$BACKEND_FILE" ]; then
     echo "ERROR: unknown backend '$BACKEND' - expected one of: $(cd "$REPO_DIR/backends" && ls *.sh | sed 's/\.sh$//' | tr '\n' ' ')" >&2
     exit 1
 fi
-# default no-op hooks, defined BEFORE the backend is sourced so a backend that
-# does define one wins (a backend with nothing to do between batches, like
-# fullsim, then does not have to define it at all)
+# No-op hook defined before sourcing, so a backend that defines its own wins and
+# one with nothing to do between batches need not define it at all.
 backend_intermediate_merge() { :; }
 
 source "$BACKEND_FILE"
 
-# How this process produces its generator-level events, decided by what its
-# gen_configs/ directory contains:
-#   hepmc           the original route: a standalone MG5_aMC+Pythia8 run (run_gen.sh,
-#                   or gen_configs/run_gen_default.sh) writes events.hepmc, which the
-#                   backend then reconstructs. Works for either backend.
-#   cmssw_fragment  the process directory holds a `fragment.py`, a CMSSW Pythia8 GEN
-#                   fragment that CMSSW runs itself inside the GEN step - no external
-#                   generator, no HepMC file. FULLSIM ONLY (Delphes has no way to
-#                   consume it; backends/delphes.sh refuses such a process outright).
-# Backends read this to decide what to expect; run.sh skips the generation step
-# entirely for a fragment process, since CMSSW does that work.
+# How this process produces generator-level events, from what its gen_configs/
+# directory contains:
+#   hepmc           a standalone MG5_aMC+Pythia8 run writes events.hepmc, which
+#                   the backend reconstructs. Works for either backend.
+#   cmssw_fragment  the directory holds a fragment.py that CMSSW runs itself in
+#                   its GEN step. FullSim only; delphes.sh refuses such a process.
 if [ -f "$REPO_DIR/gen_configs/$PROC/fragment.py" ]; then
     PROC_KIND=cmssw_fragment
 else
@@ -84,78 +60,41 @@ KEEP_INTERMEDIATE=${8:-false}
 # Setup environment
 
 # ============ basic configuration ============
-# MG5_PATH respects a pre-set environment variable (falls back to the usual
-# default otherwise) - lets a caller (e.g. run_condor.py's --extra-env) point
-# a one-off run at a different MG5 install (e.g. for a toolchain-comparison
-# test) without editing this file; DELPHES_PATH is intentionally NOT made
-# overridable the same way - Delphes itself isn't part of what such tests
-# vary, only the generation/showering toolchain upstream of it
+# MG5_PATH honours a pre-set value, so a caller can point a one-off run at a
+# different MG5 install. DELPHES_PATH deliberately cannot be overridden: only the
+# generation toolchain is varied that way, never the simulation.
 MG5_PATH=${MG5_PATH:-/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2}
 DELPHES_PATH=/eos/user/l/llambrec/jetclass/delphes
 
 ## some env variables are required by the softwares
-# (all actually `export`ed, unlike before - previously these were plain
-# shell-local assignments, invisible to run_gen.sh/mg5_aMC/py8_main's own
-# child processes; harmless for PYTHIA8DATA/LHAPDFCONFIG, which those tools
-# can also resolve via their own build-time-baked-in fallback paths, but not
-# for MG5's *python* LHAPDF interface below, which has no such fallback -
-# see PYTHONPATH/LD_LIBRARY_PATH's own comment for what that broke)
+# Exported, not shell-local, because the generation tools' own child processes
+# need them.
 export LHAPDFCONFIG=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF/lhapdf.conf
 export LHAPDF_DATA_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/share/LHAPDF
 export PYTHIA8DATA=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/pythia8/share/Pythia8/xmldoc
-# MG5's own *python* LHAPDF interface (used to resolve an explicit `lhaid`
-# in mg5_step2_templ.dat, e.g. jetclass2/train_higgs2p's lhaid 315000 ->
-# NNPDF31_nnlo_as_0118_mc_hessian_pdfas) is a separate thing from the
-# LHAPDF_DATA_PATH-based C++ interface above - it needs `import lhapdf` to
-# succeed, which needs both the compiled extension module's own directory on
-# PYTHONPATH and libLHAPDF.so findable via LD_LIBRARY_PATH. Without these
-# (the previous state), MG5 printed a "Failed to access python version of
-# LHAPDF" warning and silently fell back to whatever default PDF set is
-# bundled inside its own freshly generated proc/lib/PDFsets/ (NNPDF31_lo_as_0118,
-# NOT the requested set) instead of erroring - found by cross-checking
-# generate_events' own log output against the process' own lhaid.
+# MG5 resolves an explicit `lhaid` through its *python* LHAPDF interface, which
+# needs the extension module on PYTHONPATH and libLHAPDF.so on LD_LIBRARY_PATH.
+# Without both, MG5 only warns and silently falls back to the default PDF set
+# bundled in its generated proc/lib/PDFsets/, not the requested one.
 export PYTHONPATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/lib64/python3.9/site-packages:$PYTHONPATH
 export LD_LIBRARY_PATH=/eos/user/l/llambrec/jetclass/MG5_aMC_v3_7_2/bin/HEPTools/lhapdf6_py3/lib:$LD_LIBRARY_PATH
 
 ## fixed configuration
 GENCFG_PATH=$REPO_DIR/gen_configs
 
-# Per-batch generation timeout/retry, in seconds - guards against a single
-# pathological (mass, pT_min) or pT_hat draw hanging the whole job. Found
-# the hard way: jetclass2/train_higgs2p production jobs stuck for 90+
-# minutes on ONE batch (confirmed via condor_ssh_to_job - the shower
-# process pegged at ~99% CPU, /proc/<pid>/wchan == 0 i.e. genuinely
-# spinning in user-space, not I/O-blocked, with byte-identical stdout the
-# whole time - not a slow-but-real event, an actual hang), across several
-# DIFFERENT random parameter draws, so it's some general kinematic regime
-# Pythia8's shower/hadronization can get stuck on, not one specific bad
-# point. A "healthy" batch takes ~1 minute (measured); 900s (15x that) is
-# generous headroom for genuinely slow-but-real batches while still
-# bounding a hung one to a small fraction of the job's total wall time.
+# Per-batch generation timeout and retry count, in seconds. Pythia8's shower can
+# hang indefinitely on some kinematic regimes; a healthy batch takes ~1 minute,
+# so 900 s leaves room for a slow-but-real batch while bounding a hung one.
 GEN_TIMEOUT_SEC=${GEN_TIMEOUT_SEC:-900}
 GEN_MAX_ATTEMPTS=${GEN_MAX_ATTEMPTS:-5}
 
-# Runs `./run_gen.sh $1` (cwd: proc_base) with the timeout/retry policy
-# above. Each retry re-invokes run_gen.sh from scratch, which re-samples a
-# FRESH random (mass,pT_min)/pT_hat draw itself (see run_gen_default.sh/
-# gen_configs/*/run_gen.sh's own `shuf -n 1 ...`) - so a retry isn't just
-# "try the same hang again", it's a real second chance at a different draw.
-# `setsid` gives the attempt its OWN process group (pgid == its own pid,
-# captured via $!) so a timeout can reliably SIGKILL the WHOLE subprocess
-# tree (run_gen.sh -> generate_events -> MG5aMC_PY8_interface/py8_main, none
-# of which `exec` down into the next stage) via `pkill -g` - not just
-# run_gen.sh's own bash process, which would otherwise leave the actual
-# hung worker process orphaned and still spinning on the shared node.
-# `pkill -g <that exact pgid>` is safe to use blindly (no risk of killing a
-# different concurrent job's own legitimate process on a shared worker
-# node) specifically because it's scoped to this one setsid-created group,
-# not matched by command name (which IS shared across concurrent jobs -
-# every job runs the literal same "MG5aMC_PY8_interface py8.dat").
-# On exhausting GEN_MAX_ATTEMPTS, gives up and returns nonzero - the caller
-# (the batch loop below) already tolerates a batch producing no usable
-# events.hepmc (events_delphes.root just doesn't get moved forward for that
-# one batch), so the job still completes with a very slightly reduced
-# yield instead of hanging for its entire wall-time budget.
+# Run ./run_gen.sh (cwd: proc_base) under the timeout and retry policy above.
+# Each retry re-invokes run_gen.sh, which re-samples a fresh random parameter
+# draw, so a retry is a real second chance rather than the same hang again.
+# `setsid` puts the attempt in its own process group so a timeout can SIGKILL
+# the whole generation tree, scoped to this group and nothing else on the node.
+# Returns nonzero once the attempts are exhausted; the caller tolerates a batch
+# that produced no events.
 run_gen_with_timeout() {
     local nevent_gen=$1 attempt rc
     for ((attempt=1; attempt<=GEN_MAX_ATTEMPTS; attempt++)); do
@@ -173,30 +112,20 @@ run_gen_with_timeout() {
     echo "ERROR: run_gen.sh failed $GEN_MAX_ATTEMPTS times in a row - giving up on this batch (events.hepmc likely missing/stale; the batch's events_delphes.root simply won't be produced, see caller)" >&2
     return 1
 }
-# Stall watchdog for the per-batch generation loop (startup included), in
-# seconds. The timeouts above can only bound a step whose processes can
-# actually be killed - a process blocked on an EOS FUSE read (uninterruptible
-# sleep) ignores even SIGKILL, so `timeout` never returns and neither does
-# the `wait` on it. Found the hard way: 24 of 140 jetclass2/train_higgs2p
-# jobs in the 20260917 production sat out the full 8h wall-time budget and
-# were killed by SYSTEM_PERIODIC_REMOVE with zero output, their memory
-# never growing past 15-50 MB (a healthy job reaches ~400 MB within 20 min)
-# - i.e. stuck before producing a single event, most likely in the first
-# batch's MG5 setup (which runs straight out of the MG5 install on EOS; qcd,
-# which doesn't, was unaffected), in the same evening EOS was also failing
-# writes (see copy_to_eos()). Every legitimate step between two heartbeat
-# calls is bounded by one of the timeouts above (<= 930s), so no heartbeat
-# for STALL_TIMEOUT_SEC means something is stuck beyond what they can kill:
-# the watchdog then aborts run.sh, so the job fails within the hour instead
-# of holding its slot for 8h. Only armed during the batch loop, not for the
-# final merge/ntupling/copy steps, whose durations aren't bounded this way.
+# Stall watchdog for the batch loop, in seconds. The timeouts above can only kill
+# a process that is killable; one blocked on an EOS read ignores even SIGKILL, so
+# `timeout` never returns. Every legitimate step between heartbeats is bounded by
+# those timeouts, so a long silence means something is stuck beyond them and the
+# job should fail now rather than hold its slot for the full wall time.
 STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC:-1800}
 STALL_POLL_SEC=${STALL_POLL_SEC:-60}
 
+# Record that progress was made.
 heartbeat() {
     [ -n "$HEARTBEAT_FILE" ] && touch "$HEARTBEAT_FILE"
 }
 
+# Start the background watchdog that aborts run.sh if the heartbeat goes stale.
 start_stall_watchdog() {
     HEARTBEAT_FILE=$WORKDIR/.heartbeat
     heartbeat
@@ -217,50 +146,19 @@ start_stall_watchdog() {
     WATCHDOG_PID=$!
 }
 
+# Stop the watchdog, e.g. before the unbounded final merge and copy steps.
 stop_stall_watchdog() {
     [ -n "$WATCHDOG_PID" ] && kill $WATCHDOG_PID 2>/dev/null
     WATCHDOG_PID=""
     HEARTBEAT_FILE=""
 }
 
-# Retry+verify a local-scratch -> EOS "mv" a few times before giving up.
-# Needed because EOS's FUSE mount can spuriously fail `mkdir -p`/`mv` under
-# heavy concurrent load - observed directly: "mkdir: cannot create
-# directory '...': File exists" for a directory that DOES already exist
-# (created moments earlier by another concurrent job sharing the same
-# output subdirectory), immediately followed by the `mv` itself failing
-# with "No such file or directory" even though the destination directory is
-# genuinely there - a transient FUSE-side race/cache inconsistency, not a
-# real missing-directory error (see testing/test-generation-time/README.md).
-# Silently swallowing this (the previous behavior: no exit-code check on
-# `mv`) meant run.sh exited 0 while quietly losing the job's actual output -
-# found the hard way (nearly half of 100 concurrent jobs lost their output
-# this way; see the README linked above). copy_to_eos() instead retries
-# with backoff and, if it still can't verify the file landed, exits nonzero
-# so the failure is loud and visible instead of silent.
-#
-# "Landed" means the EOS *server* holds exactly as many bytes as the local
-# source - not just that the file exists. Found the hard way: in the
-# 20260917 production 3 of 340 ntuples were left TRUNCATED on EOS (0.4-4.6
-# MB instead of ~60 MB, unreadable) by jobs that exited 0 - `mv` onto the
-# FUSE mount reported success and `[ -f ]` passed, while the upload behind
-# it failed (other jobs logged xrootd write timeouts to the same EOS disk
-# server in the same minutes). The mount's own `stat` can't be trusted for
-# this either (it can answer from its local write cache), so for /eos paths
-# the copy goes over xrootd directly (xrdcp, with an end-to-end adler32
-# checksum) and the size is read back from the server (xrdfs stat). The
-# FUSE `cp` + local `stat` is kept only as a fallback, for an attempt where
-# xrdcp itself fails (e.g. no xrootd credentials on some node) or for a
-# non-EOS OUTPUT_PATH. `cp` rather than `mv` so a failed/partial attempt
-# can be retried from the still-intact local source; a destination left
-# behind by the last failed attempt is removed, so a missing ntuple (not a
-# corrupt one) is what signals the failure.
+# Host used for the direct xrootd route to EOS.
 EOS_XRD_HOST=eosuser.cern.ch
 
 # Canonical xrootd path for a path on the EOS FUSE mount, or nothing (and
-# nonzero) if it isn't on EOS. `realpath` resolves /eos/user/l/llambrec to
-# the FUSE-only alias /eos/home-l/llambrec, which the xrootd server rejects
-# ("public access level restriction") - map it back.
+# nonzero) if it is not on EOS. The FUSE-only /eos/home-<l>/ alias is rejected by
+# the xrootd server, so map it back to /eos/user/<l>/.
 eos_xrd_path() {
     case "$1" in
         /eos/home-?/*) echo "/eos/user/${1:10:1}/${1:12}" ;;
@@ -269,6 +167,15 @@ eos_xrd_path() {
     esac
 }
 
+# Copy one file to EOS, retrying with backoff, and exit nonzero if it cannot be
+# verified to have landed. "Landed" means the EOS *server* reports exactly as
+# many bytes as the local source: the FUSE mount can report success for a write
+# that later fails, leaving a silently truncated file. So for /eos paths the copy
+# goes over xrootd with an end-to-end checksum and the size is read back from the
+# server; the FUSE `cp` is only a fallback, for a non-EOS path or a node without
+# xrootd credentials. `cp` rather than `mv` keeps the local source intact for the
+# next attempt, and a partial destination is removed so failure shows up as a
+# missing file rather than a corrupt one.
 copy_to_eos() {
     local src=$1 dst=$2 dstdir attempt expected got xrd_path
     dstdir=$(dirname "$dst")
@@ -298,9 +205,9 @@ copy_to_eos() {
 
 OUTPUT_PATH=$(realpath $OUTPUT_PATH)
 
-# jetclass1/* processes use the original JetClass-I (v1) label scheme
-# (Top_*/W_*/Z_*/H_*); everything else keeps the v2 scheme, unchanged. Decided
-# here rather than in a backend, since both label their jets with the same code.
+# jetclass1/* processes use the JetClass-I label scheme (Top_*/W_*/Z_*/H_*),
+# everything else the v2 scheme. Decided here because both backends label jets
+# with the same code.
 case "$PROC" in
     jetclass1/*) USE_V1_LABELS=true ;;
     *)           USE_V1_LABELS=false ;;
@@ -309,39 +216,31 @@ esac
 
 # =============================================
 
-# Create workdir - on the worker node's own LOCAL scratch disk, not on EOS.
-# All the heavy per-job I/O below (copying the gridpack, MG5/Pythia8 event
-# generation, Delphes reconstruction, ntupling) happens here; only the two
-# final output files per card are copied out to $OUTPUT_PATH (EOS) at the
-# very end. This matters a lot once many jobs run concurrently: EOS charges
-# real network-round-trip latency per file operation, and having dozens of
-# jobs all doing that for every intermediate file (rather than just the 2
-# final ones) is what caused severe slowdowns/timeouts when running 100
-# jobs at once (see testing/test-generation-time/README.md).
-# _CONDOR_SCRATCH_DIR is HTCondor's own per-job local scratch directory
-# (auto-cleaned by condor on job exit); fall back to TMPDIR/tmp for a
-# non-condor (e.g. interactive/local) invocation.
+# Create the workdir on the worker node's local scratch disk, not on EOS. All the
+# heavy per-job I/O happens here and only the final output files are copied out,
+# because EOS charges a network round trip per file operation and many concurrent
+# jobs doing that for every intermediate file is enough to stall them all.
+# _CONDOR_SCRATCH_DIR is HTCondor's per-job scratch, cleaned up on exit; the
+# fallback covers a non-condor run.
 SCRATCH_BASE=${_CONDOR_SCRATCH_DIR:-${TMPDIR:-/tmp}}
 RANDSTR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 10; echo)
 WORKDIR=$SCRATCH_BASE/workdir_$(date +%y%m%d-%H%M%S)_${RANDSTR}_$(echo "$PROC" | sed 's/\//_/g')_$JOBNUM
 mkdir -p $WORKDIR
-# clean up on ANY exit (success, failure, or an `exit 1` from copy_to_eos
-# below) - not just the success path, so a failed job doesn't leave its
-# local scratch copy behind. Condor tears down per-job scratch regardless
-# once the job exits, but this also matters for a non-condor/local run.
+# Clean up on any exit, not just the success path, so a failed run leaves nothing
+# behind. Condor would tear down its own scratch anyway; this also covers a local
+# run.
 trap 'stop_stall_watchdog; rm -rf "$WORKDIR"' EXIT
 
 cd $WORKDIR
 
-# Backend-specific preparation (Delphes: resolve/validate the cards; FullSim:
-# write the CMSSW configs and build the ntuplizer). After the workdir exists and
-# has been cd'ed into, since a backend may want to put things in it.
+# Backend preparation, after the workdir exists and has been entered, since a
+# backend may want to put things in it.
 backend_setup
 
 # split into batches of NEVENT_GEN
 nbatch=$((NEVENT / NEVENT_GEN))
 
-# see STALL_TIMEOUT_SEC's own comment - armed for the batch loop only
+# armed for the batch loop only
 start_stall_watchdog
 
 for ((i=0; i<nbatch; i++)); do
@@ -351,8 +250,8 @@ for ((i=0; i<nbatch; i++)); do
 
     cd $WORKDIR
     if [ "$PROC_KIND" = "cmssw_fragment" ]; then
-        # nothing to generate here - CMSSW does it in its own GEN step, from the
-        # process' fragment.py (see PROC_KIND above). Straight to the backend.
+        # Nothing to generate: CMSSW does it in its own GEN step from the
+        # process' fragment.py. Straight to the backend.
         backend_run_batch $i
         backend_intermediate_merge $i
         continue
@@ -361,21 +260,12 @@ for ((i=0; i<nbatch; i++)); do
     # copy genpack if not exist
     if [ ! -d "proc_base" ]; then
         mkdir proc_base
-        # Retry+verify these two copies before proceeding - same reasoning as
-        # copy_to_eos() below, just in the other direction (EOS -> local
-        # scratch instead of local scratch -> EOS): EOS's FUSE mount can
-        # spuriously fail a `cp` mid-read too, not just a `mkdir`/`mv` under
-        # load. Found the hard way: an unchecked "cp: error reading
-        # '.../run_gen_default.sh': Input/output error" once left
-        # proc_base/run_gen.sh missing for an entire job - every one of its
-        # 10 batches then failed to generate anything, yet the job still
-        # exited 0 and copied an EMPTY ntuple to EOS as if it were real
-        # output (found via print_njets.py's per-label diagnostics: one job's
-        # ntuple among ~170 others had exactly 0 jets - nothing in the job's
-        # own logging/exit code flagged it). Checking "at least one file
-        # landed" (mirroring validate_proc()'s own check in run_condor.py)
-        # rather than `cp`'s exit code alone, since a partially-failed `cp -r`
-        # can still exit 0 having copied only some of the files.
+        # Retry and verify, for the same reason as copy_to_eos but in the other
+        # direction: a read from the EOS mount can fail mid-copy, and an
+        # unchecked failure here leaves run_gen.sh missing, so every batch
+        # generates nothing while the job still exits 0 with an empty ntuple.
+        # The check is "at least one file landed" rather than cp's exit code,
+        # since a partially failed `cp -r` can still exit 0.
         for attempt in 1 2 3 4 5; do
             cp -r $GENCFG_PATH/$PROC/* proc_base/
             if [ -n "$(ls -A proc_base 2>/dev/null)" ]; then
@@ -407,8 +297,8 @@ for ((i=0; i<nbatch; i++)); do
     heartbeat
     cd $WORKDIR/proc_base
 
-    # generate GEN events once per batch - shared across every detector
-    # reconstruction the backend does with them
+    # Generate this batch's events once; the backend may reconstruct them with
+    # several detector configurations.
     rm -f events.hepmc
     run_gen_with_timeout $NEVENT_GEN
 

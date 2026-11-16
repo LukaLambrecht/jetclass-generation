@@ -1,48 +1,43 @@
 #!/usr/bin/env python3
 
-'''
-Offline vs HLT track impact parameters of CHARGED particles, split per jet class.
+'''Offline against HLT track impact parameters of charged particles, split per jet class.
 
-Same comparison and same look as plot_nparticles.py - normalized step histograms,
-Offline in blue and HLT in purple with sqrt(N) bands, one panel per jet class - but
-for the per-particle track impact parameters instead of a per-jet count.
+The same comparison and look as plot_nparticles.py - normalized step histograms,
+Offline and HLT overlaid with their sqrt(N) bands, one panel per jet class - but for
+per-particle impact parameters instead of a per-jet count.
 
 Three independent splits, one figure per combination:
 
   * VARIABLE   d0 (transverse) or dz (longitudinal), both in cm.
-  * SELECTION  every charged particle in the jet, or only the LEADING charged
-               particle (highest pT). The leading track is what a tagger leans on
-               most, and pooling every particle lets a few very displaced ones
-               dominate the tail, so the two answer different questions.
-  * JET CLASS  one panel per class, as everywhere else in this directory.
+  * SELECTION  every charged particle in the jet, or only the leading one. The leading
+               track is what a tagger leans on most, while pooling every particle lets
+               a few very displaced ones dominate the tail, so the two answer different
+               questions.
+  * JET CLASS  one panel per class, as elsewhere in this directory.
 
-  -> ip_<d0|dz>_<all|leading>_charged.png   (2 x 2 = 4 figures)
+Only charged particles are histogrammed: a neutral candidate has no track, so our
+ntuples store zero for it and the reference dataset has no neutral branch at all.
+Including them would put a large spike at exactly zero that is an artifact.
 
-ONLY CHARGED PARTICLES are histogrammed: a neutral candidate has no track, so our
-own ntuples store 0 for it (verified: 9 nonzero out of 420212 neutrals in a sample
-file) and the fullsim reference has no neutral IP branch at all. Including them
-would put a huge spike at exactly zero that is an artifact, not physics.
+The range matters more here than in the other scripts, because Offline and HLT populate
+very different ranges: nearly all HLT values sit within about a centimetre, while
+offline has a long tail orders of magnitude further out, which are not resolvable tracks
+in any useful sense. So each variable is plotted in a symmetric window and everything
+outside is clipped into the edge bins rather than dropped, for two reasons:
 
-THE RANGE MATTERS HERE, more than for the other scripts. Offline and HLT populate
-wildly different ranges: in a sample QCD file, 99.6% of HLT d0 values fall within
-+-1 cm, while offline has an ~18% tail reaching +-1000 cm and beyond (dz out to
-4600 cm). Those far values are not resolvable tracks in any useful sense. So each
-variable is plotted in a symmetric window (--d0-range / --dz-range) and everything
-outside is CLIPPED INTO THE EDGE BINS rather than dropped, for two reasons:
-
-  * dropping would renormalize each side over only what it kept, making offline and
-    HLT look more alike than they are - the tail is precisely part of the difference;
+  * dropping would renormalize each side over only what it kept, making the two look
+    more alike than they are, when the tail is precisely part of the difference;
   * clipping keeps both sides normalized over all their charged particles, and the
     overflow shows up as an honest spike in the end bins.
 
-Each panel also prints the percentage of each side that landed outside the window,
-so the clipped fraction is never invisible. Use --no-clip to drop instead.
+Each panel prints the percentage of each side that landed outside the window, so the
+clipped fraction is never invisible. Use --no-clip to drop instead.
 
 Usage:
   python3 plot_impact_parameter.py FILE_OR_GLOB_OR_DIR [...] --outdir DIR [options]
 
 Examples:
-  python3 plot_impact_parameter.py /eos/user/l/llambrec/jetclass/.../merged/jetclass2sb \\
+  python3 plot_impact_parameter.py /eos/user/l/llambrec/jetclass/.../merged/jetclass2sb \
       --outdir output_plots_ip --classes QCD
   python3 plot_impact_parameter.py 'ntuple_*.root' --outdir output_plots_ip --d0-range 0.2
 '''
@@ -119,12 +114,8 @@ SUFFIXES = ['px', 'py', 'charge', 'd0val', 'dzval', 'd0err', 'dzerr']
 
 
 def charged_values(data, prefix, suffix, leading_only, err_suffix=None):
-    '''Per-jet jagged -> flat array of one variable's values for the charged particles
-    of each jet, either all of them or only the highest-pT one.
-
-    Returns (values, per_jet_index) where per_jet_index maps each returned value back
-    to the jet it came from, so a class mask can be applied afterwards without
-    re-doing the jagged work for every class.
+    '''Flatten one variable's values over the charged particles of each jet, either all of them
+    or only the leading one.
     '''
     charge = data[prefix + 'charge']
     val = data[prefix + suffix][charge != 0]
@@ -150,8 +141,8 @@ def charged_values(data, prefix, suffix, leading_only, err_suffix=None):
 
 
 def _finite(values, jet_index):
-    '''Drop the entries a significance could not be computed for (marked NaN above),
-    keeping the value -> jet index map aligned. A no-op for the plain IP variables.'''
+    '''Drop the entries whose value could not be computed, keeping the arrays aligned.
+    '''
     keep = np.isfinite(values)
     if keep.all():
         return values, jet_index
@@ -159,15 +150,10 @@ def _finite(values, jet_index):
 
 
 def new_accumulator(nbins, with_hlt):
-    """Per-(variable, selection, class) running totals.
+    '''Per-(variable, selection, class) running totals.
 
-    The script reads ONE file at a time and adds into these, rather than
-    concatenating every file's per-particle branches first: memory then does not
-    scale with the size of the production. Summing per-file histograms is exactly
-    histogramming the concatenation, and everything the panel needs is additive -
-    the bin counts, the number of values (which is what the density is normalized
-    by), the number outside the window, and the jet count.
-    """
+    The script reads one file at a time and adds into these, so memory stays bounded.
+    '''
     a = {'off_counts': np.zeros(nbins), 'off_n': 0, 'off_out': 0, 'njets': 0}
     if with_hlt:
         a.update({'hlt_counts': np.zeros(nbins), 'hlt_n': 0, 'hlt_out': 0})
@@ -175,7 +161,7 @@ def new_accumulator(nbins, with_hlt):
 
 
 def accumulate(a, side, vals, edges, half_width, clip):
-    """Add one file's values for one side ('off'/'hlt') into the accumulator."""
+    '''Add one file's values for one side into the accumulator.'''
     if len(vals) == 0:
         return
     a[side + '_n'] += len(vals)
@@ -186,12 +172,7 @@ def accumulate(a, side, vals, edges, half_width, clip):
 
 
 def density_from_counts(counts, edges):
-    """(nominal, error) of the density-normalized histogram from raw bin counts.
-
-    Same definition as plot_style.poisson_density(), which takes values instead:
-    counts / (total * bin_width), with the sqrt(N) error carried through the same
-    scaling. `total` is the in-range sum, which is what the counts already are.
-    """
+    '''(nominal, error) of the density-normalized histogram, from the raw bin counts.'''
     widths = np.diff(edges)
     total = counts.sum()
     if total == 0:
@@ -202,7 +183,7 @@ def density_from_counts(counts, edges):
 
 
 def draw_panel(ax, class_name, acc, edges, xlabel, clip, paper_style=False, ylim=None):
-    '''One class's panel: Offline vs HLT, same style as plot_nparticles._draw_hist().'''
+    '''One class' panel: Offline against HLT, in the shared style.'''
     has_hlt = 'hlt_counts' in acc
     if acc['off_n'] == 0 and (not has_hlt or acc['hlt_n'] == 0):
         ax.text(0.5, 0.5, '{}: no data'.format(ps.class_label(class_name)), ha='center',
@@ -260,8 +241,7 @@ YLIM_REFERENCE_CLASS = 'X_bb'
 
 def make_grid(results, classes, outpath, edges, xlabel, title, clip,
               paper_style=False, ylim=None):
-    '''One figure, one panel per class - same small-multiples layout as the sibling
-    scripts' own make_grid().'''
+    '''One figure, one panel per class, in the same layout as the sibling scripts.'''
     ncols = min(5, len(classes))
     nrows = (len(classes) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
@@ -298,6 +278,7 @@ def make_grid(results, classes, outpath, edges, xlabel, title, clip,
 
 
 def main():
+    '''Read the files, accumulate every split, and write one figure per combination.'''
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('files', nargs='+',

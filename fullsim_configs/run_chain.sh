@@ -1,7 +1,7 @@
 #!/bin/bash
-# The CMSSW side of the fullsim backend. Runs INSIDE the container (see
-# backends/fullsim.sh, which is what launches it); sets up the CMSSW environment
-# itself, so it can also be run by hand for debugging.
+# The CMSSW side of the fullsim backend. Runs inside the container, launched by
+# backends/fullsim.sh, and sets up the CMSSW environment itself, so it can also be
+# run by hand for debugging.
 #
 #   run_chain.sh setup       - write the three cmsRun configs and build the ntuplizer (once per job)
 #   run_chain.sh batch <i>   - GEN,SIM -> DIGI,L1,HLT -> RECO -> ntuple, for one batch
@@ -15,9 +15,8 @@
 #   NT_*          passed through to the ntuplizer, see makeNtuplesFullSim.cc's main()
 #   FULLSIM_CMSSW_DIR, FULLSIM_SCRAM_ARCH, FULLSIM_CONDDB   see below
 #
-# Every step is skipped if its output is already there, so a batch that failed
-# late (or a job that is retried) does not redo the expensive steps. Within a
-# job that only matters for a retry by hand; it matters a lot when debugging.
+# Every step is skipped when its output is already present, so a batch that failed
+# late, or one being debugged by hand, does not redo the expensive steps.
 set -u
 
 FS_NEVENT=${FS_NEVENT:--1}
@@ -38,11 +37,9 @@ fi
 source /cvmfs/cms.cern.ch/cmsset_default.sh >/dev/null 2>&1 || {
     echo "ERROR: could not source cmsset_default.sh - is /cvmfs/cms.cern.ch available?" >&2; exit 2; }
 # A CMSSW GEN fragment has to be importable as Configuration.GenProduction.<name>,
-# which means a scram developer area: CMSSW's own package __init__.py prepends
-# $LOCALRT/python/<Package> to the package __path__, so a subpackage that does NOT
-# exist in the release (GenProduction is created by users, never shipped) is simply
-# ADDED there, with nothing in the release shadowed. The area is created once per job
-# and reused by every batch.
+# which needs a scram developer area: CMSSW prepends the local python directory to
+# the package path, so a subpackage the release does not ship is simply added there
+# and nothing is shadowed. Created once per job and reused by every batch.
 FS_FRAGMENT=${FS_FRAGMENT:-}
 FS_FRAGNAME=${FS_FRAGNAME:-}
 if [ -n "$FS_FRAGMENT" ]; then
@@ -62,8 +59,8 @@ CFGDIR=$FS_WORK/cfg
 GT=$(python -c "import sys; sys.path.insert(0,'$FS_CFGSRC'); import patch_cond; print(patch_cond.GT)")
 BEAMSPOT=$(python -c "import sys; sys.path.insert(0,'$FS_CFGSRC'); import patch_cond; print(patch_cond.BEAMSPOT_NAME)")
 
-# Appends the patch block that turns a bare cmsDriver config into one that runs
-# on open conditions (and, for step 1, on our own HepMC input).
+# Append the patch block that turns a bare cmsDriver config into one that runs on
+# open conditions, and for the first step on our own HepMC input.
 append_patch () {
     local cfg=$1; shift
     {
@@ -99,9 +96,9 @@ do_setup () {
                 "process = patch_cond.apply(process)" \
                 "process = patch_cond.set_beamspot(process)"
         else
-            # The fragment name is required by cmsDriver but its generator module is
-            # removed again by patch_gen (we read our own HepMC file instead); it
-            # only has to be a GEN fragment that exists in the release.
+            # cmsDriver requires a fragment name, but patch_gen removes its
+            # generator module again, since we read our own HepMC file. It only has
+            # to be a GEN fragment that exists in the release.
             cmsDriver.py QCD_Pt_600_800_13TeV_TuneCUETP8M1_cfi --mc --eventcontent FEVTDEBUG \
                 --datatier GEN-SIM --conditions "$GT" --beamspot "$BEAMSPOT" --step GEN,SIM \
                 --geometry DB:Extended --era Run2_2018 --python_filename gensim_cfg.py \
@@ -157,15 +154,15 @@ run_step () {
         return 0
     fi
     local t0=$(date +%s)
-    # a batch-local copy (gensim, which carries this batch's seeds) wins over the
-    # job-wide one written by do_setup
+    # A batch-local config, which carries this batch's seeds, wins over the job-wide
+    # one written by do_setup.
     local cfg="${name}_cfg.py"
     [ -s "$cfg" ] || cfg="$CFGDIR/${name}_cfg.py"
     cmsRun "$cfg" > "${name}.log" 2>&1
     local rc=$?
     echo "  $name: rc=$rc ($(( $(date +%s) - t0 ))s)"
     if [ $rc -ne 0 ]; then
-        # the one line that actually says what went wrong, out of a ~10k-line log
+        # the one line that says what went wrong, out of a very long log
         grep -m1 -A8 "Begin Fatal Exception" "${name}.log" | sed -n '2,8p' | cut -c1-160 >&2
     fi
     return $rc
@@ -181,12 +178,11 @@ do_batch () {
         return 1
     fi
 
-    # One random seed per batch, reseeding EVERY random-number module (generator,
-    # vertex smearing, GEANT4, mixing) via CMSSW's own helper. Essential for a
-    # fragment process - without it every batch of a job would generate the identical
-    # events, since they share one config - and a genuine improvement for the HepMC
-    # route too, whose batches previously shared GEANT4 seeds. Logged so a batch can
-    # be reproduced. Nonzero: 0 is not a valid CMSSW seed.
+    # One seed per batch, reseeding every random-number module through CMSSW's own
+    # helper. Essential for a fragment process, where the batches of a job share one
+    # config and would otherwise generate identical events, and it keeps the HepMC
+    # route's batches from sharing GEANT4 seeds. Logged so a batch can be reproduced.
+    # Nonzero, since 0 is not a valid CMSSW seed.
     BATCH_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 900000000 + 1 ))
     echo "  seed: $BATCH_SEED"
     cp "$CFGDIR/gensim_cfg.py" ./gensim_cfg.py

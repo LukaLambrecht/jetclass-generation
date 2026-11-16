@@ -1,33 +1,23 @@
 #!/usr/bin/env python3
 
-'''
-Test whether coarsening HCal's tower grid (see calo_grid.py) can reproduce
-the real offline-to-scouting neutral-hadron multiplicity reduction seen in
-data - i.e. whether "online clustering merges what offline resolves
-separately" is well modeled simply by using bigger towers online.
+'''Test whether coarsening HCal's tower grid can reproduce the real offline-to-scouting
+neutral-hadron multiplicity reduction, i.e. whether "online clustering merges what
+offline resolves separately" is well modelled by using bigger towers online.
 
-This needs no Delphes run and no per-particle matching: it's a purely
-geometric effect, so it can be tested directly against real candidate
-positions already in the ntuples. For a range of integer coarsening
-factors N (the tower grid's eta/phi edges downsampled by N - see
-calo_grid.coarsen_regions):
-  1. Take real OFFLINE neutralHadron candidates (npfcand_isNeutralHad),
-     assign each to a tower of the N-coarsened HCal grid, and sum the
-     energy of candidates sharing a tower within the same jet - simulating
-     what SimpleCalorimeter would output as a *single* candidate for that
-     tower, however many true candidates actually landed there.
-  2. Bin the resulting per-jet "merged pseudo-candidate" energies the same
-     way as derive_curves.py's neutralCalorimeter measurement (average
-     count per jet per energy bin).
-  3. Compare that predicted spectrum to the *real* scouting neutralHadron
-     spectrum (scoutpfcand_isNeutralHad) - not a resolution/threshold model
-     this time, just "does merging alone get the shape right".
+This needs no Delphes run and no per-particle matching, because the effect is purely
+geometric and can be tested against the candidate positions already in the ntuples. For
+a range of coarsening factors:
+  1. take real offline neutral-hadron candidates and sum the energy of those sharing a
+     coarsened tower into one merged pseudo-candidate;
+  2. bin the resulting per-jet energies the way derive_curves.py bins its
+     neutralCalorimeter measurement;
+  3. compare that predicted spectrum against the real scouting spectrum - no
+     resolution or threshold model this time, just whether merging alone gets the shape
+     right.
 
-Reports a goodness-of-fit ranking across the scanned N and saves a
-comparison plot. Simplification: uses a single inclusive |eta|<2.5 sample
-(no barrel/endcap split) to keep this scan fast and its output a single,
-directly actionable answer - see README for the follow-up once an N is
-chosen. Does not modify any Delphes card.
+Reports a goodness-of-fit ranking across the scanned factors and saves a comparison
+plot. Uses one inclusive |eta| sample, with no barrel/endcap split, to keep the scan
+fast and its answer single and actionable. No Delphes card is modified.
 
 Usage:
   python scan_calo_granularity.py [--factors 1,2,3,4,6,8,12,16,20] [--max-jets 20000]
@@ -71,18 +61,21 @@ plt.rcParams.update({
 
 
 def wrap_phi(phi):
+    '''Wrap phi into -pi..pi.'''
     return (phi + np.pi) % (2 * np.pi) - np.pi
 
 
 def spectrum_from_energies(energy_lists, n_jets, energy_edges):
-    ### average number of candidates per jet per energy bin, from a list of
-    # per-jet numpy arrays of candidate energies
+    '''Average number of candidates per jet per energy bin, from a list of per-jet energy
+    arrays.
+    '''
     flat = np.concatenate(energy_lists) if energy_lists else np.array([])
     counts, _ = np.histogram(flat, bins=energy_edges)
     return counts / max(n_jets, 1)
 
 
 def main():
+    '''Run the scan over every coarsening factor, rank them, and write the plot.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input-dir', default=DEFAULT_INPUT_DIR)
@@ -169,9 +162,9 @@ def main():
     scout_spectrum = spectrum_from_energies(scout_energies, n_jets_done, PT_EDGES)
     predicted = {f: spectrum_from_energies(merged_energies[f], n_jets_done, PT_EDGES) for f in factors}
 
-    # goodness-of-fit vs the real scouting target, in bins with enough
-    # offline statistics to be meaningful (log-space residuals, since the
-    # spectrum spans orders of magnitude)
+    # Goodness of fit against the real scouting target, over the bins with enough offline
+    # statistics to mean anything. In log space, since the spectrum spans orders of
+    # magnitude.
     well_populated = offline_spectrum * n_jets_done >= 50
     eps = 1e-6
     scores = {}

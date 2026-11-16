@@ -1,39 +1,27 @@
 #!/usr/bin/env python3
 
-'''
-Shared input layer letting the diagnostic/plotting scripts in this
-directory and in compare-hlt-to-offline/ read EITHER of two ntuple
-schemas transparently, so the same script/command can be pointed at
-either one:
+'''Shared input layer that lets the scripts in this directory and in
+compare-hlt-to-offline/ read either ntuple schema transparently, so one command can
+be pointed at either:
 
-  - "ours": produced by this repo's own delphes_analyzers/makeNtuples.C
-    (single Delphes card) or makeNtuplesPaired.C (offline+HLT pair) -
-    part_*/jet_* for offline, plus hlt_part_*/hlt_jet_*/hlt_matched for
-    HLT when the input is a paired production. Identified by the presence
-    of a jet_label branch.
+  - "ours": produced by delphes_analyzers/makeNtuples.C (one Delphes card) or
+    makeNtuplesPaired.C (an offline+HLT pair). part_*/jet_* for offline, plus
+    hlt_part_*/hlt_jet_*/hlt_matched for HLT in a paired production. Identified by
+    the presence of a jet_label branch.
 
-  - "fullsim": the real CMS offline+scouting reference dataset this whole
-    Delphes pipeline is trying to mimic - see hlteff/README.md's own
-    "Data source" section for the full description. Path:
+  - "fullsim": the CMS offline+scouting reference dataset this pipeline is compared
+    against, at
       /eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/
-        QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new/dnnTuples_nanov15_*.root
-        H0HpHm_mixed_new/dnnTuples_nanov15_*.root
-    One row per (offline, HLT/scouting) jet PAIR, already geometrically
-    matched (median dR ~0.005 - see hlteff/README.md) - unlike our own
-    single-card output, every row here always has both sides; there is no
-    "hlt_matched" concept to speak of, so load_particles() below just
-    reports it as always True. Offline particles are split across TWO
-    collections (cpfcandlt_* charged incl. recovered lost tracks, npfcand_*
-    neutral) instead of our own single combined one; the HLT/scouting side
-    (scoutpfcand_*) already IS one combined collection like ours.
-    Identified by the presence of an fj_label branch.
+    One row per already-matched (offline, HLT) jet pair, so both sides are always
+    present and hlt_matched is reported as always True. Offline particles come in two
+    collections (cpfcandlt_* charged, npfcand_* neutral) rather than one combined one,
+    while the HLT side (scoutpfcand_*) is already combined. Identified by the presence
+    of an fj_label branch.
 
-Every function below normalizes to OUR OWN naming (part_*/hlt_part_*/
-jet_pt/hlt_jet_pt/hlt_matched) regardless of which schema the input
-actually is, so callers never need their own if/else on the source - only
-classify_ours_label()/FULLSIM_CATEGORY_FLAGS below are schema-specific,
-for callers (print_njets.py) that need a coarse, cross-schema-comparable
-category rather than particle content.
+Every function normalizes onto our own naming (part_*/hlt_part_*/jet_pt/hlt_jet_pt/
+hlt_matched) whatever the input was, so callers never branch on the schema. Only
+classify_ours_label() and FULLSIM_CATEGORY_FLAGS are schema-specific, for callers that
+need a coarse cross-schema category instead of particle content.
 '''
 
 import os
@@ -60,26 +48,21 @@ FULLSIM_MARKER = 'fj_label'
 # offline+scouting reference dataset.
 NTUPLE_GLOBS = ('ntuple_*.root', 'dnnTuples_nanov15_*.root')
 
-# The process families our own productions write under <output-path>/<family>/<proc>/...
-# (i.e. the top-level subdirectory names of gen_configs/). Matched case-INSENSITIVELY,
-# so datasets produced before gen_configs/jetclass2SB was lowercased still parse. This
-# is the canonical list - validation/print_njets.py imports it from here.
+# The process families our productions write under <output-path>/<family>/<proc>/...,
+# i.e. the top-level subdirectory names of gen_configs/. Matched case-insensitively, so
+# a differently-cased family name still parses. The canonical list; print_njets.py
+# imports it from here.
 OURS_FAMILIES = ('jetclass1', 'jetclass2', 'jetclass2sb')
 
 
 def discover_ntuples(pattern):
-    """Expand ONE command-line input into a list of files.
+    '''Expand one command-line input into a list of files.
 
-    A DIRECTORY is searched recursively for both schemas' ntuples, so a whole
-    production tree can be passed as-is - the same thing print_njets.py accepts,
-    rather than having to hand-write a glob whose depth matches the layout (which
-    differs: CRAB writes <family>/<proc>/<timestamp>/<counter>/, a local production
-    <family>/<proc>/.../<card>/, and a merged tree <family>/<proc>/merged/).
-
-    Anything else is glob-expanded as before, and a pattern matching nothing is
-    kept as a literal so a plain path still works and a typo fails loudly on the
-    actual read rather than vanishing silently here.
-    """
+    A directory is searched recursively for both schemas' ntuples, so a whole production
+    tree can be passed as is, without hand-writing a glob whose depth matches the layout.
+    Anything else is glob-expanded, and a pattern matching nothing is kept as a literal, so
+    a plain path still works and a typo fails on the read rather than vanishing here.
+    '''
     if os.path.isdir(pattern):
         files = []
         for g in NTUPLE_GLOBS:
@@ -90,7 +73,7 @@ def discover_ntuples(pattern):
 
 
 def expand_inputs(patterns):
-    """discover_ntuples() over several inputs, de-duplicated, order preserved."""
+    '''discover_ntuples() over several inputs, de-duplicated, order preserved.'''
     files, seen = [], set()
     for pattern in patterns:
         for f in discover_ntuples(pattern):
@@ -103,14 +86,13 @@ def expand_inputs(patterns):
 
 
 def family_of(path, root):
-    """The gen_configs family a discovered file belongs to, or None.
+    '''The gen_configs family a discovered file belongs to, or None.
 
-    `root` is the directory the user actually passed. The family is the first path
-    component below it, validated against OURS_FAMILIES - so pointing at a whole
-    production gives 'jetclass2sb'/'jetclass2', while pointing straight at one
-    family's own directory (or at the reference dataset) gives None, meaning "this
-    is already a single sample, do not split it further".
-    """
+    `root` is the directory the user passed; the family is the first path component below
+    it, validated against OURS_FAMILIES. Pointing at a whole production therefore gives
+    e.g. 'jetclass2sb', while pointing at a single family's own directory, or at the
+    reference dataset, gives None, meaning "already one sample, do not split further".
+    '''
     try:
         rel = os.path.relpath(os.path.dirname(os.path.abspath(path)), os.path.abspath(root))
     except ValueError:
@@ -120,46 +102,46 @@ def family_of(path, root):
         return None
     return parts[0] if parts[0].lower() in OURS_FAMILIES else None
 
-# per-particle fields load_particles() normalizes onto part_<suffix>/
-# hlt_part_<suffix> for both schemas
+# Per-particle fields load_particles() normalizes onto part_<suffix> and
+# hlt_part_<suffix> for both schemas.
 PARTICLE_SUFFIXES = ['px', 'py', 'charge', 'energy',
                       'isElectron', 'isMuon', 'isPhoton', 'isChargedHadron', 'isNeutralHadron',
-                      # track impact parameters, transverse and longitudinal, in cm.
-                      # Only charged particles carry a track, so these are zero for
-                      # neutrals in our own schema and structurally absent from the
-                      # fullsim neutral collection - mask on 'charge' before using them.
+                      # Track impact parameters, transverse and longitudinal, in cm. Only
+                      # charged particles carry a track, so these are zero for neutrals in
+                      # our schema and absent from the fullsim neutral collection; mask
+                      # on 'charge' before using them.
                       'd0val', 'dzval', 'd0err', 'dzerr']
 
 
 def _treepaths(files, treename):
+    '''The 'file:tree' paths uproot wants, for a list of files.'''
     return ['{}:{}'.format(f, treename) for f in files]
 
 
 def _keys_of(file, treename):
+    '''The set of branch names in one file.'''
     with uproot.open('{}:{}'.format(file, treename)) as t:
         return set(t.keys())
 
 
-# How many files to read in parallel in _read_branches(). Reading a handful of flat
-# branches out of this repo's inputs is almost pure I/O LATENCY, not bandwidth or CPU:
-# the CMS reference dataset is 53 files of ~3 GB on an EOS FUSE mount, and pulling four
-# scalar branches out of all of them took 11.5 minutes of wall time for 56 seconds of
-# CPU before this existed. uproot releases the GIL while reading/decompressing, so
-# overlapping whole files across threads turns that latency into throughput.
+# How many files _read_branches() reads in parallel. Pulling a few flat branches out of
+# these inputs is almost pure I/O latency rather than bandwidth or CPU, and uproot
+# releases the GIL while reading, so overlapping whole files across threads turns that
+# latency into throughput.
 READ_WORKERS = int(os.environ.get('NTUPLE_IO_WORKERS', '8'))
 
 
 def _read_branches(files, branches, treename, workers=None):
-    '''uproot.concatenate(files, filter_name=branches) with the files read in parallel.
+    '''uproot.concatenate(files, filter_name=branches), reading the files in parallel.
 
-    Returns the same {branch: numpy array} with the files' entries in the SAME order as
-    `files` (ThreadPoolExecutor.map preserves input order), which callers rely on to keep
-    separate reads of the same file list aligned element-wise.
+    Returns {branch: numpy array} with the files' entries in the same order as `files`,
+    which callers rely on to keep separate reads of one file list aligned element-wise.
     '''
     branches = list(branches)
     workers = READ_WORKERS if workers is None else workers
 
     def read_one(f):
+        '''Read the requested branches out of one file.'''
         with uproot.open('{}:{}'.format(f, treename)) as t:
             return t.arrays(branches, library='np')
 
@@ -172,8 +154,10 @@ def _read_branches(files, branches, treename, workers=None):
 
 
 def detect_schema(files, treename='tree'):
-    '''Returns 'ours' or 'fullsim', from the first file's own branch list (see module docstring
-    for the marker branch each is identified by).'''
+    '''Return 'ours' or 'fullsim', from the first file's branch list.
+
+    See the module docstring for the marker branch that identifies each.
+    '''
     keys = _keys_of(files[0], treename)
     if OURS_MARKER in keys:
         return 'ours'
@@ -183,13 +167,11 @@ def detect_schema(files, treename='tree'):
         files[0], OURS_MARKER, FULLSIM_MARKER))
 
 
-# fullsim raw branch(es) backing each PARTICLE_SUFFIXES entry, per collection - see
-# load_particles()'s own comment on why some entries are None (a collection that
-# structurally can't hold that property at all, e.g. npfcand_* - all-neutral - has no
-# charge/isElectron/isMuon/isChargedHadron branch, cpfcandlt_* - all-charged - has no
-# isPhoton/isNeutralHadron). 'px' deliberately has both, so it can always serve as the
-# minimal structural (jagged-length) reference for zero-filling a side that lacks a
-# requested suffix, without reading a whole extra branch just for that.
+# The fullsim branch backing each PARTICLE_SUFFIXES entry, per collection. An entry is
+# None where a collection structurally cannot hold that property: the all-neutral
+# npfcand_* has no charge or lepton flags, the all-charged cpfcandlt_* has no photon or
+# neutral-hadron flags. 'px' deliberately has both, so it can always serve as the
+# jagged-length reference for zero-filling a side that lacks a requested suffix.
 FULLSIM_OFFLINE_FIELD = {
     'px':               ('cpfcandlt_px', 'npfcand_px'),
     'py':               ('cpfcandlt_py', 'npfcand_py'),
@@ -200,14 +182,14 @@ FULLSIM_OFFLINE_FIELD = {
     'isChargedHadron':  ('cpfcandlt_isChargedHad', None),
     'isPhoton':         (None, 'npfcand_isGamma'),
     'isNeutralHadron':  (None, 'npfcand_isNeutralHad'),
-    # the reference calls these dxy/dz; d0 == dxy. No neutral counterpart exists
-    # (a neutral candidate has no track), so the neutral half is zero-filled, which
-    # is what our own schema stores there anyway.
+    # The reference calls these dxy/dz, and d0 is dxy. A neutral candidate has no
+    # track, so the neutral half is zero-filled, which is what our schema stores
+    # there anyway.
     'd0val':            ('cpfcandlt_dxy', None),
     'dzval':            ('cpfcandlt_dz', None),
-    # the reference stores a pre-computed significance (dxysig/dzsig), not the error
-    # itself, so there is nothing to map these onto: zero-filled there, which callers
-    # must treat as "no error available" rather than "error is zero"
+    # The reference stores a precomputed significance, not the error itself, so
+    # there is nothing to map these onto. Zero-filled, which callers must read as
+    # "no error available" rather than "the error is zero".
     'd0err':            (None, None),
     'dzerr':            (None, None),
 }
@@ -222,25 +204,18 @@ FULLSIM_HLT_FIELD = {
 
 
 def load_particles(files, suffixes=None, treename='tree'):
-    '''
-    Returns a dict: always 'jet_pt' (offline jet pT) and 'part_<suffix>' for every
-    suffix in `suffixes` (a per-jet-jagged awkward array of per-particle values); ALSO
-    'hlt_matched', 'hlt_jet_pt' and 'hlt_part_<suffix>' whenever an HLT/scouting side
-    is present at all (always true for fullsim; only true for a paired "ours"
-    production - see module docstring) - callers that also handle offline-only "ours"
-    input should check for 'hlt_matched' in the returned dict rather than assuming
-    it's always there.
+    '''Read per-particle content for either schema.
 
-    `suffixes` (default: all of PARTICLE_SUFFIXES) restricts which per-particle fields
-    are actually read - pass only what you need (e.g. skip 'energy' if you're only
-    plotting kinematics, or skip 'px'/'py'/'charge' if you only need the type flags):
-    this is the dominant cost of this function (jagged per-particle branches are much
-    larger than the flat per-jet ones), so trimming it measurably cuts both bytes read
-    from EOS and the fullsim path's ak.concatenate work. 'px' is always read regardless
-    (on every side/collection) even if not requested, as the minimal structural
-    reference for zero-filling a side that structurally lacks a requested suffix (see
-    FULLSIM_OFFLINE_FIELD) - it's cheap (a plain float, present everywhere already),
-    and always returned in the output dict alongside whatever was actually requested.
+    Returns 'jet_pt' and 'part_<suffix>' for every suffix in `suffixes`, each a per-jet
+    jagged array. Whenever an HLT side is present at all - always for fullsim, only for a
+    paired "ours" production - also returns 'hlt_matched', 'hlt_jet_pt' and
+    'hlt_part_<suffix>'. Callers that also handle offline-only input should test for
+    'hlt_matched' rather than assume it.
+
+    `suffixes` restricts which per-particle fields are read, and is the dominant cost of
+    this function, so pass only what is needed. 'px' is always read on every side, as the
+    minimal structural reference for zero-filling a side that lacks a requested suffix, and
+    is always returned alongside what was asked for.
     '''
     all_suffixes = PARTICLE_SUFFIXES
     suffixes = all_suffixes if suffixes is None else list(suffixes)
@@ -260,16 +235,12 @@ def load_particles(files, suffixes=None, treename='tree'):
         arrays = uproot.concatenate(paths, filter_name=branches, library='ak')
         return {b: arrays[b] for b in branches}
 
-    # fullsim: offline = cpfcandlt_* (charged) + npfcand_* (neutral) concatenated per
-    # jet into one combined collection matching our own part_* layout; HLT =
-    # scoutpfcand_* renamed onto our own hlt_part_* names (already one combined
-    # collection there, like ours - see module docstring). Only the raw branches
-    # actually backing `read_suffixes` are read at all (see FULLSIM_OFFLINE_FIELD/
-    # FULLSIM_HLT_FIELD) - a suffix missing from one side's collection (e.g. npfcand_*
-    # has no charge/isElectron/isMuon/isChargedHadron; cpfcandlt_* has no isPhoton/
-    # isNeutralHadron) is filled with zeros there instead (via the 'px' structural
-    # reference), which is exactly the value a genuine part_charge/part_isElectron/etc.
-    # would hold for a particle of that type anyway.
+    # fullsim: the offline side is cpfcandlt_* and npfcand_* concatenated per jet into
+    # one collection matching our part_* layout, and the HLT side is scoutpfcand_*
+    # renamed onto our hlt_part_* names, already combined. Only the branches backing
+    # `read_suffixes` are read. A suffix missing from one collection is zero-filled
+    # through the 'px' structural reference, which is the value it would genuinely
+    # hold for a particle of that type.
     charged_branches = sorted({FULLSIM_OFFLINE_FIELD[s][0] for s in read_suffixes if FULLSIM_OFFLINE_FIELD[s][0]})
     neutral_branches = sorted({FULLSIM_OFFLINE_FIELD[s][1] for s in read_suffixes if FULLSIM_OFFLINE_FIELD[s][1]})
     hlt_branches = sorted({FULLSIM_HLT_FIELD[s] for s in read_suffixes if FULLSIM_HLT_FIELD[s]})
@@ -282,8 +253,7 @@ def load_particles(files, suffixes=None, treename='tree'):
     out = {
         'jet_pt': a['fj_pt'],
         'hlt_jet_pt': a['scoutfj_pt'],
-        # every fullsim row is already a matched (offline, scouting) pair
-        # by construction - see module docstring
+        # every fullsim row is already a matched pair, by construction
         'hlt_matched': np.ones(njets, dtype=bool),
     }
     for suffix in read_suffixes:
@@ -299,26 +269,18 @@ def load_particles(files, suffixes=None, treename='tree'):
 
 
 def load_nparticles(files, treename='tree'):
-    '''
-    Lightest possible read of "how many particles per jet" for either schema - no
-    per-particle CONTENT is read at all (unlike load_particles(), even with a minimal
-    `suffixes`), just enough structure to count. Returns {'jet_nparticles': array} and,
-    when an HLT/scouting side is present, also 'hlt_jet_nparticles' and 'hlt_matched' -
-    an unmatched row's hlt_jet_nparticles is 0 (its hlt_part_* vectors are empty, not
-    missing - see load_particles()'s own comment), which is NOT the same thing as "HLT
-    genuinely reconstructed 0 particles"; callers wanting the HLT nparticles
-    distribution should mask by 'hlt_matched' first (see ../compare-hlt-to-offline/
-    plot_nparticles.py) rather than including unmatched rows as zeros.
+    '''Read only how many particles each jet has, for either schema.
 
-    "ours" already stores this as a precomputed flat int branch on both sides (see
-    makeNtuples.C/makeNtuplesPaired.C) - read directly, no jagged branch touched at all.
+    No per-particle content is read, just enough structure to count. Returns
+    {'jet_nparticles': array} plus 'hlt_jet_nparticles' and 'hlt_matched' when an HLT side
+    is present. An unmatched row's hlt_jet_nparticles is 0 because its hlt_part_* vectors
+    are empty, which is not the same as HLT having reconstructed nothing, so callers
+    wanting the HLT distribution should mask by 'hlt_matched' first.
 
-    fullsim has no such precomputed branch - reads exactly ONE small branch per
-    underlying particle collection (arbitrary, cheap fields, used only for their
-    jagged length via ak.num() - never their actual values) instead of
-    load_particles()'s full per-particle content. 'hlt_matched' is trivially all True
-    (every fullsim row is already a matched pair - see module docstring), returned
-    anyway so callers don't need a schema-specific branch here either.
+    "ours" stores this as a precomputed flat branch on both sides and is read directly.
+    fullsim has none, so one small branch per particle collection is read and used only for
+    its jagged length. For fullsim 'hlt_matched' is trivially all True, returned anyway so
+    callers need no schema-specific branch.
     '''
     schema = detect_schema(files, treename)
     paths = _treepaths(files, treename)
@@ -337,32 +299,25 @@ def load_nparticles(files, treename='tree'):
             'hlt_matched': np.ones(len(offline_n), dtype=bool)}
 
 
-# Per-JET (one value per jet) quantities load_jet_kinematics() normalizes onto
-# jet_<q>/hlt_jet_<q> for both schemas. Only quantities BOTH schemas carry on BOTH
-# sides are listed, so anything loaded through here is always directly comparable
-# (notably absent: 'mass', which fullsim has as fj_mass but our own schema does not
-# store at all, and 'tau4', which is the other way round).
-# The branch names happen to be perfectly regular on both sides - ours jet_<q>/
-# hlt_jet_<q>, fullsim fj_<q>/scoutfj_<q> - so no explicit per-field map is needed
-# here, unlike the per-particle FULLSIM_*_FIELD tables above.
+# Per-jet quantities load_jet_kinematics() normalizes onto jet_<q>/hlt_jet_<q> for
+# both schemas. Only quantities both schemas carry on both sides are listed, so
+# anything loaded through here is directly comparable; 'mass' and 'tau4' are absent
+# because each exists in only one of the two.
+# The branch names are regular on both sides, so no per-field map is needed here,
+# unlike the per-particle tables above.
 JET_QUANTITIES = ['pt', 'eta', 'phi', 'energy', 'sdmass', 'tau1', 'tau2', 'tau3']
 
 
 def load_jet_kinematics(files, quantities=('pt', 'eta'), treename='tree'):
-    '''
-    Lightest possible read of per-JET quantities for either schema: only the flat
-    scalar branches asked for, no jagged per-particle data touched at all (unlike
-    load_particles(), and cheaper even than load_nparticles(), which has to read one
-    jagged branch per collection just to measure its length).
+    '''Read per-jet quantities for either schema.
 
-    Returns {'jet_<q>': array} for every q in `quantities` and, when an HLT/scouting
-    side is present, also 'hlt_jet_<q>' and 'hlt_matched'. For fullsim, 'hlt_matched'
-    is trivially all True (every row there already IS a matched pair - see the module
-    docstring), returned anyway so callers need no schema-specific branch.
+    Only the flat scalar branches asked for are touched, so this is cheaper even than
+    load_nparticles(). Returns 'jet_<q>' for every q in `quantities`, plus 'hlt_jet_<q>'
+    and 'hlt_matched' when an HLT side is present; for fullsim 'hlt_matched' is trivially
+    all True.
 
-    An unmatched "ours" row carries hlt_jet_<q> = -999 sentinels (see
-    makeNtuplesPaired.C), NOT a physical value - callers must mask by 'hlt_matched'
-    before histogramming the HLT side, exactly as for load_nparticles()'s counts.
+    An unmatched "ours" row carries hlt_jet_<q> = -999 sentinels, not a physical value, so
+    callers must mask by 'hlt_matched' before histogramming the HLT side.
     '''
     unknown = [q for q in quantities if q not in JET_QUANTITIES]
     if unknown:
@@ -389,21 +344,17 @@ def load_jet_kinematics(files, quantities=('pt', 'eta'), treename='tree'):
 
 
 def jet_selection_mask(files, min_jet_pt=None, max_jet_eta=None, treename='tree'):
-    '''Boolean per-row mask for an extra selection on the OFFLINE jet, or None when
-    neither bound is given (so callers can skip masking entirely).
+    '''Boolean per-row mask for an extra cut on the offline jet, or None if no bound is given.
 
-    Exists because the samples this directory compares do NOT all share one selection:
-    the CMS reference dataset cuts its offline jets at pT > 200 GeV and |eta| < 2.4 (a
-    hard edge at exactly those values, measured over 1.2M jet pairs), our delphes
-    productions are effectively cut at 200 GeV by the cards' own FastJetFinder
-    JetPTMin, but fullsim productions made before 2026-10-05 reach down to 120 GeV -
-    and that extra 120-200 GeV band is ~94% QCD-labeled, so comparing across the
-    mismatch skews anything split by jet class. Applying this makes them like for like.
+    The samples compared here do not share one selection: the reference dataset cuts at
+    pT > 200 GeV and |eta| < 2.4, our delphes productions are effectively cut at 200 GeV by
+    the cards themselves, and some older fullsim productions reach down to 120 GeV. That
+    extra band is almost entirely QCD-labelled, so comparing across the mismatch skews
+    anything split by jet class; this makes the samples like for like.
 
-    Only the flat branches the bounds actually need are read, and the rows line up with
-    every other loader's for the same file list (see _read_branches()), so the result
-    can be used directly to mask their output. Always the OFFLINE jet, never the HLT
-    one - that is how each of those samples defines its own selection.
+    Only the branches the bounds need are read, and the rows line up with every other
+    loader's for the same file list, so the result can mask their output directly. Always
+    the offline jet, since that is how each sample defines its own selection.
     '''
     if min_jet_pt is None and max_jet_eta is None:
         return None
@@ -420,7 +371,8 @@ def jet_selection_mask(files, min_jet_pt=None, max_jet_eta=None, treename='tree'
 
 def describe_jet_selection(min_jet_pt=None, max_jet_eta=None):
     '''Short human-readable form of a jet_selection_mask() selection, for the log line
-    scripts print when they apply one.'''
+    scripts print when they apply one.
+    '''
     parts = []
     if min_jet_pt is not None:
         parts.append('pT > {:g} GeV'.format(min_jet_pt))
@@ -430,18 +382,13 @@ def describe_jet_selection(min_jet_pt=None, max_jet_eta=None):
 
 
 def load_label_names(header_path=DEFAULT_LABEL_HEADER):
-    '''
-    Parse FatJetMatching.h's own `std::vector<std::string> labels_{...}`
-    initializer list straight out of the header (rather than hardcoding a
-    second copy of ~200 label strings here that could silently drift out
-    of sync with it) and return it as an ordered list - labels_[i] is
-    exactly what a jet_label value of i means, for both the v2
-    X_*/X_YY_*/QCD_* scheme and the v1 Top_*/W_*/Z_*/H_*/QCD_all labels
-    appended after it (see FatJetMatching.h's own useV1Labels_/labels_
-    comments). Only meaningful for the "ours" schema - fullsim's own
-    fj_label uses a completely different (DNNTuples-defined) list, not
-    reproduced here - see classify_ours_label()/FULLSIM_CATEGORY_FLAGS for
-    the coarse, cross-schema category comparison used instead.
+    '''Return FatJetMatching.h's labels_ list, in order, so labels_[i] is what a jet_label
+    value of i means.
+
+    Parsed straight out of the header rather than duplicated here, which would silently
+    drift out of sync. Covers both the v2 X_*/X_YY_*/QCD_* scheme and the v1 labels
+    appended after it. Only meaningful for the "ours" schema: fullsim's fj_label indexes a
+    different list, which is not reproduced here.
     '''
     with open(header_path) as f:
         text = f.read()
@@ -467,32 +414,29 @@ def load_label_names(header_path=DEFAULT_LABEL_HEADER):
 
 
 def is_qcd_label(name):
-    '''Every QCD-fallback label (v2's 27-way flavor split, and v1's single QCD_all
-    catch-all) is named QCD_*; every signal label (X_*, X_YY_*, Top_*, W_*, Z_*, H_*)
-    is not - see FatJetMatching.h's labels_ vector. "ours" schema only.'''
+    '''True for a QCD-fallback label. Every one is named QCD_*, and no signal label is.
+    "ours" schema only.
+    '''
     return name.startswith('QCD_')
 
 
-# Coarse, cross-schema category scheme: fine-grained label names don't
-# correspond 1:1 between our own v2 X_bb/X_cc/.../QCD_bb/... scheme and
-# DNNTuples' own fj_label list (a different, unpublished list we don't
-# reproduce here - see load_label_names()'s own docstring), but these 8
-# buckets, built from each schema's own boolean category flags/label-name
-# prefixes, DO correspond well enough to compare njets/composition across
-# both directly: our own v2 X_* 2-prong signal labels are the same physics
-# category as fullsim's fj_isH2p flag (both a single exotic resonance
-# decaying to 2 partons/leptons/taus - see FatJetMatching.h's labels_ and
-# DNNTuples' own isH2p for what each actually covers).
+# Coarse cross-schema categories. The fine-grained label names do not correspond one
+# to one between our scheme and the upstream fj_label list, but these buckets, built
+# from each schema's own category flags and label prefixes, match well enough to
+# compare jet counts and composition directly. Our X_* two-prong labels are the same
+# physics category as fullsim's fj_isH2p: one exotic resonance decaying to two
+# partons, leptons or taus.
 CATEGORY_NAMES = ['Top', 'W', 'Z', 'H2p', 'HWW', 'HZZ', 'QCD', 'other']
 
 FULLSIM_CATEGORY_FLAGS = ['fj_isTop', 'fj_isW', 'fj_isZ', 'fj_isH2p', 'fj_isHWW', 'fj_isHZZ', 'fj_isQCD']
 
 
 def classify_ours_label(name):
-    '''Coarse category (one of CATEGORY_NAMES) for one of our OWN label names (from
-    FatJetMatching.h's labels_ vector, see load_label_names()) - the "ours" counterpart
-    to fullsim's own boolean category flags (FULLSIM_CATEGORY_FLAGS) - see CATEGORY_NAMES'
-    own comment for why this mapping is deliberately coarse, not a fine-grained one.'''
+    '''The coarse category (one of CATEGORY_NAMES) for one of our own label names.
+
+    The counterpart to fullsim's own boolean category flags; see CATEGORY_NAMES for why the
+    mapping is deliberately coarse.
+    '''
     if name.startswith('QCD_'):
         return 'QCD'
     if name.startswith('Top_'):
@@ -509,9 +453,11 @@ def classify_ours_label(name):
 
 
 def load_fullsim_categories(files, treename='tree'):
-    '''fullsim counterpart to classify_ours_label(): returns (categories, njets), categories
-    a numpy array of one of CATEGORY_NAMES per jet, read directly off fullsim's own boolean
-    category flags (FULLSIM_CATEGORY_FLAGS) - no per-jet Python loop, just a numpy select.'''
+    '''fullsim counterpart to classify_ours_label().
+
+    Returns (categories, njets), with one of CATEGORY_NAMES per jet, read off fullsim's own
+    boolean category flags with a numpy select rather than a per-jet loop.
+    '''
     paths = _treepaths(files, treename)
     a = uproot.concatenate(paths, filter_name=FULLSIM_CATEGORY_FLAGS, library='np')
     njets = len(a[FULLSIM_CATEGORY_FLAGS[0]])
@@ -521,27 +467,17 @@ def load_fullsim_categories(files, treename='tree'):
     return cats, njets
 
 
-# DNNTuples' own per-category sub-label components (dev/AK15Scout branch,
-# Ntupler/interface/FatJetInfoFiller.h's labelTop_/labelW_/labelZ_/labelH2p_/
-# labelQCD_ member vectors, transcribed from source) - VERIFIED directly against
-# this dataset's own generator-level branches for the two categories the two
-# samples this pipeline actually uses populate: H2p (cross-checked against
-# fj_genpart1_pid/fj_genpart2_pid - the Higgs decay products' own PDG codes -
-# label 17 is exactly the bb pairs, 18 exactly cc, ... 29 exactly the
-# both-hadronic ditau case, in this list's order) and QCD (cross-checked
-# against fj_nbHadrons/fj_ncHadrons - label 309 is exactly nb>=2, 310 exactly
-# nb==0 and nc>=2, etc., in this list's order). Top/W/Z are transcribed from
-# the same source but NOT independently re-verified this way (neither sample
-# ever sets fj_isTop/isW/isZ, so there's nothing to check them against) - a
-# mismatch here would just fall back to a plain numeric suffix rather than
-# print a silently-wrong name, see resolve_fullsim_label_names().
+# The upstream per-category sub-label components, transcribed from DNNTuples'
+# FatJetInfoFiller.h. The H2p and QCD lists are checked against this dataset's own
+# generator-level branches, so their order is known to be right. Top/W/Z come from the
+# same source but are not independently verified, since neither sample ever sets those
+# flags; a mismatch there falls back to a numeric suffix rather than printing a wrong
+# name.
 #
-# HWW/HZZ are deliberately NOT included: DNNTuples pushes THREE differently-
-# prefixed copies of each onto labels_ (H_WW_*/H_WxWx_*/H_WxWxStar_* and
-# H_ZZ_*/H_ZxZx_*/H_ZxZxStar_*), and with no HWW/HZZ-flagged jets in either
-# sample to empirically pin down which of the three a given label value falls
-# in, guessing would risk a confidently WRONG name - resolve_fullsim_label_names()
-# falls back to a plain numeric suffix for those too.
+# HWW/HZZ are deliberately left out: upstream pushes three differently-prefixed copies
+# of each onto the list, and with no such jets in either sample to pin down which copy
+# a value falls in, a guess risks a confidently wrong name. Those fall back to a
+# numeric suffix too.
 FULLSIM_SUBLABELS = {
     'Top': ['bWcs', 'bWqq', 'bWc', 'bWs', 'bWq', 'bWev', 'bWmv', 'bWtauev', 'bWtaumv', 'bWtauhv',
             'Wcs', 'Wqq', 'Wev', 'Wmv', 'Wtauev', 'Wtaumv', 'Wtauhv'],
@@ -555,19 +491,12 @@ FULLSIM_SUBLABEL_PREFIX = {'Top': 'Top_', 'W': 'W_', 'Z': 'Z_', 'H2p': 'H_', 'QC
 
 
 def load_fullsim_raw_labels(files, treename='tree'):
-    '''
-    Read fullsim's own native fj_label directly, alongside its 7 boolean category
-    flags (FULLSIM_CATEGORY_FLAGS) - needed to resolve a fine-grained name per value
-    (see resolve_fullsim_label_names()), since fj_label alone doesn't say which
-    category's sub-list it indexes into. Returns (values, category_flags, njets):
-    values is the raw per-jet fj_label array, category_flags is
-    {category_name: per-jet boolean array} for each of CATEGORY_NAMES[:-1] - a label
-    VALUE is consistently exactly one category across the whole dataset, by
-    construction (see FatJetInfoFiller.cc's own label-building code), so a caller
-    aggregating over many files can safely combine per-file "this value co-occurred
-    with this category" observations (whichever file happens to contain it) to
-    recover the true per-value category, without needing DNNTuples' own full label
-    list or its exact concatenation order.
+    '''Read fullsim's native fj_label together with its boolean category flags.
+
+    Returns (values, category_flags, njets). Both are needed to name a value, since
+    fj_label alone does not say which category's sub-list it indexes into. A given value is
+    consistently one category across the whole dataset, so a caller may combine per-file
+    observations to recover the true per-value category.
     '''
     a = _read_branches(files, ['fj_label'] + FULLSIM_CATEGORY_FLAGS, treename)
     category_flags = {name: a[flag].astype(bool) for name, flag in zip(CATEGORY_NAMES[:-1], FULLSIM_CATEGORY_FLAGS)}
@@ -575,18 +504,14 @@ def load_fullsim_raw_labels(files, treename='tree'):
 
 
 def resolve_fullsim_label_names(value_to_category):
-    '''
-    Given value_to_category - {label_value: category_name}, one entry per distinct
-    raw fj_label value actually observed (built by the caller from
-    load_fullsim_raw_labels()'s category_flags, aggregated across every file read -
-    see print_njets.py) - return {label_value: display_name}. Resolves a
-    fine-grained name via FULLSIM_SUBLABELS wherever possible, indexed from that
-    CATEGORY's own empirically-observed minimum label value (not a hardcoded global
-    offset) - so this works regardless of where in DNNTuples' own full label list a
-    given production actually starts a category, without needing to know that list's
-    exact concatenation order at all. Falls back to "<category>_fj_label=<value>"
-    for HWW/HZZ or an index past what FULLSIM_SUBLABELS has (see its own docstring
-    for why), and "fj_label=<value>" for a value with no known category at all.
+    '''Turn {label_value: category_name} into {label_value: display_name}.
+
+    The caller builds the input from load_fullsim_raw_labels()'s category flags, aggregated
+    over every file read. A fine-grained name is resolved through FULLSIM_SUBLABELS where
+    possible, indexed from that category's own observed minimum value rather than a
+    hardcoded offset, so it does not depend on where a category starts in the upstream
+    list. Falls back to "<category>_fj_label=<value>" where no sub-name can be resolved,
+    and to "fj_label=<value>" for a value with no known category.
     '''
     by_category = {}
     for value, category in value_to_category.items():
@@ -606,10 +531,8 @@ def resolve_fullsim_label_names(value_to_category):
     return names
 
 
-# Generous upper bound for a raw fj_label value (see load_fullsim_raw_labels()) - every
-# value actually observed so far tops out at 313 (the QCD_PT-mixed sample's own QCD_light);
-# this just needs to comfortably exceed whatever DNNTuples' own (unpublished) label list
-# actually goes up to, with plenty of headroom - callers still get the same out-of-range
-# warning/clipping "ours" already has if a value ever exceeds it, rather than silently
-# breaking, so this is a safety margin, not something that has to be exactly right.
+# Generous upper bound for a raw fj_label value. It only has to exceed whatever the
+# upstream label list goes up to; a value above it still gets the same out-of-range
+# warning as in the "ours" path rather than breaking silently, so this is a safety
+# margin, not something that must be exact.
 FULLSIM_RAW_LABEL_CAP = 1000

@@ -1,28 +1,22 @@
 #!/usr/bin/env python3
 
-'''
-Compares jet-level kinematics (jet_pt, jet_eta) of our own JetClass-II
-production to the published JetClass-II dataset, per class - same style as
-plot_nparticles.py (see that module's docstring for the full context: class
-scheme, file formats, why QCD is one combined class while 9 of the Res2P
-flavors are each their own class/panel).
+'''Compare jet-level kinematics, jet_pt and jet_eta, of our own JetClass-II production to
+the published JetClass-II dataset, per class.
 
-Unlike JetClass-I - where the published files bake in a hard, narrow
-pT in [500,1000] GeV / |eta|<2 window (see ../compare-to-central-jetclass/
-plot_jet_kinematics.py's own docstring for how that was established) -
-JetClass-II's published files span a much broader boosted-jet pT range by
-design (many resonance mass points / QCD pThat bins). Directly checking the
-downloaded central jet_pt/jet_eta range (see plot_nparticles.py's own
-SELECTION_PT_MIN/SELECTION_ETA_MAX) shows a hard floor at pT>200 GeV (no
-upper bound) and |eta|<2.5 - matching Delphes' own JetPTMin=200 on the
-offline card and its eta acceptance, not a separate later-stage analysis
-cut. Plotted here with a wide, fixed bin range on both axes (extending past
-the selection on the low-pT/high-eta side) so that floor is directly
-visible as a hard edge, same reasoning as the JetClass-I sibling script.
+Same style as plot_nparticles.py; see its docstring for the class scheme and file
+formats.
 
-Reuses plot_nparticles.py's file-discovery/read/bucketing plumbing directly
-(same --central-path/--our-output-path/--classes/etc. semantics) rather
-than duplicating it.
+Unlike JetClass-I, whose published files bake in a narrow pT and |eta| window,
+JetClass-II's span a much broader boosted-jet range by design, over many resonance mass
+points and QCD pThat bins. Checking the downloaded files directly shows a hard floor at
+pT > 200 GeV with no upper bound, and |eta| < 2.5 - which matches the Delphes card's own
+clustering threshold and eta acceptance rather than a later analysis cut.
+
+Plotted with a wide fixed bin range on both axes, extending past the selection, so that
+floor is directly visible as a hard edge.
+
+Reuses plot_nparticles.py's discovery, reading and bucketing directly rather than
+duplicating it.
 
 Usage:
   python3 plot_jet_kinematics.py
@@ -58,10 +52,12 @@ KINEMATICS = [
 
 
 def jet_pt(arr):
+    '''The jet pT of each jet.'''
     return ak.to_numpy(arr['jet_pt']) if len(arr) else np.array([], dtype=np.float64)
 
 
 def jet_eta(arr):
+    '''The jet eta of each jet.'''
     return ak.to_numpy(arr['jet_eta']) if len(arr) else np.array([], dtype=np.float64)
 
 
@@ -69,7 +65,8 @@ VALUE_FN = {'jet_pt': jet_pt, 'jet_eta': jet_eta}
 
 
 def make_plot(ax, label, our_vals, central_vals, xlabel, bin_range):
-    '''Same look as plot_nparticles.make_plot(), but fixed-range float bins instead of integer ones.'''
+    '''One class' comparison, as in plot_nparticles.make_plot() but on fixed-range float bins.
+    '''
     lo, hi, nbins = bin_range
     bins = np.linspace(lo, hi, nbins + 1)
 
@@ -98,6 +95,7 @@ def make_plot(ax, label, our_vals, central_vals, xlabel, bin_range):
 
 
 def make_grid(results, classes, key, xlabel, bin_range, outpath):
+    '''One small-multiples figure with every requested class, for one quantity.'''
     ncols = 5
     nrows = (len(classes) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
@@ -115,8 +113,9 @@ def make_grid(results, classes, key, xlabel, bin_range, outpath):
 
 
 def print_stats(name, source, vals):
-    '''min/p1/p99/max, not mean/median/std (matches ../compare-to-central-jetclass/plot_jet_kinematics.py) - the
-    question here is whether there's a hard edge at a specific value.'''
+    '''Print min, 1st and 99th percentile and max, rather than mean and spread: the point here
+    is where the distribution ends, not its centre.
+    '''
     if len(vals) == 0:
         print('{:<16}{:<24}{:>10}'.format(name, source, 'no data'))
         return

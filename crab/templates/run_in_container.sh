@@ -2,11 +2,9 @@
 # CRAB scriptExe. Runs ON the worker node, OUTSIDE any container, and hands over to
 # run_job.sh, which dispatches each step into the container that step needs.
 #
-# It does NOT wrap everything in one container any more: the CMSSW chain needs EL7
-# (CMSSW_10_6_30 is slc7), while the MadGraph5+Pythia8 generation for hepmc processes
-# needs EL9 - the MG5 install is built against glibc 2.34 and will not even start under
-# SLC7's 2.17. On lxplus this never shows, because run.sh generates on the host (EL9)
-# and only enters the container for CMSSW; run_job.sh now reproduces that split.
+# The steps cannot share one container: the CMSSW chain needs EL7, while the
+# MadGraph5+Pythia8 generation needs EL9, since the MG5 install is built against a
+# newer glibc than SLC7 provides. run_job.sh keeps the two apart.
 set -u
 echo "=== run_in_container.sh: args: $* ==="
 echo "=== host: $(hostname)  site: ${GLIDEIN_CMSSite:-unknown}  os: $(grep -ho 'PRETTY_NAME=.*' /etc/os-release 2>/dev/null | head -1) ==="

@@ -1,17 +1,16 @@
 #!/bin/bash -x
 
-# Download, extract, and patch a precompiled JetClass-I (v1) gridpack (from
-# https://github.com/jet-universe/jetclass_generation) into the persistent
-# GRIDPACK_CACHE - a no-op if that process's cache entry already exists.
+# Download, extract and patch a precompiled JetClass-I gridpack from
+# https://github.com/jet-universe/jetclass_generation into the persistent
+# GRIDPACK_CACHE. A no-op if that process' entry already exists.
 #
-# This is the exact "step1" of run_gen_precompiled.sh, factored out so it can
-# also be run on its own (by ../download_gridpack.py) to pre-populate the
-# cache for many processes in parallel, ahead of time and without generating
-# any events - both call sites do exactly the same thing, from one place.
+# Called both by run_gen_precompiled.sh, as its step1, and by
+# ../download_gridpack.py, which populates many entries ahead of time without
+# generating events. Keeping it in one place is what makes the two agree.
 #
-# Requires MG5_PATH to be set (used to patch the gridpack's hardcoded,
-# inaccessible original install path). GRIDPACK_CACHE defaults as below if
-# unset, same default as run_gen_precompiled.sh.
+# MG5_PATH must be set: it replaces the gridpack's hardcoded original install
+# path. GRIDPACK_CACHE defaults as below, the same default
+# run_gen_precompiled.sh uses.
 
 GRIDPACK_NAME=$1
 
@@ -41,14 +40,14 @@ if [ ! -d "$DLDIR/$GRIDPACK_NAME" ]; then
     rm -rf $DLDIR
     exit 1
 fi
-# the gridpack hardcodes the original author's own (inaccessible) MG5
-# install path in this file - repoint it at our own MG5_PATH
+# The gridpack hardcodes its original, inaccessible MG5 install path here;
+# repoint it at ours.
 sed -i "s#/afs/cern.ch/work/h/hqu/tools/madgraph/LCG100/MG5_aMC_v3_1_1#$MG5_PATH#g" \
     $DLDIR/$GRIDPACK_NAME/Cards/me5_configuration.txt
 mkdir -p $GRIDPACK_CACHE/$GRIDPACK_NAME
-# move into place under a unique temp name then rename, so concurrent
-# jobs racing to populate the same cache entry don't clobber each other;
-# if another job already won the race, just discard our own copy
+# Move into place under a unique name and then rename, so jobs racing to
+# populate the same entry cannot clobber each other. If another job won the
+# race, discard our copy.
 UNIQUE=proc.tmp.$$_$RANDOM
 mv $DLDIR/$GRIDPACK_NAME $GRIDPACK_CACHE/$GRIDPACK_NAME/$UNIQUE
 mv -T $GRIDPACK_CACHE/$GRIDPACK_NAME/$UNIQUE $CACHED_PROC 2>/dev/null \

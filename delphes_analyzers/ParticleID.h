@@ -1,6 +1,9 @@
 #ifndef ParticleID_h
 #define ParticleID_h
 
+// Named PDG particle codes, so the matching code can say p_b rather than 5.
+// Values follow the PDG numbering scheme; entries without an explicit value
+// continue from the previous one.
 namespace ParticleID {
   enum PdgId {
     p_unknown,

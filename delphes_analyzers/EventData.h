@@ -7,7 +7,11 @@
 #include <string>
 #include <stdexcept>
 
-// Define a struct to hold all branch variables
+// Holds one event's branch values and wires them to a TTree.
+//
+// The branches are described by a (name, type) list rather than by fixed members, so
+// the ntuplizers can share one schema definition and this stays generic. The vector
+// branches are owned pointers, deleted in the destructor.
 struct EventData {
     std::vector<std::pair<std::string, std::string>> branchList;
     std::map<std::string, bool> boolVars;
@@ -39,7 +43,7 @@ struct EventData {
             if (pair.second)  delete pair.second;
     }
 
-    // Reset all variables
+    // Zero every scalar and clear every vector, before filling the next event.
     void reset() {
         for (auto& pair : boolVars)   pair.second = 0;
         for (auto& pair : intVars)    pair.second = 0;
@@ -58,7 +62,7 @@ struct EventData {
         }
     }
 
-    // Copy from another EventData
+    // Copy every branch value from another EventData with the same schema.
     void copy(const EventData& data) {
         for (auto& pair : boolVars)   pair.second = data.boolVars.at(pair.first);
         for (auto& pair : intVars)    pair.second = data.intVars.at(pair.first);
@@ -77,7 +81,7 @@ struct EventData {
         }
     }
 
-    // Set branch addresses for an input tree
+    // Point this object's storage at an input tree's branches, for reading.
     void setBranchAddresses(TTree* tree) {
         for (auto& pair : boolVars)     tree->SetBranchAddress(pair.first.c_str(), &pair.second);
         for (auto& pair : intVars)      tree->SetBranchAddress(pair.first.c_str(), &pair.second);
@@ -87,7 +91,7 @@ struct EventData {
         for (auto& pair : vfloatVars)   tree->SetBranchAddress(pair.first.c_str(), &pair.second);
     }
 
-    // Configure branches for an output tree
+    // Create the branches on an output tree, for writing.
     void setOutputBranch(TTree* tree) {
         // follow the branch list order
         for (const auto& pair : branchList) {

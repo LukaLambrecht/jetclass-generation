@@ -1,47 +1,29 @@
 #!/usr/bin/env python3
 
-'''
-Closure check for the proposal to retune ECal/HCal by degrading only their
-ResolutionFormula, holding EnergyMin/EnergySignificanceMin (the zero-
-suppression thresholds) fixed at their offline values.
+'''Closure check for retuning ECal/HCal by degrading only their ResolutionFormula, holding
+the zero-suppression thresholds at their offline values.
 
-Delphes has no separate Efficiency module for neutral particles - a
-"reconstructed or not" decision only exists implicitly, as whatever
-fraction of the (energy, eta)-dependent Gaussian-smeared energy clears the
-fixed EnergyMin/EnergySignificanceMin thresholds. So "resolution-only"
-isn't just easier to measure than a genuine efficiency curve - it's the
-only lever this Delphes module offers at all. The question this script
-answers is whether that's *sufficient*: does degrading resolution by the
-amount actually measured in real data (derive_curves.py's
-'neutralCalorimeter' section) predict a pass-rate that matches the
-neutral efficiency also directly measured in that same data (matched
-photon/neutralHadron pairs, exactly like the tracking categories)?
+Delphes has no Efficiency module for neutral particles: "reconstructed or not" exists
+only implicitly, as whatever fraction of the smeared energy clears the fixed
+EnergyMin/EnergySignificanceMin. So resolution-only is not merely easier to measure
+than a real efficiency curve, it is the only lever the module offers. The question here
+is whether it is sufficient: does degrading the resolution by the amount measured in
+real data predict a pass-rate matching the neutral efficiency measured directly in that
+same data?
 
-Method, per (category, |eta| bin, energy bin):
-  1. combined_sigma = offline ResolutionFormula(energy, eta) combined in
-     quadrature with the extra energy-smearing measured for matched pairs
-     in that bin (same "extra smearing on top of offline" logic as
-     ChargedHadronMomentumSmearing).
-  2. effective_threshold = max(EnergyMin, EnergySignificanceMin * combined_sigma)
-     (approximating Delphes' own accept condition; see caveats below).
-  3. predicted_efficiency = P(smeared energy > effective_threshold), for a
-     Gaussian centered at the bin's own energy with width combined_sigma
-     - i.e. 1 - Phi((effective_threshold - energy) / combined_sigma).
-  4. Compare to the measured efficiency_ratio (n_matched / n_offline) in
-     that same bin - not a model prediction, the direct count ratio.
+Per (category, |eta| bin, energy bin):
+  1. combine the offline resolution in quadrature with the extra smearing measured for
+     matched pairs in that bin;
+  2. take the effective threshold as the larger of the absolute and the
+     significance-scaled one;
+  3. predict the efficiency as the Gaussian probability of clearing it;
+  4. compare against the measured count ratio in the same bin.
 
-Caveats (this is a diagnostic, not a precision measurement):
-  - Delphes' actual C++ accept logic may evaluate the significance
-    condition using the reconstructed (post-smear) energy rather than the
-    bin's true/offline energy the way this script does - a reasonable
-    approximation given resolution formulas vary slowly, not bit-exact.
-  - Uses each bin's center energy, not the true per-candidate energy
-    distribution within the bin - fine for bins away from a threshold
-    crossing, coarser right at one.
+This is a diagnostic, not a precision measurement: Delphes' own accept logic may
+evaluate the significance against the post-smearing energy rather than the bin's, and
+this uses each bin's centre energy rather than the distribution within it.
 
-This script does NOT modify any Delphes card - it only measures and
-reports. See README.md "ECal/HCal closure check" for the result and what
-it implies for whether resolution-only retuning is justified.
+No Delphes card is modified; this only measures and reports.
 
 Usage:
   python check_calo_closure.py [--curves PATH] [--offline-card PATH] [--outdir DIR]
@@ -83,10 +65,14 @@ plt.rcParams.update({
 
 
 def normal_cdf(x):
+    '''Standard normal CDF.'''
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
 def predicted_efficiency(energy, combined_sigma, energy_min, sig_min):
+    '''Probability that a Gaussian of the given width, centred on `energy`, clears the
+    effective threshold.
+    '''
     if combined_sigma <= 0:
         return 1.0 if energy > max(energy_min, 0) else 0.0
     threshold = max(energy_min, sig_min * combined_sigma)
@@ -94,6 +80,7 @@ def predicted_efficiency(energy, combined_sigma, energy_min, sig_min):
 
 
 def main():
+    '''Run the closure check over every category and bin, and report the comparison.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--curves', default=DEFAULT_CURVES)

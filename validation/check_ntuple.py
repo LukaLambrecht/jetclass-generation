@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 
-'''
-Sanity-check a production ntuple, from either backend (delphes or fullsim).
+'''Sanity-check a production ntuple, from either backend.
 
-Checks, in this order (anything that fails is printed as FAIL and makes the
-script exit nonzero; "nothing immediately suspicious" means an all-PASS run):
+Checks, in this order; anything that fails prints FAIL and makes the script exit
+nonzero, so an all-PASS run means nothing immediately suspicious:
 
- 1. the branch set is exactly the expected schema (the paired offline+HLT one of
-    delphes_analyzers/makeNtuplesPaired.C and
-    fullsim_analyzers/makeNtuplesFullSim.cc), with the optional
-    genpart_*/genjet_*/aux_genpart_* groups allowed but not required;
- 2. there is at least one entry, and no NaN/inf anywhere;
- 3. per-jet vector lengths agree with jet_nparticles (and hlt_part_* with
-    hlt_jet_nparticles) - the most likely symptom of a filling bug;
- 4. physical ranges: pT > 0, |eta| within the selection, jet_energy >= jet_pt,
-    0 <= tau_{n+1} <= tau_n, sdmass between 0 and the jet mass scale, charges in
-    {-1,0,1}, particle type flags mutually exclusive and exhaustive;
- 5. hlt_matched consistency: the hlt_* scalars are the -999 sentinel and the
-    hlt_part_* vectors empty exactly when hlt_matched is false;
- 6. the impact parameters are in the units this repo writes (mm, see
-    delphes_cards/KNOWN_ISSUES.md): flagged if the median |d0| of charged
-    constituents is outside a generous 1e-3 .. 1 mm window, which is what would
-    happen if a backend ever wrote cm by mistake.
+ 1. the branch set is exactly the expected paired offline+HLT schema, with the optional
+    generator-truth groups allowed but not required;
+ 2. there is at least one entry, and no NaN or inf anywhere;
+ 3. the per-jet vector lengths agree with the stored particle counts, which is the
+    likeliest symptom of a filling bug;
+ 4. physical ranges: positive pT, |eta| within the selection, energy at least pT,
+    monotonic n-subjettiness, soft-drop mass within the jet mass scale, charges in
+    {-1, 0, 1}, and particle type flags mutually exclusive and exhaustive;
+ 5. hlt_matched consistency: the hlt_* scalars are the sentinel and the hlt_part_*
+    vectors empty exactly when hlt_matched is false;
+ 6. the impact parameters are in the units this repo writes, mm: flagged if the median
+    |d0| of charged constituents falls outside a generous window, which is what writing
+    cm by mistake would look like.
 
-It also prints a short summary table (per-jet multiplicities, labels, HLT/offline
-ratios) which is what you actually look at to judge whether a new production is
-reasonable.
+It also prints a short summary table of multiplicities, labels and HLT/offline ratios,
+which is what you actually read to judge whether a new production is reasonable.
 
 Usage:
   python validation/check_ntuple.py NTUPLE [NTUPLE ...] [--label-names]
@@ -53,10 +48,13 @@ SENTINEL = -999
 
 
 class Checker:
+    '''Collects the pass/fail results of one file's checks and reports them.'''
     def __init__(self):
+        '''Start with no recorded results.'''
         self.failed = 0
 
     def check(self, ok, what, detail=''):
+        '''Record one named check's outcome, printing PASS or FAIL.'''
         print('  {:4s} {}{}'.format('PASS' if ok else 'FAIL', what,
                                     '' if ok else ' -- ' + detail))
         if not ok:
@@ -72,6 +70,7 @@ def flat(jagged):
 
 
 def check_file(path, c, show_label_names=False):
+    '''Run every check on one ntuple and print its summary table.'''
     print('\n=== {} ==='.format(path))
     t = uproot.open(path)['tree']
     keys = list(t.keys())
@@ -200,6 +199,7 @@ def label_names():
 
 
 def main():
+    '''Check each ntuple given on the command line; exit nonzero if any check failed.'''
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('ntuples', nargs='+', help='ntuple files (globs allowed)')

@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
 
-'''
-Quick, standalone look at whole-jet pT for the same paired offline/scouting
-QCD data that derive_curves.py measures (see hlteff/README.md "Data
-source") - motivated by the 10M-jet HLT-card dataset produced yesterday
-showing only 50-80% (outliers down to 30%) as many HLT jets as offline
-jets, well beyond what simple pT>200 GeV migration alone should cause.
+'''Standalone look at whole-jet pT for the same paired offline/scouting QCD data
+derive_curves.py measures.
 
-This does NOT reproduce derive_curves.py's own JetEnergyScalePUPPIAK8
-measurement (that's `jes['scout_over_offline_ratio']` in curves_qcd.json,
-already visualized in hlteff/plots/scale_jetEnergyPUPPIAK8.png, a MEAN-only
-curve on the coarse JET_PT_EDGES grid, folded straight into the generated
-HLT card). This script instead looks at the raw ingredients directly and
-adds the spread (not just the mean) of the offline/HLT pT ratio, to see
-whether the ratio's spread alone (jets scattering below whatever pT cut is
-applied) is large enough to plausibly explain a 20-70% jet-count deficit,
-or whether that deficit needs a different explanation (e.g. genuine
-reconstruction failures, not just kinematic migration across a threshold).
+The motivation is an HLT-card dataset showing far fewer HLT jets than offline jets,
+well beyond what migration across a pT cut alone should cause.
 
-Selection matches derive_curves.py's own exactly: `fj_isQCD == 1` - the
-same jets the HLT card's data-driven corrections were themselves derived
-from, per the request that motivated this script (check the input data,
-not a downstream simulation of it).
+This does not reproduce derive_curves.py's jet-energy-scale measurement, which is a
+mean-only curve on the coarse jet-pT grid folded straight into the generated card. It
+looks at the raw ingredients instead and adds the spread of the offline/HLT pT ratio,
+to see whether that spread alone - jets scattering below whatever cut is applied - can
+plausibly explain the jet-count deficit, or whether it needs a different explanation
+such as genuine reconstruction failures.
 
-Only three flat branches are read (fj_pt, fj_eta, scoutfj_pt - no
-per-particle branches, no matching) - much lighter than derive_curves.py's
-full pipeline, so reading many more jets than its own --max-jets default
-is still fast; the default here is deliberately smaller anyway since jet-pT
-conclusions don't need the same statistics as the fine per-particle
-efficiency/resolution grid.
+The selection matches derive_curves.py's exactly, so these are the same jets the card's
+corrections were derived from.
 
-Produces two figures (house style matches plot_curves.py: one panel per
-|eta| bin, from binning.py's own ETA_EDGES/JET_PT_EDGES):
-  jet_pt_distributions.png - offline (fj_pt) vs HLT (scoutfj_pt) pT spectra,
-    overlaid, log-log.
-  jet_pt_ratio.png - mean +/- std of scoutfj_pt/fj_pt, binned by fj_pt
-    (JET_PT_EDGES) - the actual "how much does HLT pT scatter relative to
-    offline, and by how much" answer; also printed as a table to stdout.
+Only three flat branches are read, with no per-particle data and no matching, so this is
+much lighter than the full pipeline; jet-pT conclusions need less statistics than the
+fine per-particle grid anyway.
+
+Produces two figures, one panel per |eta| bin:
+  jet_pt_distributions.png - offline and HLT pT spectra overlaid, log-log;
+  jet_pt_ratio.png - mean and spread of the HLT/offline ratio against offline pT,
+    also printed as a table.
 
 Usage:
   python hlteff/exploration/plot_jet_pt.py [--input-dir DIR] [--n-files N]
@@ -76,12 +63,12 @@ plt.rcParams.update({
 
 
 def jet_pt_bin_center(i):
-    ### geometric mean of the bin edges, same log-axis convention as
-    # binning.py's own pt_bin_center() (JET_PT_EDGES has no such helper there)
+    '''Centre of jet-pT bin i, as the geometric mean of its edges.'''
     return (JET_PT_EDGES[i] * JET_PT_EDGES[i + 1]) ** 0.5
 
 
 def new_panel_figure(ne):
+    '''A figure with one shared-y panel per |eta| bin.'''
     fig, axes = plt.subplots(1, ne, figsize=(7 * ne, 5.5))
     if ne == 1:
         axes = [axes]
@@ -89,6 +76,7 @@ def new_panel_figure(ne):
 
 
 def finish_panel(ax, ie, xlabel, logx=True, logy=False):
+    '''Apply the shared axis styling, labels and |eta| title to one panel.'''
     if logx:
         ax.set_xscale('log')
     if logy:
@@ -102,6 +90,7 @@ def finish_panel(ax, ie, xlabel, logx=True, logy=False):
 
 
 def save(fig, outdir, name):
+    '''Write the figure to outdir and close it.'''
     outpath = os.path.join(outdir, name)
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
@@ -110,6 +99,7 @@ def save(fig, outdir, name):
 
 
 def read_jets(input_dir, n_files, max_jets):
+    '''Read the three flat jet branches from the input files.'''
     files = sorted(glob.glob(os.path.join(input_dir, 'dnnTuples_nanov15_*.root')))[:n_files]
     if not files:
         raise SystemExit('no dnnTuples_nanov15_*.root files found in {}'.format(input_dir))
@@ -143,6 +133,7 @@ def read_jets(input_dir, n_files, max_jets):
 
 
 def plot_distributions(fj_pt, fj_eta, scoutfj_pt, outdir):
+    '''Overlay the offline and HLT jet-pT spectra, one panel per |eta| bin.'''
     ne = n_eta_bins()
     lo = max(1.0, min(np.nanmin(fj_pt), np.nanmin(scoutfj_pt[np.isfinite(scoutfj_pt) & (scoutfj_pt > 0)])))
     hi = max(np.nanmax(fj_pt), np.nanmax(scoutfj_pt[np.isfinite(scoutfj_pt)]))
@@ -166,6 +157,7 @@ def plot_distributions(fj_pt, fj_eta, scoutfj_pt, outdir):
 
 
 def plot_ratio(fj_pt, fj_eta, scoutfj_pt, outdir, min_count=50):
+    '''Plot the mean and spread of the HLT/offline pT ratio against offline pT.'''
     ne, npt = n_eta_bins(), n_jet_pt_bins()
     good = np.isfinite(fj_pt) & (fj_pt > 0) & np.isfinite(scoutfj_pt) & (scoutfj_pt > 0)
 
@@ -216,6 +208,7 @@ def plot_ratio(fj_pt, fj_eta, scoutfj_pt, outdir, min_count=50):
 
 
 def main():
+    '''Read the jets and write both figures.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input-dir', default=DEFAULT_INPUT_DIR,

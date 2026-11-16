@@ -1,65 +1,52 @@
 #!/bin/bash
 # FullSim backend for run.sh: CMS full simulation, reconstruction and HLT in
-# CMSSW, from the SAME generated events (gen_configs/, events.hepmc) the Delphes
-# backend reconstructs, and writing the SAME ntuple schema.
+# CMSSW, from the same generated events the Delphes backend reconstructs and
+# writing the same ntuple schema.
 #
-# Uses only openly available software and conditions - no CERN account, no CMS
-# membership - so it can in principle run anywhere; see fullsim_configs/README.md
-# for where each ingredient comes from and what the remaining caveats are (no
-# pile-up, 2018 design conditions).
+# Uses only openly available software and conditions.
+# Caveats: no pile-up, and 2018 design conditions.
 #
-# BACKEND_OPTS (run.sh arg 6):
-#   offline+hlt   (default) one combined ntuple per jet: the offline AK8 jet and
-#                 its matched HLT AK8 jet, i.e. the same row structure as the
-#                 Delphes "onlyFatJet+onlyFatJetHLT" card pair
-#   offline       offline jets only; the hlt_* branches exist but are empty /
-#                 hlt_matched=false (the HLT step still RUNS - the RECO step
-#                 needs its RAW output - so this saves ntuple size, not CPU)
+# BACKEND_OPTS:
+#   offline+hlt   (default) one row per jet holding the offline AK8 jet and its
+#                 matched HLT AK8 jet
+#   offline       offline jets only; the hlt_* branches stay empty and
+#                 hlt_matched is false. The HLT step still runs, since RECO needs
+#                 its RAW output, so this saves ntuple size rather than CPU.
 #
-# Per batch: GEN,SIM (from events.hepmc) -> DIGI,L1,DIGI2RAW,HLT:GRun (+ the
-# unconditional AK8/PF-vertex paths) -> RAW2DIGI,L1Reco,RECO -> ntuple. The three
-# CMSSW steps run inside a container (the open-data CMSSW_10_6_30 image), because
-# they need an SLC7 userland; everything else runs on the host as usual.
-#
-# Cost, measured without pile-up: ~2 min/event in total (GEN,SIM ~70 s/event,
-# DIGI+L1+HLT ~30 s/event, RECO ~38 s/event for 2-event test batches), i.e.
-# roughly three orders of magnitude more than Delphes. Size the jobs accordingly.
+# Per batch: GEN,SIM (from events.hepmc) -> DIGI,L1,DIGI2RAW,HLT:GRun -> RAW2DIGI,
+# L1Reco,RECO -> ntuple. The three CMSSW steps run inside a container because they
+# need an SLC7 environment; everything else runs on the host.
 
 BACKEND_DEFAULT_OPTS=offline+hlt
 
-# All overridable, so this can be pointed at a local copy of any of it (which is
-# the whole point of the open-data route - none of these needs privileged access):
+# All overridable, so this can be pointed at a local copy of any ingredient.
 #   the container image holding an SLC7 userland + CMSSW
 FULLSIM_CONTAINER=${FULLSIM_CONTAINER:-/cvmfs/unpacked.cern.ch/registry.hub.docker.com/cmsopendata/cmssw_10_6_30-slc7_amd64_gcc700:latest}
 #   the CMSSW release to use inside it
 FULLSIM_CMSSW_DIR=${FULLSIM_CMSSW_DIR:-/cvmfs/cms.cern.ch/slc7_amd64_gcc700/cms/cmssw/CMSSW_10_6_30}
 FULLSIM_SCRAM_ARCH=${FULLSIM_SCRAM_ARCH:-slc7_amd64_gcc700}
-#   the open condition databases (see fullsim_configs/README.md)
+#   the open condition databases
 FULLSIM_CONDDB=${FULLSIM_CONDDB:-/cvmfs/cms-opendata-conddb.cern.ch}
-#   directories to bind-mount into the container, beyond the work directory
-#   (which is added automatically). Note the REPOSITORY is deliberately NOT
-#   mounted: it lives on EOS, and EOS inside the container is unreliable (reads
-#   fail with "Permission denied" through the FUSE mount), so everything the
-#   container needs is copied into the work directory first - see backend_setup.
+#   directories to bind-mount into the container, beyond the work directory,
+#   which is added automatically. The repository is deliberately not mounted: it
+#   lives on EOS, and EOS reads from inside the container fail, so everything the
+#   container needs is copied into the work directory by backend_setup.
 FULLSIM_BINDS=${FULLSIM_BINDS:-/cvmfs}
 
-# Per-batch CMSSW timeout, in seconds. Same class of hang risk the generation and
-# Delphes steps are already guarded against (see run_gen_with_timeout and
-# backends/delphes.sh), and the same treatment: on a timeout this batch simply
-# contributes no ntuple, which the job tolerates. Generous, because this is the
-# expensive backend: a 10-event batch legitimately takes ~20 minutes.
+# Per-batch CMSSW timeout, in seconds. Same hang risk and same treatment as the
+# other steps: on a timeout the batch contributes no ntuple and the job carries
+# on. Generous, because a 10-event batch legitimately takes ~20 minutes.
 FULLSIM_TIMEOUT_SEC=${FULLSIM_TIMEOUT_SEC:-14400}
 
-# Runs a command inside the container, with the same setsid + `pkill -g` whole-
-# process-group kill as run_gen_with_timeout (see its comment for why plain
-# `timeout` is not enough on its own).
+# Run one stage of run_chain.sh inside the container, in its own process group so
+# the whole tree can be killed on timeout.
 fullsim_in_container() {
     local rc
     local binds=""
     local d other skip
-    # $WORKDIR and $REPO_DIR must be visible inside the container; they are often
-    # already inside one of FULLSIM_BINDS (e.g. the repo under /eos), so drop any
-    # entry that another entry already covers rather than mounting it twice
+    # $WORKDIR and $REPO_DIR must be visible inside the container, but are often
+    # already inside one of FULLSIM_BINDS, so drop any entry another one covers
+    # rather than mounting it twice.
     for d in $FULLSIM_BINDS "$WORKDIR"; do
         [ -e "$d" ] || continue
         skip=no
@@ -74,13 +61,11 @@ fullsim_in_container() {
         --env FS_WORK="$FS_WORK",FS_CFGSRC="$FS_CFGSRC",FS_ANASRC="$FS_ANASRC",FS_NEVENT="$FS_NEVENT",FS_KEEP="$KEEP_INTERMEDIATE",FULLSIM_CMSSW_DIR="$FULLSIM_CMSSW_DIR",FULLSIM_SCRAM_ARCH="$FULLSIM_SCRAM_ARCH",FULLSIM_CONDDB="$FULLSIM_CONDDB",NT_JETS="$NT_JETS",NT_HLTJETS="$NT_HLTJETS",NT_QCDLABEL="$NT_QCDLABEL",NT_V1LABELS="$NT_V1LABELS",NT_DOHLT="$NT_DOHLT",NT_KEEPGENJET="$NT_KEEPGENJET",NT_JETPTMIN="$NT_JETPTMIN",NT_JETETAMAX="$NT_JETETAMAX",FS_FRAGMENT="$FS_FRAGMENT",FS_FRAGNAME="$FS_FRAGNAME" \
         "$FULLSIM_CONTAINER" bash -lc "bash $FS_CFGSRC/run_chain.sh $*" &
     local pgid=$!
-    # Keep run.sh's stall watchdog fed while the container runs. Without this a
-    # legitimately long batch (CMSSW is ~2 min/event, so anything above ~15
-    # events exceeds STALL_TIMEOUT_SEC) would look stuck and the watchdog would
-    # abort the whole job. Safe to do here, unlike for the generation step: this
-    # step is bounded by its OWN `timeout` above, and everything it touches is
-    # /cvmfs or local scratch - never the EOS mount whose unkillable hangs are
-    # what the watchdog exists for.
+    # Keep run.sh's stall watchdog fed while the container runs: at ~2 min/event
+    # any batch above ~15 events outlives STALL_TIMEOUT_SEC and would look stuck.
+    # Safe here, unlike for the generation step, because this step is bounded by
+    # its own timeout above and touches only /cvmfs and local scratch, never the
+    # EOS mount whose unkillable hangs the watchdog exists for.
     ( while sleep 60; do heartbeat; done ) &
     local ticker=$!
     wait $pgid
@@ -91,6 +76,8 @@ fullsim_in_container() {
     return $rc
 }
 
+# Validate the environment, stage everything the container needs into local
+# scratch, then write the cmsRun configs and build the ntuplizer.
 backend_setup() {
     case "$BACKEND_OPTS" in
         offline+hlt) NT_DOHLT=true ;;
@@ -123,14 +110,13 @@ backend_setup() {
     fi
 
     FS_WORK=$WORKDIR/fullsim
-    # Everything the container reads is copied into the (local-scratch) work
-    # directory first: the repository is on EOS, which is not reliably readable
-    # from inside the container.
+    # Everything the container reads is copied into the local-scratch work
+    # directory first, since the repository is on EOS.
     FS_CFGSRC=$WORKDIR/fullsim_configs
     # The ntuplizer source is assembled into one directory: its own file plus the
-    # headers it SHARES with the Delphes ntuplizers (the gen-level jet labelling
-    # in particular, so the two backends cannot label a jet differently - see
-    # fullsim_analyzers/StandaloneTypes.h).
+    # headers it shares with the Delphes ntuplizers. Sharing the gen-level jet
+    # labelling in particular is what keeps the two backends from labelling a jet
+    # differently.
     FS_ANASRC=$WORKDIR/fullsim_analyzer
     mkdir -p "$FS_WORK" "$FS_ANASRC" "$FS_CFGSRC"
     cp "$REPO_DIR"/fullsim_configs/*.py "$REPO_DIR"/fullsim_configs/run_chain.sh "$FS_CFGSRC/"
@@ -141,19 +127,17 @@ backend_setup() {
        "$REPO_DIR"/fullsim_analyzers/build.sh "$FS_ANASRC/"
 
     # How the generator-level events arrive (see run.sh's PROC_KIND):
-    #   hepmc          -1 = "every event in this batch's events.hepmc", so a batch that
-    #                  generated slightly fewer events than asked is still fully
-    #                  reconstructed
-    #   cmssw_fragment CMSSW generates them itself, so the count has to be stated: it is
-    #                  exactly the batch size
+    #   hepmc          -1 means "every event in this batch's events.hepmc", so a
+    #                  batch that generated fewer events than asked is still
+    #                  fully reconstructed
+    #   cmssw_fragment CMSSW generates them itself, so the count must be stated
     FS_FRAGMENT=''
     FS_FRAGNAME=''
     FS_NEVENT=-1
     if [ "$PROC_KIND" = "cmssw_fragment" ]; then
         FS_NEVENT=$NEVENT_GEN
-        # cmsDriver imports the fragment as a python MODULE
-        # (Configuration.GenProduction.<name>), so the name must be a valid
-        # identifier - process names like "QCD_PT-470to600" are not.
+        # cmsDriver imports the fragment as a python module, so the name must be
+        # a valid identifier - process names like "QCD_PT-470to600" are not.
         FS_FRAGNAME=$(echo "$PROC" | sed 's/[^A-Za-z0-9_]/_/g')
         FS_FRAGMENT=$FS_CFGSRC/$FS_FRAGNAME.py
         cp "$REPO_DIR/gen_configs/$PROC/fragment.py" "$FS_FRAGMENT"
@@ -164,14 +148,14 @@ backend_setup() {
     NT_QCDLABEL=${NT_QCDLABEL:-true}
     NT_V1LABELS=$USE_V1_LABELS
     NT_KEEPGENJET=${NT_KEEPGENJET:-false}
-    # offline jet selection; the defaults match the CMS reference dataset (and the
-    # Delphes cards' own 200 GeV) - see makeNtuplesFullSim.cc's header
+    # Offline jet selection. The defaults match the CMS reference dataset and the
+    # Delphes cards.
     NT_JETPTMIN=${NT_JETPTMIN:-200}
     NT_JETETAMAX=${NT_JETETAMAX:-2.4}
 
-    # Write the three cmsRun configs and build the ntuplizer ONCE for the whole
-    # job: generating the HLT config alone takes ~1 minute (the GRun menu is
-    # ~4.5 MB of python), which would be absurd to repeat per batch.
+    # Write the cmsRun configs and build the ntuplizer once for the whole job:
+    # generating the HLT config alone takes ~1 minute, so repeating it per batch
+    # would dominate a short job.
     echo "fullsim: preparing configs and building the ntuplizer (container: $FULLSIM_CONTAINER_CMD)"
     if ! fullsim_in_container setup > "$FS_WORK/setup.out" 2>&1; then
         echo "ERROR: fullsim setup failed - see below" >&2
@@ -187,6 +171,7 @@ backend_setup() {
     NTUPLES_PRODUCED=0
 }
 
+# Run the full CMSSW chain for one batch and count whether it produced an ntuple.
 # cwd on entry: $WORKDIR/proc_base, with this batch's events.hepmc in it
 backend_run_batch() {
     local i=$1
@@ -202,8 +187,8 @@ backend_run_batch() {
         mv events.hepmc "$bdir/events.hepmc"
     fi
 
-    # NOT piped into tee: that would make the exit status checked below tee's,
-    # not the container's, so a failed batch would look successful
+    # Not piped into tee, which would make the status checked below tee's rather
+    # than the container's, so a failed batch would look successful.
     fullsim_in_container batch "$i" > "$bdir/batch.out" 2>&1
     local rc=$?
     cat "$bdir/batch.out"
@@ -217,13 +202,10 @@ backend_run_batch() {
         else
             echo "WARNING: fullsim batch $i failed or timed out (limit ${FULLSIM_TIMEOUT_SEC}s) - skipping it" >&2
         fi
-        # A failed ntuplizer still leaves an 811-byte keyless ntuple.root behind.
-        # It MUST go: the merge steps below glob batch_*/ntuple.root, so leaving it
-        # would feed garbage to hadd and let a job in which every batch failed still
-        # publish a file and exit 0. That is exactly what happened to job
-        # 406255.45 of the 2026-10-09 round (ProductNotFound in the ntuplizer, both
-        # batches, "0 of 2 batches reconstructed successfully", exit 0, empty file
-        # on EOS).
+        # A failed ntuplizer still leaves a small keyless ntuple.root behind. It
+        # must go: the merge steps below glob batch_*/ntuple.root, so leaving it
+        # would feed garbage to hadd and let a job in which every batch failed
+        # still publish a file and exit 0.
         rm -f "$bdir/ntuple.root"
     fi
     # the HepMC file is the single biggest intermediate; nothing needs it now
@@ -231,16 +213,13 @@ backend_run_batch() {
     cd "$WORKDIR"
 }
 
-# Push a valid partial ntuple to EOS after every batch but the last.
+# Publish a valid partial ntuple after every batch but the last.
 #
-# backend_finalize() is the only place that copies output out, so a job killed by
-# SYSTEM_PERIODIC_REMOVE at the wall-time limit used to lose EVERY completed batch
-# (the 2026-10-08 jetclass2sb trial lost 88 jobs, including all 30 of its lowest
-# pThat bin, with ~8 h of finished reconstruction each and zero files written).
-# Checkpointing under the SAME final name keeps the output layout unchanged - one
-# ntuple_$JOBNUM.root per job - and backend_finalize simply overwrites it with the
-# complete merge. Never fails the job: a failed checkpoint is not worse than the
-# old behaviour.
+# Only backend_finalize copies output out, so without this a job killed at the
+# wall-time limit loses every completed batch. The checkpoint uses the same final
+# name, so the output layout stays one ntuple_$JOBNUM.root per job and
+# backend_finalize simply overwrites it with the complete merge. Never fails the
+# job: a failed checkpoint leaves things no worse than not checkpointing.
 backend_intermediate_merge() {
     local i=$1
     # the last batch is backend_finalize's job
@@ -265,6 +244,9 @@ backend_intermediate_merge() {
     return 0
 }
 
+# Merge the per-batch ntuples and copy the result to EOS. Gated on
+# NTUPLES_PRODUCED rather than on the glob, so a job in which every batch failed
+# exits nonzero instead of publishing an empty file.
 backend_finalize() {
     local unit=$BACKEND_OPTS
     local outdir=$OUTPUT_PATH/$PROC/fullsim_$unit
@@ -276,8 +258,8 @@ backend_finalize() {
         echo "ERROR: failing the job rather than publishing an empty ntuple" >&2
         exit 1
     fi
-    # one flat TTree per batch: hadd is all that is needed (unlike the Delphes
-    # backend, which merges its per-batch detector files BEFORE ntuplizing)
+    # One flat TTree per batch, so hadd is all that is needed; the Delphes
+    # backend instead merges its detector files before ntuplizing.
     if [ "$(echo "$files" | wc -l)" -eq 1 ]; then
         mv $files "$local_ntuple"
     else

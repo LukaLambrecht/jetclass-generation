@@ -1,37 +1,25 @@
-// Counts jets in a Delphes-level ROOT file at two stages, to isolate WHERE
-// jets get lost between two Delphes cards (e.g. offline vs HLT) - driven by
-// test_hlt_vs_offline_njets.py, which runs this on the *same* events.hepmc
-// through both cards so any difference is attributable only to detector
-// modeling, not independent proton collisions.
+// Count jets in a Delphes-level ROOT file at two stages, to isolate where jets get lost
+// between two Delphes cards. Driven by test_hlt_vs_offline_njets.py, which runs this on
+// the same events.hepmc through both cards, so any difference comes only from the
+// detector modelling.
 //
-//   STAGE_A: raw entries in `jetBranch` - i.e. Delphes' own clustering
-//            result (FastJetFinderPUPPIAK8's own JetPTMin=200 cut, applied
-//            at clustering time, identical in both the offline and HLT
-//            cards) - but the PT stored here is POST the
-//            JetEnergyScalePUPPIAK8 correction module, which is NOT
-//            identical between cards (see delphes_cards/
-//            delphes_card_CMS_JetClassII_onlyFatJet_HLT_noPU.tcl's header
-//            comment).
-//   STAGE_B: of those, how many pass `PT >= ptCut && |Eta| <= etaCut` - the
-//            SAME cut (same code, same default values) makeNtuples.C
-//            itself applies before writing a jet to the ntuple. Identical
-//            threshold in both cards, applied here exactly as there.
+//   STAGE_A: raw entries in `jetBranch`, i.e. Delphes' own clustering result. The
+//            clustering pT cut is identical in both cards, but the stored PT is after
+//            the jet energy scale correction, which is not.
+//   STAGE_B: of those, how many pass the same pT and |eta| cut makeNtuples.C applies
+//            before writing a jet. Identical threshold in both cards.
 //
-// If STAGE_A already differs a lot between cards, jets are being lost
-// before this cut even runs (never clustered/surviving the shared 200 GeV
-// clustering threshold in the first place - a tracking/PF-candidate
-// upstream effect). If STAGE_A is similar but STAGE_B differs, jets ARE
-// being clustered but their JES-corrected PT falls below the (identical)
-// ptCut more often for one card - a downstream JES-correction effect
-// surfacing through a shared threshold, not a different one.
+// If STAGE_A already differs, jets are being lost before this cut runs - never
+// clustered at all, an upstream tracking or particle-flow effect. If STAGE_A is similar
+// but STAGE_B differs, the jets are clustered but their corrected PT falls below the
+// shared threshold more often for one card, which is a jet-energy-scale effect
+// surfacing through a shared cut rather than a different one.
 //
-// Also prints the STAGE_A jet PT mean/median (to show any JES-driven shift
-// directly) and the mean ParticleFlowCandidate multiplicity per event (the
-// upstream particle-level input to clustering, driven by
-// ChargedHadronTrackingEfficiency and calorimeter response - see the HLT
-// card's own header comment for the tracking-efficiency curves).
+// Also prints the STAGE_A jet PT mean and median, which show a scale shift directly,
+// and the mean candidate multiplicity per event, which is the particle-level input to
+// clustering.
 //
-// Usage (matches makeNtuples.C's own ACLiC invocation style):
+// Usage:
 //   root -b -q "count_delphes_jets.C++(\"events_delphes.root\", \"JetPUPPIAK8\", 120, 2.5)"
 
 #include <iostream>

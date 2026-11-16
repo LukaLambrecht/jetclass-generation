@@ -1,38 +1,34 @@
 #!/usr/bin/env python3
 
-'''
-Run every offline-vs-HLT plotting script in this directory over ONE sample, as
-parallel condor jobs (one per script - they are independent, and the slowest is
-otherwise the whole wall time).
+'''Run every offline-against-HLT plotting script in this directory over one sample, as
+parallel condor jobs - one per script, since they are independent and the slowest would
+otherwise set the whole wall time.
 
-Inputs follow exactly the same convention as the individual scripts: one or more
-file paths/globs (quote globs so they reach the scripts rather than being
-expanded by the shell) naming every ntuple of ONE sample, of either schema -
-our own paired ntuples (delphes or fullsim backend) or the CMS offline+scouting
-reference dataset (see ntuple_io.py; the scripts detect which automatically).
-Everything else is left at the scripts' own defaults.
+Inputs follow the same convention as the individual scripts: one or more paths or globs
+(quote globs, so they reach the scripts rather than being expanded by the shell) naming
+every ntuple of one sample, of either schema. Everything else is left at the scripts'
+own defaults.
 
 Usage:
   python3 run_all_plots.py FILE_OR_GLOB [FILE_OR_GLOB ...] --outdir DIR [options]
 
 Examples:
   # our own fullsim production
-  python3 run_all_plots.py \\
-      '/eos/user/l/llambrec/jetclass/output_fullsim_630k_trial/jetclass2/*/fullsim_offline+hlt/ntuple_*.root' \\
+  python3 run_all_plots.py \
+      '/eos/user/l/llambrec/jetclass/output_fullsim_630k_trial/jetclass2/*/fullsim_offline+hlt/ntuple_*.root' \
       --outdir output_plots_fullsim_trial
 
   # the CMS reference dataset, both its samples pooled
-  python3 run_all_plots.py \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/*/dnnTuples_nanov15_*.root' \\
+  python3 run_all_plots.py \
+      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/*/dnnTuples_nanov15_*.root' \
       --outdir output_plots_fullsim_og
 
   # run them here instead of submitting (sequential, for a quick/small sample)
   python3 run_all_plots.py 'FILES...' --outdir output_plots_test --local
 
-The jobs all write into the same --outdir, which is created here before any job
-starts - never by the jobs themselves, since a shared EOS directory created by
-several jobs racing each other is exactly what has bitten this repo before (see
-run_condor_loop.py's own comment). Their file names don't collide.
+The jobs all write into the same --outdir, which is created here before any job starts
+and never by the jobs themselves: a shared EOS directory created by several racing jobs
+is exactly what has bitten this repo before. Their file names do not collide.
 '''
 
 import os
@@ -67,28 +63,24 @@ LCG_VIEW = '/cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh'
 # `{outdir}` is substituted with the resolved output directory. The input files are
 # inserted after the script name, before these extras.
 #
-# NOTE: there used to be a second "_ptmatched" job per script, re-running it with
-# --min-jet-pt 200 --max-jet-eta 2.4 so the sample could be compared with the CMS
-# reference dataset's own offline selection. Dropped 2026-10-22: that selection is
-# now applied in the production itself (NT_JETPTMIN/NT_JETETAMAX in the ntuplizer,
-# verified on the full-statistics round), so the two variants were identical and the
-# duplicate doubled the jobs for nothing. The scripts still ACCEPT those arguments,
-# so an older dataset that reaches below the cut can still be restricted by hand.
+# One job per script, with no selection variant: the production already applies the
+# reference dataset's own offline jet selection, through the ntuplizer. The scripts
+# still accept --min-jet-pt and --max-jet-eta, so a dataset reaching below that cut can
+# be restricted by hand.
 #
 # Memory: the per-particle reads are what cost - plot_nparticles' "types" figures and
 # plot_particle_pt read jagged per-particle branches for every jet of the sample at
 # once, which on a multi-million-jet sample is several GB; the jet-level ones read
 # flat scalars only and need almost nothing.
-# The memory figures are MEASURED, from the 2026-10-15 full-statistics round (3.8M QCD
-# and 3.2M signal jets) - peak MemoryUsage read back out of the condor logs:
+# The memory figures are measured, as peak usage read back out of the condor logs of a
+# full-statistics round:
 #   jet_kinematics    55 MB        (jet-level scalars only)
 #   nparticles      2797-5301 MB
 #   composition     1743-7349 MB
 #   particle_pt     2206-8424 MB   <- the largest seen anywhere
-# They used to be requested at 16384 MB, which is ~2x the worst case ever observed and
-# matches far fewer slots than it needs to: an over-request costs queue time, every
-# time, for nothing. Sized here at roughly 1.2x the worst case for the per-particle
-# scripts, and generously for the jet-level one.
+# Requested at roughly 1.2x the worst case for the per-particle scripts, and generously
+# for the jet-level one. An over-request is not free: it matches fewer slots and so
+# costs queue time every time.
 JOBS = [
     ('jet_kinematics', 'plot_jet_kinematics.py', ['--outdir', '{outdir}'], 2048),
     ('particle_pt', 'plot_particle_pt.py', ['--output', '{outdir}/plot_particle_pt.png'], 10240),

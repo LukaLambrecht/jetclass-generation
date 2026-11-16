@@ -2,24 +2,19 @@
 #
 # Submit the ten QCD pThat bins (jetclass2sb) to lxplus HTCondor.
 #
-# This is the BACKUP ROUTE to crab/submit_production_qcd.sh. Same physics, same chain,
-# same output schema - only the batch system differs. Use it when CRAB is unavailable,
-# or when you have dedicated lxplus/lxbatch resources and would rather not go through
-# the grid.
+# The alternative to crab/submit_production_qcd.sh: same physics, same chain, same
+# output schema, only a different batch system. Use it when CRAB is unavailable or when
+# dedicated lxbatch resources are preferable to the grid.
 #
-# THE INVARIANT: njobs x nev/job = 200,000 for EVERY bin. That equal events-per-bin is
-# what makes the jet pT spectrum flat (see gen_configs/jetclass2sb/README.md). Job size
-# varies per bin only because per-event cost rises with pThat; njobs moves the opposite
-# way to compensate. Change one without the other and you skew the mixture.
+# The invariant: njobs x nev/job must be the same for every bin. Equal events per bin is
+# what makes the jet pT spectrum flat. Job size varies per bin because the per-event
+# cost rises with pThat, and njobs moves the opposite way to compensate; change one
+# without the other and the mixture is skewed.
 #
-# SIZING: p90 job time ~7-8 h, from the per-event cost measured on the completed
-# 2026-10-09 lxplus round. The default flavour is `tomorrow` (24 h), which leaves ample
-# headroom; `workday` (8 h) would lose the tail.
+# Sized for a p90 job time of 7-8 h, so the default flavour is `tomorrow` (24 h);
+# `workday` (8 h) would lose the tail.
 #
-# Expected: 7,000 jobs, 2,000,000 events, ~3.89M jets, ~35,000 CPU-hours.
-#
-# PREREQUISITES: none beyond the repo - the fullsim backend needs only CVMFS and
-# apptainer, both present on lxplus/lxbatch. See INSTALL.md section 9.
+# Needs nothing beyond the repo: the fullsim backend wants only CVMFS and apptainer.
 #
 # USAGE
 #   ./submit_production_qcd.sh --dry-run      # print every command, run nothing

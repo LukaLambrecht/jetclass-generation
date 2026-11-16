@@ -2,34 +2,29 @@
 #
 # Build and submit the two-prong Higgs signal (jetclass2/train_higgs2p) as ONE CRAB task.
 #
-# HOW THIS DIFFERS FROM THE QCD SUBMITTER
-# ---------------------------------------
-# QCD (jetclass2sb) is ten pThat bins that must carry EQUAL events per bin to keep the
-# jet pT spectrum flat. The signal is a single process, so there is no mixture to
-# preserve and no per-bin table - just one task.
+# Unlike the QCD submitter, which runs ten pThat bins that must carry equal events per
+# bin to keep the jet pT spectrum flat, the signal is a single process: no mixture to
+# preserve, no per-bin table, one task.
 #
 # It is also a hepmc process, not a CMSSW fragment: MadGraph5 generates an LHE for a
-# randomly drawn (Higgs mass, pT_min) point from the 4900-point grid in
-# gen_configs/jetclass2/train_higgs2p/mg5_params.dat, Pythia8 showers it to
-# events.hepmc, and only then does CMSSW reconstruct. run_gen.sh re-draws that point on
-# every batch, so the scan is sampled independently throughout the production.
+# randomly drawn mass point from the grid in the process' mg5_params.dat, Pythia8
+# showers it to events.hepmc, and only then does CMSSW reconstruct. run_gen.sh draws a
+# fresh point every batch, so the scan is sampled independently throughout.
 #
-# Consequences handled by run_job.sh, not here:
-#   * generation runs in an EL9 container, CMSSW in EL7 - MG5 is built against glibc
-#     2.34 and will not start under SLC7;
-#   * MG5 itself (~363 MB compressed) is fetched per job from
-#     crab/make_mg5_tarball.sh's staged tarball, since it is far over the CRAB sandbox
-#     limit and the CVMFS copy is a different major version.
+# Two consequences, both handled by run_job.sh rather than here:
+#   * generation runs in an EL9 container and CMSSW in EL7, since MG5 will not start
+#     under SLC7;
+#   * MG5 is fetched per job from the tarball crab/make_mg5_tarball.sh stages, being
+#     far over the CRAB sandbox limit while the CVMFS copy is a different major
+#     version.
 #
-# SIZING: 4000 jobs x 500 events = 2,000,000 events. The 630k trial yielded 32.9%
-# non-QCD ("useful") jets, so this targets roughly 1.5M useful jets.
+# Sized at 4000 jobs x 500 events, targeting roughly 1.5M useful (non-QCD) jets.
 #
-# RUNTIME IS THE LEAST CERTAIN PART. No signal-specific per-event cost was ever
-# measured - the 630k trial's condor records are gone - so 500 events/job is an
-# estimate, not a measurement. maxJobRuntimeMin is therefore set generously (1200 min
-# = 20 h, against CRAB's 2800 max) rather than the 900 the QCD tasks use. Watch the
-# first completions: if jobs come in far under, later rounds can use bigger jobs and
-# fetch MG5 fewer times.
+# Runtime is the least certain part: no signal-specific per-event cost has been
+# measured, so 500 events per job is an estimate. maxJobRuntimeMin is therefore set
+# generously rather than at the value the QCD tasks use. Watch the first completions;
+# if jobs come in well under, later rounds can use bigger jobs and fetch MG5 fewer
+# times.
 #
 # USAGE
 #   voms-proxy-init -voms cms -valid 192:00
@@ -45,12 +40,10 @@ NJOBS=4000
 NEVENTS=500
 BATCH=250            # 2 batches per job, as for QCD
 RUNTIME_MIN=1200     # 20 h; see "RUNTIME IS THE LEAST CERTAIN PART" above
-# The 2026-10-13 round requested 2500 MB on 1 core and lost 23% of its failures to
-# exit 50660 (HTCondor memory kills): measured 1631 MB average but 3958 MB peak over
-# 1827 failed jobs. The early "~1.4 GB peak" came from a handful of local runs and was
-# simply not representative. CRAB refuses more than 3000 MB for a 1-core task, so the
-# peak cannot be covered on one core - hence 2 cores. The chain is single-threaded, so
-# the second core buys the memory allowance, not speed.
+# The chain averages well under 2 GB but peaks near 4 GB, and CRAB refuses more than
+# 3000 MB for a 1-core task, so the peak cannot be covered on one core - hence two.
+# The chain is single-threaded, so the second core buys the memory allowance, not
+# speed; a CPU efficiency near 50% is expected.
 MEMORY=4000
 CORES=2
 WHITELIST=""

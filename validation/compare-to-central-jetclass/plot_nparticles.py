@@ -1,59 +1,20 @@
 #!/usr/bin/env python3
 
-'''
-Compares the "number of particles per jet" distribution of our own
-production (offline conditions, onlyFatJetNoPU card by default) to the
-centrally-available JetClass dataset, per process/class - both for the
-total particle count and split by particle type (charged hadron, neutral
-hadron, photon, electron, muon).
+'''Compare the "number of particles per jet" distribution of our own production to the
+centrally-available JetClass dataset, per process, both for the total count and split
+by particle type.
 
-Since both use the same gridpack + Delphes card, the two distributions
-should match within statistical uncertainties for every one of the 10
-jetclass1 classes - a mismatch here would point at a real difference
-somewhere in the pipeline (Delphes version/config, PUPPI tuning, the
-ntuplizer's own particle selection, ...), not the offline-vs-HLT
-degradation covered by ../test_hlt_vs_offline_njets.py (a different,
-unrelated comparison).
+Since both use the same gridpack and Delphes card, the two should match within
+statistical uncertainties for every class; a mismatch would point at a real difference
+in the pipeline rather than at the offline-against-HLT degradation other scripts cover.
 
-The total is read directly from jet_nparticles (a plain scalar branch
-makeNtuples.C always writes, matching the official release exactly - see
-delphes_analyzers/makeNtuples.C's branchList) - cheaper than summing a
-jagged part_* array and identical by construction (jet_nparticles IS
-len(part_energy) et al., set in the same event loop). The per-type counts
-have no such precomputed branch, so they're the per-jet sum of the
-corresponding part_is<Type> boolean (vector<bool>) branch instead.
+The total is read from the jet_nparticles branch, which the ntuplizer always writes and
+which is identical by construction to the length of the per-particle arrays, so this is
+cheaper than summing a jagged array. The per-type counts have no such precomputed
+branch and are the per-jet sum of the corresponding type flag.
 
-Output is one multi-axes ("small multiples") figure per quantity - all 10
-classes together in one figure, not one file per class - matching what the
-comparison is actually for (a by-eye scan across all classes at once):
-  nparticles_all_processes.png                 - total particles/jet
-  nparticles_charged_hadron_all_processes.png
-  nparticles_neutral_hadron_all_processes.png
-  nparticles_photon_all_processes.png
-  nparticles_electron_all_processes.png
-  nparticles_muon_all_processes.png
-
-Usage:
-  # default: compares against the local partial central JetClass download
-  # (5M-jet val split, extracted from JetClass_Pythia_val_5M.tar) at
-  # /eos/user/l/llambrec/jetclass/JetClass/val_5M - see DEFAULT_CENTRAL_PATH
-  python3 plot_nparticles.py
-
-  # a different/full central JetClass download, e.g. the 100M-jet train split
-  python3 plot_nparticles.py --central-path /path/to/JetClass/Pythia/train_100M
-
-  # a quick self-test with no central data yet: points --central-path at our
-  # OWN production output too, so the two curves are expected to overlay
-  # near-perfectly (same files on both sides) - this only exercises the
-  # plumbing (file discovery, reading, plotting), it is NOT a real
-  # central-vs-ours comparison
-  python3 plot_nparticles.py \\
-      --central-path /eos/user/l/llambrec/jetclass/output_jetclass1_10M/jetclass1 \\
-      --central-pattern '{proc}/precompiled/onlyFatJetNoPU/ntuple_*.root' --self-test
-
-  # a subset of processes, a tighter jets-per-source cap, custom pattern
-  python3 plot_nparticles.py --central-path /path/to/JetClass --procs HToBB,TTBar \\
-      --central-pattern '{proc}_*.root' --max-jets-per-source 50000
+Output is one small-multiples figure per quantity, all classes in one figure rather than
+one file each, which is what a by-eye scan across classes needs.
 '''
 
 import os
@@ -128,37 +89,25 @@ SELECTION_ETA_MAX = 2.0
 
 
 def selection_mask(jet_pt, jet_eta):
+    '''Boolean mask for the jet pT and |eta| selection, or all-true when it is disabled.
+    '''
     return (jet_pt > SELECTION_PT_RANGE[0]) & (jet_pt < SELECTION_PT_RANGE[1]) & (np.abs(jet_eta) < SELECTION_ETA_MAX)
 
 
 def our_files(output_path, proc, card):
+    '''The ntuples of our own production for one process.'''
     d = os.path.join(output_path, 'jetclass1', proc, 'precompiled', card)
     return sorted(glob.glob(os.path.join(d, 'ntuple_*.root')))
 
 
 def central_files(central_path, proc, pattern):
+    '''The central dataset's files for one process.'''
     return sorted(glob.glob(os.path.join(central_path, pattern.format(proc=proc))))
 
 
 def read_jet_data(files, max_jets=None, apply_selection=True):
-    '''
-    Single-pass read of `files`, capped at max_jets SELECTED jets (i.e. the
-    cap is applied after the pT/eta selection below, not before - so
-    max_jets jets of actual analyzed statistics are returned, not max_jets
-    read-then-mostly-thrown-away). Stops reading further files once
-    reached, rather than reading everything first - matters for central
-    JetClass files, ~100k jets each; the result is then the first max_jets
-    SELECTED jets in file order, not necessarily an unbiased sample if
-    max_jets is much smaller than the total. Returns a dict:
-      {'total': <per-jet jet_nparticles>,
-       'charged_hadron': <per-jet count of part_isChargedHadron==True>,
-       'neutral_hadron': ..., 'photon': ..., 'electron': ..., 'muon': ...,
-       'jet_pt': ..., 'jet_eta': ...}
-    each value a flat np.array. If apply_selection, every array only
-    contains jets passing selection_mask() (see its own docstring for why -
-    default on, matching central JetClass's own actual file content). A
-    file that fails to open/read is skipped with a warning rather than
-    aborting the whole comparison.
+    '''Single-pass read of `files`, capped at max_jets selected jets, i.e. the cap applies
+    after the selection.
     '''
     keys = [key for key, _, _ in PARTICLE_TYPES] + ['total', 'jet_pt', 'jet_eta']
     chunks = {key: [] for key in keys}
@@ -195,13 +144,7 @@ def read_jet_data(files, max_jets=None, apply_selection=True):
 
 
 def make_plot(ax, label, our_vals, central_vals, xlabel):
-    '''
-    Draws the overlaid step-histogram comparison for one (process, quantity)
-    onto `ax`. No title (house style, see testing/test-generation-time/
-    plot_timing.py) - `label` (e.g. the process name) goes in its own text
-    box, upper-left, so the legend (upper-right) can stay short (just the
-    two source names, no per-panel N=.../label repetition).
-    '''
+    '''One (process, quantity) overlaid step-histogram comparison, drawn onto `ax`.'''
     both = np.concatenate([our_vals, central_vals]) if len(our_vals) and len(central_vals) else \
         (our_vals if len(our_vals) else central_vals)
     if len(both) == 0:
@@ -237,7 +180,7 @@ def make_plot(ax, label, our_vals, central_vals, xlabel):
 
 
 def make_grid(results, procs, key, xlabel, outpath):
-    '''One multi-axes figure, all `procs` together as small multiples, for `results[proc][...][key]`.'''
+    '''One small-multiples figure with every process together, for one quantity.'''
     ncols = 5
     nrows = (len(procs) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
@@ -254,6 +197,7 @@ def make_grid(results, procs, key, xlabel, outpath):
 
 
 def print_stats(proc, source, vals):
+    '''Print each process' mean and median for both datasets.'''
     if len(vals) == 0:
         print('{:<14}{:<20}{:>10}'.format(proc, source, 'no data'))
         return

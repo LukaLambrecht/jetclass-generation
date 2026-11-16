@@ -1,61 +1,25 @@
 #!/usr/bin/env python3
 
-'''
-Compare the average number of jet-constituent particles per particle-pT
-bin between OFFLINE and HLT reconstruction of the SAME jets. Reads EITHER
-of two schemas transparently (see ntuple_io.py for the full description
-of each, and how they're normalized onto the same part_*/hlt_part_*
-naming used below):
+'''Compare the average number of jet constituents per particle-pT bin between Offline and
+HLT reconstruction of the same jets.
 
-  - our own PAIRED ntuples (delphes_analyzers/makeNtuplesPaired.C): one
-    row per selected offline jet, carrying its own part_* branches plus
-    its matched HLT jet's hlt_part_* branches in the SAME entry
-    (hlt_matched says whether a match was found at all - for an unmatched
-    row, every hlt_part_* vector is simply empty, not zero-filled).
+Reads either ntuple schema transparently, detected automatically and needing no flag -\nour own paired ntuples, one row per selected offline jet carrying its matched HLT jet\nalongside, or the CMS offline+scouting reference dataset, where every row is already a\nmatched pair. See ntuple_io.py, which normalizes both onto one naming.
 
-  - the real FullSim/scouting reference dataset this pipeline is trying to
-    mimic (see hlteff/README.md's "Data source") - same one-entry-two-
-    collections structure (every row already IS a matched pair there, see
-    ntuple_io.py), letting the exact same comparison be made directly
-    against real detector data instead of only Delphes-vs-Delphes.
+Both sides are normalized by the same denominator, the total number of offline-selected
+jets, rather than only the matched subset. That makes the "particles per jet" curves
+honestly comparable in absolute terms, including the effect of jets HLT lost entirely:
+an unmatched row's empty HLT vectors contribute zero automatically, exactly as a
+genuinely empty HLT jet would, so no masking is needed.
 
-Pass either kind of ntuple as `files` - which schema it is is detected
-automatically (see ntuple_io.detect_schema()) and needs no flag.
+Produces one figure per particle category. Splitting by category matters because a
+detector-level difference typically affects only some particle types, and would
+otherwise be diluted in the all-particles view.
 
-Both sides are normalized by the SAME denominator - the total number of
-offline-selected jets (rows) in the file(s) - not just the HLT-matched
-subset. This is deliberate: it makes the "average particles / jet" curves
-directly, honestly comparable in absolute terms, including the effect of
-jets HLT lost entirely (an unmatched row's empty hlt_part_* vectors
-contribute zero to the HLT curve automatically, no separate masking
-needed - exactly like a genuinely-empty HLT jet would).
-
-Produces one separate figure/file per particle category: all, charged,
-neutral, electron, muon, photon, charged hadron, neutral hadron. Splitting
-by category is useful because detector-level differences (e.g. offline vs
-HLT tracking) typically only affect a subset of particle types (e.g.
-charged hadrons), which can otherwise be diluted in the "all particles"
-view by the unaffected categories.
-
-Usage (from any directory - output defaults to output_plots/ next to this script):
+Usage (from any directory; output defaults to output_plots/ next to this script):
   python plot_particle_pt.py FILE_OR_GLOB [FILE_OR_GLOB ...] [options]
 
-`files` are every paired ntuple belonging to ONE production (e.g. all of a
-process' condor-job ntuple_*.root under one card-pair directory) - pass a
-glob (quoted, so this script expands it, not the shell) or a full file
-list; they're all concatenated (via uproot.concatenate) before plotting,
-not looped over as separate series like the old (pre-paired-format)
-version of this script did.
-
-Examples:
-  python plot_particle_pt.py \\
-      '/eos/user/l/llambrec/jetclass/output_jetclass2_5M/jetclass2/train_higgs2p/onlyFatJet+onlyFatJetHLT/ntuple_*.root' \\
-      --info train_higgs2p --output output_plots/plot_pt_train_higgs2p.png
-
-  # same, but against the real FullSim/scouting reference dataset
-  python plot_particle_pt.py \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/H0HpHm_mixed_new/dnnTuples_nanov15_*.root' \\
-      --info H0HpHm_mixed_new --output output_plots/plot_pt_fullsim_h0hphm.png
+`files` are every ntuple of one sample; pass a quoted glob, so this script expands it
+rather than the shell, or a full list. They are all concatenated before plotting.
 '''
 
 import os
@@ -111,32 +75,14 @@ ALL_SIDES = [('part_', 'Offline', ps.OFFLINE_COLOR), ('hlt_part_', 'HLT', ps.HLT
 
 
 def expand_files(patterns):
-    '''Expand the command-line inputs into a file list, via
-    ntuple_io.expand_inputs(): a DIRECTORY is searched recursively for ntuples of
-    either schema (so a whole production tree can be passed as-is, exactly as
-    print_njets.py accepts), a glob is expanded, and a pattern matching nothing is
-    kept as a literal so a typo fails loudly on the read rather than vanishing here.
-    Shared with the other plotting scripts through ntuple_io so all of them accept
-    the same inputs.'''
+    '''Expand the command-line inputs into a file list, via ntuple_io.expand_inputs().
+    '''
     return nio.expand_inputs(patterns)
 
 
 
 def load_data(files, treename='tree'):
-    '''
-    Read every category's branches, for whichever schema `files` actually
-    are (see ntuple_io.py - detected automatically, works the same for our
-    own paired ntuples or the real fullsim reference dataset), from every
-    file in `files` (concatenated under the hood - so this works the same
-    for one quick test file or a whole production's many per-job ntuples).
-    Returns (data, njets, sides): data is ntuple_io.load_particles()'s own
-    dict (plus 'part_pt'/'hlt_part_pt' entries added here), njets is the
-    total number of offline-selected jets (rows) across all files - the
-    single shared denominator used for every side present, see module
-    docstring - and sides is ALL_SIDES filtered down to whichever side(s)
-    are actually present (only ever both for fullsim; either for "ours",
-    depending on whether it's a paired production - see ALL_SIDES).
-    '''
+    '''Read every category's branches, for whichever schema the files are.'''
     data = nio.load_particles(files, suffixes=SUFFIXES, treename=treename)
     sides = [s for s in ALL_SIDES if (s[0] + 'px') in data]
     for prefix, _, _ in sides:
@@ -148,6 +94,7 @@ def average_multiplicity_per_bin(pt, njets, bin_edges):
     ### given a jagged per-jet pT array, return the average number of
     # particles per jet in each of the given pT bins, along with its
     # statistical (Poisson) uncertainty
+    '''Average number of constituents per jet in each pT bin, with its Poisson error.'''
     flat_pt = ak.to_numpy(ak.flatten(pt, axis=None))
     counts, _ = np.histogram(flat_pt, bins=bin_edges)
     if njets == 0:
@@ -157,6 +104,7 @@ def average_multiplicity_per_bin(pt, njets, bin_edges):
 
 
 def main():
+    '''Read the files and write one figure per particle category.'''
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('files', nargs='+',
@@ -262,8 +210,9 @@ def main():
     for category, mask_fn, category_label in CATEGORIES:
 
         def build(paper):
-            '''Render this category's figure. Called once per output variant, since
-            the reduced paper text changes the figure itself, not just the file.'''
+            '''Render this category's figure. Called once per output variant, since the reduced paper
+            text changes the layout.
+            '''
             fig, ax = plt.subplots(figsize=(8, 6))
             max_height = 0.0
             handles, labels = [], []

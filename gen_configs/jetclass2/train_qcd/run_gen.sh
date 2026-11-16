@@ -1,16 +1,16 @@
 #!/bin/bash -x
 
-# a wrapper to generate hepmc file
-
-# this is a customized version for qcd event generator, using pythia8 only
+# Generate the events.hepmc for one batch.
+#
+# QCD variant: Pythia8 only, no MadGraph step.
 
 NEVENT=$1
 
 # cd into current genpack's dir
 cd "$( dirname "${BASH_SOURCE[0]}" )"
 
-# read the custom py8 parameters
-# sample one line from the paramter file if py8_params.dat exists
+# Draw this batch's parameters: one random line from py8_params.dat, whose
+# fields are substituted for $1, $2, ... in the template below.
 if [ -f py8_params.dat ]; then
     RANDOM_PARAMS=$(shuf -n 1 py8_params.dat)
     IFS=' ' read -ra PARAMS <<< $RANDOM_PARAMS
@@ -26,7 +26,7 @@ fi
 
 ## write py8.dat
 cp -f py8_templ.dat py8.dat
-## if py8.dat exists, replace $1, $2, ... by the customized params
+## substitute the drawn parameters for the $1, $2, ... placeholders
 if [ -f py8.dat ]; then
     for i in `seq 1 ${#PARAMS[@]}`; do
         sed -i "s/\$${i}/${PARAMS[$((i-1))]}/g" py8.dat
@@ -34,7 +34,7 @@ if [ -f py8.dat ]; then
 fi
 
 sed -i "s/\$NEVENT/$NEVENT/g" py8.dat # initialize nevent
-sed -i "s/\$SEED/$RANDOM/g" py8.dat # initialize seed, this is not working for pythia as we use pythia's own seed
+sed -i "s/\$SEED/$RANDOM/g" py8.dat # no effect here: the card uses pythia's own seeding
 
 ## generate hepmc events (events.hepmc)
 ./py8_main

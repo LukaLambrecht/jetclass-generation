@@ -1,55 +1,34 @@
 #!/usr/bin/env python3
 
-'''
-Compare basic JET kinematics (pT and eta) between OFFLINE and HLT
-reconstruction of the SAME jets, per jet class - the jet-level sibling of
-plot_nparticles.py, which does the same for per-jet particle counts. Reads
-EITHER of two schemas transparently (see ntuple_io.py for the full
-description of each, and how they're normalized onto the same
-jet_*/hlt_jet_*/hlt_matched naming used below):
+'''Compare basic jet kinematics, pT and eta, between Offline and HLT reconstruction of the
+same jets, per jet class. The jet-level sibling of plot_nparticles.py.
 
-  - our own PAIRED ntuples (delphes_analyzers/makeNtuplesPaired.C for the
-    delphes backend, fullsim_analyzers/makeNtuplesFullSim.cc for the
-    fullsim one): one row per selected offline jet, carrying its own
-    jet_* branches plus its matched HLT jet's hlt_jet_* branches.
-  - the real CMS offline+scouting reference dataset this pipeline is trying
-    to mimic (see hlteff/README.md's "Data source").
+Reads either ntuple schema transparently, detected automatically and needing no flag -\nour own paired ntuples, one row per selected offline jet carrying its matched HLT jet\nalongside, or the CMS offline+scouting reference dataset, where every row is already a\nmatched pair. See ntuple_io.py, which normalizes both onto one naming.
 
-Which schema the input is gets detected automatically (ntuple_io.detect_schema())
-and needs no flag. The jet classes are exactly plot_nparticles.py's own 10
-(QCD aggregated, X_tauhtaue/X_tauhtaum merged into X_tauhtaul, flavor-mixed
-two-prong labels excluded) - imported from it rather than redefined, so the
-two scripts can never disagree about what a class is.
+The jet classes are plot_nparticles.py's own, imported from it rather than redefined,
+so the two scripts cannot disagree about what a class is.
 
-CHEAP BY CONSTRUCTION: only flat per-jet scalar branches are read
-(ntuple_io.load_jet_kinematics()), never any per-particle data - so this runs
-over a whole production in seconds, unlike plot_nparticles.py --plots types.
+Cheap by construction: only flat per-jet branches are read, never per-particle data, so
+this runs over a whole production in seconds.
 
-Unmatched jets (no HLT counterpart at all) are excluded from the HLT
-distributions rather than entered as their -999 sentinel, for the same reason
-plot_nparticles.py excludes them from its HLT counts; the per-class match rate
-is printed and shown on each panel so that exclusion is never silent.
+Unmatched jets are excluded from the HLT distributions rather than entered as their
+sentinel value, and the per-class match rate is printed and shown on each panel so the
+exclusion is never silent.
 
-Each quantity gets its own figure, a 2x5 grid of jet classes, with Offline and
-HLT overlaid. Binning is FIXED by default (see QUANTITIES), not derived from
-the data, so the same quantity is directly comparable between two different
-productions plotted separately - which is the main use: run it once per dataset
-into its own --outdir and compare. The printed median/mean table is usually the
-quickest way to see a hardness difference between two samples.
+Each quantity gets its own figure, a grid of jet classes with Offline and HLT overlaid.
+The binning is fixed by default rather than derived from the data, so the same quantity
+is directly comparable between two productions plotted separately - which is the main
+use. The printed median and mean table is usually the quickest way to see a hardness
+difference between samples.
 
 Usage (from any directory):
   python3 plot_jet_kinematics.py FILE_OR_GLOB [FILE_OR_GLOB ...] [options]
 
 Examples:
   # the real CMS reference dataset, both its samples pooled
-  python3 plot_jet_kinematics.py \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/*/dnnTuples_nanov15_*.root' \\
+  python3 plot_jet_kinematics.py \
+      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/*/dnnTuples_nanov15_*.root' \
       --outdir output_plots_fullsim_og
-
-  # our own fullsim production
-  python3 plot_jet_kinematics.py \\
-      '/eos/user/l/llambrec/jetclass/output_fullsim_630k_trial/jetclass2/*/fullsim_offline+hlt/ntuple_*.root' \\
-      --outdir output_plots_fullsim_trial
 
   # a different pT window, and only a couple of classes
   python3 plot_jet_kinematics.py 'FILES...' --range pt=200,25000 --classes QCD,X_bb
@@ -122,6 +101,7 @@ def parse_range_overrides(range_args):
 
 
 def bin_edges_for(key, overrides):
+    '''The bin edges for one quantity, honouring any --range override.'''
     label, lo, hi, nbins, logx = QUANTITIES[key]
     if key in overrides:
         lo, hi = overrides[key]
@@ -133,16 +113,7 @@ def bin_edges_for(key, overrides):
 
 
 def read_all_classes(files, class_names, quantities, max_jets, min_jet_pt=None, max_jet_eta=None):
-    '''
-    One read of `files` for every requested quantity, bucketed into the requested
-    classes (via plot_nparticles.class_masks(), so identical class definitions).
-
-    The HLT values of a class are the matched subset only (see module docstring);
-    njets/n_matched count every jet of the class either way, for the panel captions.
-    A `max_jets` cap is applied post-read, same as plot_nparticles.py does.
-
-    Returns {class_name: {'njets': n, 'n_matched': m_or_None,
-                          'q': {quantity: (offline_values, hlt_values_or_None)}}}.
+    '''One read of `files` for every requested quantity, bucketed into the requested classes.
     '''
     masks, njets_total = class_masks(files, class_names)
     data = nio.load_jet_kinematics(files, quantities=quantities, treename=TREE_NAME)
@@ -181,11 +152,9 @@ def read_all_classes(files, class_names, quantities, max_jets, min_jet_pt=None, 
 
 def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, overrides,
                 paper_style=False):
-    '''One jet class' panel for one quantity: Offline and HLT overlaid as normalized
-    step histograms on a shared fixed binning, log-y (jet spectra span orders of
-    magnitude), captioned with the class, its jet count/match rate and both medians -
-    the medians being the number that actually quantifies "one sample is harder than
-    the other".'''
+    '''One jet class' panel for one quantity: Offline and HLT overlaid as normalized step
+    histograms on shared fixed bins.
+    '''
     edges, label, logx = bin_edges_for(key, overrides)
     if len(offline_vals) == 0:
         ax.text(0.5, 0.5, '{}: no data'.format(ps.class_label(class_name)), ha='center',
@@ -238,8 +207,9 @@ def make_panel(ax, class_name, key, offline_vals, hlt_vals, njets, n_matched, ov
 
 
 def make_grid(results, classes, key, outpath, overrides, paper_style=False):
-    '''One figure per quantity: 2 rows x 5 columns of jet classes, same layout as
-    plot_nparticles.py's own make_grid().'''
+    '''One figure per quantity: a grid of jet classes, in the same layout plot_nparticles.py
+    uses.
+    '''
     # capped at the number of classes actually plotted, so a --classes subset smaller
     # than the grid width doesn't produce a full-width canvas of blank axes (a no-op
     # for the default 10 classes, which still lay out 5 x 2)
@@ -261,6 +231,7 @@ def make_grid(results, classes, key, outpath, overrides, paper_style=False):
 
 
 def print_stats(class_name, source, vals):
+    '''Print the per-class median, mean and match rate for one quantity.'''
     if vals is None or len(vals) == 0:
         print('{:<16}{:<10}{:>10}'.format(class_name, source, 'no data'))
         return

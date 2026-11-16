@@ -3,37 +3,17 @@
 '''
 Submit a run.sh generation+reconstruction job to HTCondor.
 
-This is a thin wrapper: every argument is named (no positional arguments at
-all - deliberately, so a command line is self-explanatory without having to
-cross-reference run.sh's own positional-arg order to know what a bare
-number means), and maps 1:1 onto one of run.sh's own positional arguments
-(see run.sh's own header) - forwarded unchanged, run.sh itself is not
-touched by any of this - except NEVENT, which is given via exactly one of
---nevent (a plain event count) or --target-njets (a target JET count
-instead - translated to NEVENT here, in this script, before run.sh is ever
-invoked).
+A thin wrapper: every argument is named, so a command line is self-explanatory,
+and each maps onto one of run.sh's positional arguments and is forwarded
+unchanged. The exception is NEVENT, given as exactly one of --nevent (an event
+count) or --target-njets (a jet count, translated to NEVENT here).
 
---output-path is REQUIRED (run.sh itself still falls back to its own
-hardcoded default if invoked directly without going through this script -
-that default is untouched, but this wrapper no longer lets you fall into it
-by accident). Note there are two different, unrelated "output directories"
-involved:
-  - --output-path (required): where the JOB'S OWN detector-level output
-    (ntuple_*.root, and the backend's intermediate files if
-    --keep-intermediate) is written - this is run.sh's OUTPUT_PATH.
-  - -o/--outputdir (optional, default "condor_jobs"): where THIS SCRIPT writes
-    the condor submission files (.sh/.txt/log) for the job it submits - has
-    nothing to do with the job's own detector output.
-    The default is "condor_jobs", not "condor": condor/ is a tracked source
-    directory (the production submitters, see condor/README.md), and the old
-    default dropped submit files and logs straight into it. "condor_jobs" also
-    matches the .gitignore "condor_*" job-directory pattern, so job output
-    stays out of git.
-
---backend is REQUIRED and selects the detector simulation: "delphes" (fast,
-what every dataset so far was made with) or "fullsim" (CMS full simulation in
-CMSSW, see backends/fullsim.sh). This is new: it used to be absent, Delphes being
-the only option, so an old command line needs "--backend delphes" added.
+Two unrelated "output directories" are involved:
+  - --output-path (required): where the job's own ntuple_*.root are written,
+    i.e. run.sh's OUTPUT_PATH.
+  - -o/--outputdir (default "condor_jobs"): where this script writes the condor
+    submission files for the job. It matches the .gitignore "condor_*" pattern,
+    so job output stays out of git.
 
 Usage:
   python run_condor.py --backend BACKEND --proc PROC (--nevent NEVENT | --target-njets NJETS) --output-path OUTPUT_PATH --batch-size BATCH_SIZE --jobnum JOBNUM [--backend-opts OPTS]
@@ -45,18 +25,15 @@ Example:
   # both offline and HLT reconstruction, no pileup
   python run_condor.py --backend delphes --proc jetclass1/HToBB --nevent 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --backend-opts onlyFatJetNoPU,onlyFatJetHLTNoPU
 
-  # a one-off/exploratory run, written to a separate output directory
+  # a one-off run, written to a separate output directory
   python run_condor.py --backend delphes --proc jetclass1/HToBB --nevent 100 --output-path /eos/user/l/llambrec/jetclass/output_timing_test --batch-size 100 --jobnum 0 --backend-opts onlyFatJetNoPU
 
-  # the same process through CMS full simulation instead - ~2 min/event, so a
-  # job is sized in tens of events, not thousands
+  # the same process through CMS full simulation - ~2 min/event, so a job is
+  # sized in tens of events, not thousands
   python run_condor.py --backend fullsim --proc jetclass1/HToBB --nevent 20 --output-path /eos/user/l/llambrec/jetclass/output_fullsim_test --batch-size 10 --jobnum 0
 
-  # target a number of JETS instead of events: NEVENT is derived here (in
-  # this script, not run.sh) from --target-njets using the process's
-  # measured jets-per-event ratio in --njets-map (default:
-  # run_configs/njets_per_nevents.json, see testing/test-generation-time/
-  # plot_njets.py for how those ratios were measured)
+  # target a number of jets instead of events: NEVENT is derived here from
+  # --target-njets using the process' measured jets-per-event ratio
   python run_condor.py --proc jetclass1/HToBB --target-njets 150000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU
 '''
 
@@ -71,29 +48,26 @@ from download_gridpack import normalize_proc
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json')
-# Each backend's own default BACKEND_OPTS, mirrored here (not imported - the
-# backends are shell files with no importable defaults) only so that OUTPUT_PATH
-# can still be placed in the right positional slot for run.sh even when
-# --backend-opts is omitted; the backends' own defaults are untouched. Keep in
+# Each backend's own default BACKEND_OPTS, mirrored here because the backends are
+# shell files with nothing importable. Needed only so OUTPUT_PATH still lands in
+# the right positional slot for run.sh when --backend-opts is omitted. Keep in
 # sync with BACKEND_DEFAULT_OPTS in backends/<backend>.sh.
 BACKENDS = ('delphes', 'fullsim')
 RUNSH_DEFAULT_OPTS = {
     'delphes': 'onlyFatJet',
     'fullsim': 'offline+hlt',
 }
-# Requested memory per backend. A fullsim job runs CMSSW's HLT (the whole GRun
-# menu) and RECO, which peak at ~3 GB; with the delphes default of 2 GB such a
-# job is simply killed by condor partway through.
+# Requested memory per backend. A fullsim job runs the full HLT menu and RECO,
+# which peak at ~3 GB, and is simply killed by condor at the delphes default.
 DEFAULT_MEM = {
     'delphes': 2048,
     'fullsim': 4096,
 }
-# the subdirectory each backend writes under $OUTPUT_PATH/$PROC, as a function of
-# its BACKEND_OPTS - used by run_condor_loop.py to pre-create them (see its own
-# comment for why that has to happen before any job starts)
 
 
 def output_subdirs(backend, backend_opts):
+    '''The subdirectories a backend writes under $OUTPUT_PATH/$PROC, given its
+    BACKEND_OPTS. run_condor_loop.py uses this to pre-create them.'''
     if backend == 'delphes':
         return [c.strip() for c in backend_opts.split(',') if c.strip()]
     if backend == 'fullsim':
@@ -103,34 +77,20 @@ def output_subdirs(backend, backend_opts):
 
 def validate_proc(proc, thisdir):
     '''
-    Sanity-check that `proc` (run.sh's PROC positional arg, e.g.
-    "jetclass1/HToBB/precompiled") actually resolves to a runnable process
-    config directory under gen_configs/, before ever submitting a job for
-    it - catches the mistake that motivated this check: passing
-    "jetclass1/HToBB" (missing the "/precompiled" or "/raw" mode suffix).
+    Check that `proc` resolves to a runnable process config under gen_configs/
+    before any job is submitted. This catches a dropped mode suffix, e.g.
+    "jetclass1/HToBB" instead of "jetclass1/HToBB/precompiled".
 
-    run.sh's own `cp -r $GENCFG_PATH/$PROC/* proc_base/` does NOT fail
-    loudly on that mistake - with the suffix missing, $PROC only has
-    subdirectories (precompiled/, raw/) under it, so that cp copies those
-    SUBDIRECTORIES themselves into proc_base/ instead of the process' own
-    MG5/Pythia8 config files. proc_base/run_gen.sh then doesn't exist, run.sh
-    falls back to run_gen_default.sh, which has nothing real to generate
-    from - the job still runs to completion and exits 0, just with an
-    empty/near-empty ntuple (a handful of KB, no real jets) instead of a
-    real crash. Exactly this happened once submitting
-    output_jetclass1_5M_sync_mg311 (100 jobs, "/precompiled" dropped from
-    every --proc) - all 100 "succeeded" in a few minutes with ~7.5KB
-    ntuples before it was noticed.
+    run.sh does not fail loudly on that: with the suffix missing, $PROC holds
+    only subdirectories, so its `cp -r` copies those subdirectories into
+    proc_base/ rather than the process' generator configs. run_gen.sh is then
+    absent, run.sh falls back to run_gen_default.sh, and the job exits 0 with a
+    near-empty ntuple instead of crashing.
 
-    Every real leaf process directory in gen_configs/ (jetclass1/*/precompiled,
-    jetclass1/*/raw, jetclass2/train_*) has at least one regular file
-    directly inside it; a directory holding only further subdirectories
-    (e.g. gen_configs/jetclass1/HToBB itself, vs. .../HToBB/precompiled) is
-    exactly the invalid case above. Checking for "any file directly inside",
-    rather than hardcoding expected filenames (which differ between
-    jetclass1's py8.dat/mg5_step2_templ.dat and jetclass2's own naming,
-    e.g. train_qcd's py8_main.cc/py8_params.dat/py8_templ.dat/run_gen.sh),
-    keeps this generic to whatever gen_configs/ currently holds or grows to.
+    Every real leaf process directory has at least one regular file directly
+    inside it, while a directory holding only subdirectories is exactly the
+    invalid case. Testing for "any file directly inside" rather than for expected
+    filenames keeps this generic, since the per-family naming differs.
     '''
     procdir = os.path.join(thisdir, 'gen_configs', proc)
     if not os.path.isdir(procdir):
@@ -154,12 +114,11 @@ def validate_proc(proc, thisdir):
 def nevent_for_target_njets(proc, target_njets, njets_map_path):
     '''
     Translate a target jet count into NEVENT for `proc`, using the
-    (process -> jets per event) ratios in the JSON file at njets_map_path
-    (keyed by the same bare process name normalize_proc() extracts from
-    PROC, e.g. "HToBB" out of "jetclass1/HToBB" - see run_configs/
-    njets_per_nevents.json). Deliberately raises rather than falling back
-    to anything if the map is missing or doesn't cover this process -
-    silently guessing NEVENT would be worse than an explicit error here.
+    process -> jets-per-event ratios in the JSON file at njets_map_path. It is
+    keyed by the bare process name normalize_proc() extracts from PROC.
+
+    Raises rather than falling back if the map is missing or does not cover this
+    process: silently guessing NEVENT would be worse than an explicit error.
     '''
     if not os.path.exists(njets_map_path):
         raise Exception(
@@ -287,8 +246,8 @@ if __name__=='__main__':
     else:
         nevent = args.nevent
 
-    # BACKEND_OPTS (run.sh positional arg 6) must be filled in explicitly if
-    # omitted, since OUTPUT_PATH (arg 7) is always given now
+    # BACKEND_OPTS must be filled in explicitly when omitted, since OUTPUT_PATH
+    # comes after it positionally and is always given.
     backend_opts = args.backend_opts if args.backend_opts is not None else RUNSH_DEFAULT_OPTS[args.backend]
     keep_intermediate = 'true' if args.keep_intermediate else 'false'
     runsh_args = [args.backend, args.proc, str(nevent), str(args.batch_size), str(args.jobnum),
@@ -300,8 +259,8 @@ if __name__=='__main__':
         os.makedirs(outputdir)
     jobname = 'run_{}_{}_{}'.format(args.backend, args.proc.replace('/', '_'), args.jobnum)
 
-    # explicit cd, in addition to jobtools' own cwd-based cd, so the job
-    # works regardless of where run_condor.py happened to be invoked from
+    # Explicit cd, on top of jobtools' own cwd-based one, so the job works
+    # wherever run_condor.py was invoked from.
     commands = [
         'cd {}'.format(thisdir),
         'echo "###starting###"',
@@ -319,11 +278,10 @@ if __name__=='__main__':
         'echo "###done###"',
     ]
 
-    # chdir into the output directory so the job/executable/log file names
-    # jobtools writes (bare names, e.g. "run_..._0.sh") and the directory
-    # condor_submit itself runs from agree - condortools.submitCondorJob()
-    # does its own "cd <dir of jdname>; condor_submit <basename>", so a
-    # directory prefix baked into the name would otherwise be applied twice
+    # Submit from inside the output directory, so the bare file names jobtools
+    # writes and the directory condor_submit runs from agree: submitCondorJob()
+    # does its own "cd <dir of jdname>; condor_submit <basename>", so a directory
+    # prefix in the name would be applied twice.
     cwd = os.getcwd()
     os.chdir(outputdir)
     try:

@@ -10,61 +10,33 @@
 #include "FatJetMatching.h"
 #include "EventData.h"
 
-// Paired offline/HLT ntuplizer: reads TWO Delphes output files produced from
-// the SAME events.hepmc by two different Delphes cards (an "offline" card
-// and an "HLT" one - e.g. delphes_cards/delphes_card_CMS_JetClassII_onlyFatJet.tcl
-// / _HLT.tcl), and writes ONE combined ntuple with one row per SELECTED
-// offline jet, carrying its own (unprefixed, same schema as makeNtuples.C)
-// branches plus its matched HLT jet's content under an `hlt_`-prefixed
-// parallel branch group - replacing the old workflow of running makeNtuples.C
-// independently per card into two entirely separate ntuples with no
-// correspondence between an offline jet and "its" HLT jet.
+// Paired offline/HLT ntuplizer: reads two Delphes files produced from the same
+// events.hepmc by two different cards, and writes one ntuple with a row per selected
+// offline jet, carrying its own branches - the same schema as makeNtuples.C - plus its
+// matched HLT jet under a parallel hlt_* group.
 //
-// Why this is needed (not just a convenience): the previous two-independent-
-// files setup made it *impossible* to ask "what does HLT reconstruct for
-// jets I would have selected offline?", because each card's own FatJetFinder
-// clusters jets independently from its own (differently-degraded) particle
-// content - different jet count, order, and axis, no shared index. The real
-// paired CMS offline/scouting ntuples this whole HLT-card effort is based on
-// (see hlteff/README.md "Data source") avoid this entirely by construction -
-// each ROW there already IS one (offline, HLT) jet pair (parallel fj_*/
-// scoutfj_* branches), pre-matched upstream of what we ever see. This file
-// reproduces that same row structure ourselves, from our own two independently-
-// produced Delphes files, using the ONE piece of correspondence we get for
-// free: entry N of the offline file and entry N of the HLT file are
-// GUARANTEED to be the same physical event, because both cards process the
-// identical events.hepmc, in the identical order, once per batch, and
-// Delphes writes exactly one output tree entry per input HepMC event
-// regardless of its jet content - hadd-ing each card's own per-batch files
-// (run.sh, unchanged) preserves that entry-by-entry correspondence across
-// the whole job. What's NOT free is JET-level correspondence within a
-// matched event (each card's FatJetFinder clusters independently) - that's
-// what matchJets() below adds: greedy nearest-deltaR, one-to-one, same
-// algorithm as hlteff/derive_curves.py's own match_jet(), just at jet level.
+// Pairing is what makes the question "what does HLT reconstruct for the jets I would
+// select offline?" answerable at all. Each card's FatJetFinder clusters independently
+// from its own degraded particle content, so two separate ntuples share no jet count,
+// order or index. The CMS reference ntuples solve this by construction, every row
+// already being one (offline, HLT) pair, and this reproduces that row structure.
 //
-// Selection is offline-only, by design: an output row exists iff the
-// OFFLINE jet passes the usual pT/eta pre-cut and (for useV1Labels_) the
-// is_signal check - exactly as in makeNtuples.C. The matched HLT jet's own
-// content is then written AS IS, with no pT/eta requirement of its own -
-// including the case where it fell below whatever HLT analysis threshold
-// you'd normally apply (hlt_jet_pt correspondingly low, or hlt_matched=false
-// if no HLT jet was found within --hlt-match-dr at all). That's the whole
-// point: the previous per-card independent output couldn't distinguish
-// "HLT reconstructs this jet, just softer" from "HLT jet vanished entirely"
-// from "HLT jet vanished because our own onlyFatJetHLT card's FastJetFinder
-// JetPTMin killed it before it was ever written" - the last of those is a
-// pure card-configuration artifact, not a real reconstruction outcome, which
-// is why the offline+HLT card pair used with THIS ntuplizer needs its HLT
-// FastJetFinder JetPTMin relaxed to (near) zero - see the HLT cards' own
-// header comments. Getting a genuinely-vanished HLT jet (hlt_matched=false)
-// should now reflect the physics (HLT lost the jet entirely, e.g. via
-// tracking/PUPPI degradation dropping enough constituents that nothing
-// clusters above the noise), not an arbitrary card threshold.
+// The one correspondence that comes for free is event level: entry N of each file is
+// the same physical event, because both cards process the identical events.hepmc in
+// the identical order and Delphes writes one entry per input event whatever its jet
+// content, which hadd preserves. Jet-level correspondence within an event is what
+// matchJets() adds.
 //
-// keepGenParticles/keepAuxGenParticles/keepGenJet (offline side only - see
-// makeNtuples.C's own docstring for what each adds) work exactly as there;
-// there is no HLT-side equivalent (gen truth is detector-independent, no
-// reason to duplicate it).
+// Selection is offline-only by design: a row exists if the offline jet passes the
+// pT/eta pre-cut and, under v1, the is_signal check. The matched HLT jet is then
+// written as is, with no requirement of its own, so a jet HLT reconstructed softer
+// stays distinguishable from one HLT lost entirely (hlt_matched false). For that
+// distinction to mean the physics rather than a threshold, the HLT card paired with
+// this ntuplizer needs its FastJetFinder JetPTMin relaxed to near zero.
+//
+// keepGenParticles/keepAuxGenParticles/keepGenJet work as in makeNtuples.C, offline
+// side only: generator truth is detector-independent, so there is nothing to
+// duplicate.
 void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString outputFile,
                         TString jetBranch = "JetPUPPIAK8", TString genjetBranch = "GenJetAK8",
                         bool assignQCDLabel = false, bool debug = false, bool useV1Labels = false,
@@ -74,8 +46,8 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
     TFile *fout = new TFile(outputFile, "RECREATE");
     TTree *tree = new TTree("tree", "tree");
 
-    // offline branches: identical set/order to makeNtuples.C, so a paired
-    // ntuple's offline-side columns read exactly like a plain one
+    // Offline branches, in the same set and order as makeNtuples.C, so a paired
+    // ntuple's offline columns read exactly like a plain one.
     std::vector<std::pair<std::string, std::string>> branchList = {
         {"part_px", "vector<float>"},
         {"part_py", "vector<float>"},
@@ -104,10 +76,10 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         {"jet_tau3", "float"},
         {"jet_tau4", "float"},
         {"jet_label", "int"},
-        // HLT side: hlt_matched says whether an HLT jet was found within
-        // hltMatchDR at all - when false, every other hlt_* scalar below is
-        // -999 (not 0 - 0 is a plausible real jet_sdmass/tau value) and
-        // every hlt_part_* vector is empty, not just "coincidentally small"
+        // HLT side. hlt_matched says whether an HLT jet was found within
+        // hltMatchDR; when false every other hlt_* scalar is -999, rather than 0,
+        // which would be a plausible real value, and every hlt_part_* vector is
+        // empty rather than merely short.
         {"hlt_matched", "bool"},
         {"hlt_jet_pt", "float"},
         {"hlt_jet_eta", "float"},
@@ -182,10 +154,8 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
     EventData data(branchList);
     data.setOutputBranch(tree);
 
-    // Read input: two entirely separate TChains/readers, one per file -
-    // NOT merged into one TChain, since we need to control the event loop
-    // explicitly to read both in lockstep by entry index (see module
-    // docstring for why that's a safe assumption here)
+    // Two separate readers, one per file, rather than one merged chain: the event
+    // loop has to read both in lockstep by entry index.
     TChain *offlineChain = new TChain("Delphes");
     offlineChain->Add(offlineInputFile);
     ExRootTreeReader *offlineReader = new ExRootTreeReader(offlineChain);
@@ -203,13 +173,10 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
     std::cerr << "** Offline entries:    " << offlineEntries << std::endl;
     std::cerr << "** HLT entries:        " << hltEntries << std::endl;
     if (offlineEntries != hltEntries) {
-        // Not fatal - both files were produced from the same events.hepmc,
-        // batch by batch, so this should not happen in practice (see module
-        // docstring), but if it ever does (e.g. one card's Delphes run
-        // crashed on a batch the other completed), only process the
-        // entries both files actually have, loudly, rather than silently
-        // mis-pairing entry N of one file with entry N of a DIFFERENT event
-        // in the other.
+        // Not fatal, and should not happen, since both files come from the same
+        // events.hepmc. But if one card's run did crash on a batch the other
+        // completed, process only the entries both files have, loudly, rather than
+        // silently pairing entry N with a different event.
         std::cerr << "** WARNING: offline/HLT entry count mismatch (" << offlineEntries << " vs "
                    << hltEntries << ") - only the first " << std::min(offlineEntries, hltEntries)
                    << " entries (common to both) will be processed. This should not normally happen -"
@@ -224,17 +191,14 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
     TClonesArray *offlineBranchJet = offlineReader->UseBranch(jetBranch);
     TClonesArray *offlineBranchGenJet = offlineReader->UseBranch(genjetBranch);
 
-    // the HLT run's OWN vertices: the offline and HLT Delphes runs are seeded
-    // independently, so they place the primary vertex at different z for the
-    // same generated event - HLT dz must be taken w.r.t. this one, not the
-    // offline tree's
+    // The HLT run's own vertices: the two runs are seeded independently and place
+    // the primary vertex at different z for the same event, so HLT dz must be taken
+    // against this one.
     TClonesArray *hltBranchVertex = hltReader->UseBranch("Vertex");
     TClonesArray *hltBranchPFCand = hltReader->UseBranch("ParticleFlowCandidate");
     TClonesArray *hltBranchJet = hltReader->UseBranch(jetBranch);
-    // hltBranchPFCand is only read implicitly, via each matched HLT jet's
-    // own Constituents (which point directly at ParticleFlowCandidate/
-    // GenParticle objects, same pattern as the offline side) - not iterated
-    // separately, so no explicit use beyond registering the branch above.
+    // hltBranchPFCand is read only implicitly, through each matched HLT jet's own
+    // constituents, so registering the branch is all that is needed here.
     (void)hltBranchPFCand;
 
     double jetR = jetBranch.Contains("AK15") ? 1.5 : 0.8;
@@ -243,15 +207,10 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
 
     FatJetMatching fjmatch(jetR, assignQCDLabel, debug, useV1Labels);
 
-    // Greedy nearest-deltaR, one-to-one matching of `offlineJets` (already
-    // selected) against ALL of `hltJets` in the same event (no pT/eta
-    // pre-cut on the HLT side - see module docstring for why). Returns, per
-    // offline jet (by index into offlineJets), the matched index into
-    // hltJets, or -1 if none within dr_max. Same algorithm as
-    // hlteff/derive_curves.py's own match_jet(), at jet level instead of
-    // per-particle - a plain O(n*m) loop is plenty fast for the handful of
-    // jets/event this deals with (unlike the thousands-of-particles case
-    // that motivated match_jet()'s numpy vectorization).
+    // Greedy nearest-deltaR, one-to-one matching of the selected offline jets
+    // against all HLT jets in the event, with no pre-cut on the HLT side. Returns,
+    // per offline jet, the matched index into hltJets, or -1 if none is within
+    // dr_max. A plain nested loop is fast enough for the few jets per event.
     auto matchJets = [](const std::vector<const Jet*>& offlineJets, const std::vector<const Jet*>& hltJets,
                          double dr_max) -> std::vector<int> {
         int nOff = offlineJets.size();
@@ -279,11 +238,9 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         return match;
     };
 
-    // Fills the hlt_part_*/hlt_jet_* branches for one selected offline jet's
-    // matched HLT jet (or leaves them at the "no match" sentinel if hltJet
-    // is null) - factored out since the constituent-processing logic is
-    // identical to the offline side's own (just writing into hlt_-prefixed
-    // fields), see makeNtuples.C for the same logic there.
+    // Fill the hlt_* branches for one offline jet's matched HLT jet, or leave them
+    // at the "no match" sentinel when hltJet is null. Factored out because the
+    // constituent handling is the same as the offline side's.
     auto fillHltJet = [&](EventData& data, const Jet* hltJet, double drToOffline) {
         if (!hltJet) {
             data.boolVars.at("hlt_matched") = false;
@@ -328,13 +285,11 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         }
         std::sort(particles.begin(), particles.end(), [](const auto &a, const auto &b) { return a.pt > b.pt; });
 
-        // dz w.r.t. the HLT primary vertex (see hltBranchVertex). d0 is NOT
-        // vertex-subtracted, on either side: Delphes' PileUpMerger places the
-        // hard-scatter vertex at x = y = 0 (only z/t are smeared), so D0 from
-        // the origin already is D0 from the primary vertex, while the Vertex
-        // branch's own X/Y are not a position (PileUpMerger fills them with
-        // sum(x)/sum(pt^2) over all particles, O(mm) garbage) - subtracting
-        // them would corrupt d0.
+        // dz against the HLT primary vertex. d0 is not vertex-subtracted on either
+        // side: PileUpMerger puts the hard-scatter vertex at x = y = 0 and smears
+        // only z and t, so D0 from the origin already is D0 from the primary vertex.
+        // The Vertex branch's own X/Y are not a position at all and subtracting them
+        // would corrupt d0.
         const Vertex *hltPv = (hltBranchVertex != nullptr && hltBranchVertex->GetEntriesFast() > 0)
                                   ? ((Vertex *)hltBranchVertex->At(0)) : nullptr;
 
@@ -367,9 +322,8 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         offlineReader->ReadEntry(entry);
         hltReader->ReadEntry(entry);
 
-        // Phase 1: select offline jets exactly as makeNtuples.C does
-        // (pT/eta pre-cut, is_signal/QCD labeling), recording each one's
-        // own FatJetMatchingResult so it doesn't need to be recomputed
+        // Phase 1: select offline jets as makeNtuples.C does, keeping each one's
+        // matching result so it need not be recomputed.
         struct SelectedJet {
             const Jet* jet;
             std::string label;
@@ -399,10 +353,9 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         if (selected.empty())
             continue;
 
-        // Phase 2: jet-level offline<->HLT matching for this event, ONE
-        // pass across all selected offline jets against all HLT jets (not
-        // done per-jet inside phase 1, so two offline jets can't compete
-        // for the same HLT jet in an order-dependent way)
+        // Phase 2: jet-level matching for this event, in one pass over all selected
+        // offline jets, so two of them cannot claim the same HLT jet in an
+        // order-dependent way.
         std::vector<const Jet*> offlineJetPtrs, hltJetPtrs;
         for (const auto& sj : selected) offlineJetPtrs.push_back(sj.jet);
         for (Int_t j = 0; j < hltBranchJet->GetEntriesFast(); ++j) {
@@ -410,9 +363,8 @@ void makeNtuplesPaired(TString offlineInputFile, TString hltInputFile, TString o
         }
         std::vector<int> hltMatchIdx = matchJets(offlineJetPtrs, hltJetPtrs, hltMatchDR);
 
-        // Phase 3: fill and write one row per selected offline jet (same
-        // per-jet content/logic as makeNtuples.C for everything offline-
-        // prefixed), plus its matched HLT jet (or the "no match" sentinel)
+        // Phase 3: write one row per selected offline jet, with the same offline
+        // content as makeNtuples.C, plus its matched HLT jet or the sentinel.
         for (size_t si = 0; si < selected.size(); ++si) {
             const Jet* jet = selected[si].jet;
             data.reset();

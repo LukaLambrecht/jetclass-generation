@@ -1,34 +1,22 @@
 #!/usr/bin/env python3
 
-'''
-Parse, coarsen, and assign candidates to a SimpleCalorimeter tower grid, as
-literally defined in a Delphes .tcl card (the repeated
-"set PhiBins {}; for {...} {add PhiBins ...}; <eta block>" groups inside
-e.g. the HCal/ECal modules).
+'''Parse, coarsen and assign candidates to a SimpleCalorimeter tower grid, as defined in a
+Delphes .tcl card.
 
-Two eta-block styles appear in this repo's cards, both handled here:
-  - literal: `foreach eta {v1 v2 ...} {add EtaPhiBins $eta $PhiBins}`
-    (all of HCal, and ECal's forward/HF region)
-  - arithmetic: `for {set i A} {$i <= B} {incr i} {set eta [expr {EXPR}]
-    add EtaPhiBins $eta $PhiBins}` (ECal's barrel and endcap regions, where
-    EXPR is e.g. "$i * 0.0174" or "-2.958 + $i * 0.0174")
-Both are associated with whichever `set PhiBins {}; for {...} {add PhiBins
-...}` block most recently preceded them - matching how Tcl variable scoping
-actually behaves here (ECal's two endcap sub-regions share a single
-PhiBins definition across two consecutive eta-blocks, for example).
+Two eta-block styles appear in these cards, both handled here:
+  - literal:    foreach eta {v1 v2 ...} {add EtaPhiBins $eta $PhiBins}
+  - arithmetic: for {set i A} {$i <= B} {incr i} {set eta [expr {EXPR}] ...}
+Each block is associated with whichever PhiBins definition most recently preceded it,
+which is how Tcl scoping behaves here: two consecutive eta-blocks may share one PhiBins
+definition.
 
-Simplification (documented, not silently assumed): Delphes actually merges
-ALL `add EtaPhiBins` calls across every block into one globally eta-sorted
-boundary list, so the true tower grid has thin transition bins exactly at
-each block's edge (e.g. HCal's barrel/endcap boundary reuses whichever
-block registered that specific eta value). This module instead treats each
-block as an independent region covering its own [min(eta_edges),
-max(eta_edges)] span with its own phi granularity, picking the first
-matching region for any eta in more than one (this only affects the very
-thin transition slivers). Adequate for scan_calo_granularity.py's aggregate
-energy-multiplicity comparison; NOT a bit-exact reproduction of Delphes'
-own tower construction - see its module docstring for why that's an
-acceptable trade here.
+One deliberate simplification: Delphes merges every `add EtaPhiBins` call across all
+blocks into one globally sorted boundary list, so the real grid has thin transition bins
+at each block edge. This module instead treats each block as an independent region
+covering its own eta span with its own phi granularity, taking the first matching region
+where they overlap. That only affects the thin transition slivers, which is adequate for
+an aggregate energy-multiplicity comparison but is not a bit-exact reproduction of
+Delphes' own tower construction.
 '''
 
 import re
@@ -54,14 +42,15 @@ _ETA_ARITH_PAT = re.compile(
 
 
 def _eval_i_expr(expr_text, i):
-    ### evaluate a small "$i", "+", "*", literal-number Tcl expr (e.g.
-    # "$i * 0.0174" or "-2.958 + $i * 0.0174") for a given integer i
+    '''Evaluate a small Tcl expression over $i, built from literals, + and *, for one integer
+    i.
+    '''
     expr = expr_text.replace('$i', '({!r})'.format(float(i)))
     return float(eval(expr, {'__builtins__': {}}, {}))
 
 
 def _module_body_span(text, module_name):
-    '''Return (body_start, body_end): absolute offsets of a module's { ... } contents.'''
+    '''Absolute offsets (start, end) of a module's { ... } contents.'''
     module_pat = re.compile(r'^\s*module\s+\S+\s+' + re.escape(module_name) + r'\s*\{', re.MULTILINE)
     m = module_pat.search(text)
     if not m:
@@ -78,11 +67,11 @@ def _module_body_span(text, module_name):
 
 
 def _parse_blocks(body):
-    '''
-    Return (regions, span_start, span_end): regions in document order, each
-    {'eta_edges': [...], 'phi_edges': [...]}, and the (start, end) offsets
-    (relative to `body`) spanning everything parsed - the first PhiBins
-    reset through the last eta-block, for find_grid_span().
+    '''Parse one module body into regions.
+
+    Returns (regions, span_start, span_end): the regions in document order, each
+    {'eta_edges', 'phi_edges'}, and the offsets spanning everything parsed, from the first
+    PhiBins reset through the last eta-block.
     '''
     phi_blocks = []  # (start, end, phi_edges)
     for m in _PHI_RESET_PAT.finditer(body):
@@ -118,10 +107,8 @@ def _parse_blocks(body):
 
 
 def parse_regions(text, module_name):
-    '''
-    Return a list of {'eta_edges': [...], 'phi_edges': [...]} dicts, one per
-    eta-block found (in document order) inside `module ... module_name { ... }`,
-    each paired with whichever PhiBins definition most recently preceded it.
+    '''The {'eta_edges', 'phi_edges'} regions defined inside the named module, in document
+    order, each paired with the PhiBins definition that precedes it.
     '''
     body_start, body_end = _module_body_span(text, module_name)
     regions, span_start, span_end = _parse_blocks(text[body_start:body_end])
@@ -131,10 +118,8 @@ def parse_regions(text, module_name):
 
 
 def find_grid_span(text, module_name):
-    '''
-    Return (start, end): absolute offsets in `text` spanning the whole
-    tower-grid definition (every PhiBins reset and eta-block) inside
-    `module ... module_name { ... }`, for replacement via replace_grid().
+    '''Absolute offsets spanning the whole tower-grid definition inside the named module, for
+    replacement via replace_grid().
     '''
     body_start, body_end = _module_body_span(text, module_name)
     body = text[body_start:body_end]
@@ -145,14 +130,11 @@ def find_grid_span(text, module_name):
 
 
 def format_regions_as_tcl(regions, indent='  '):
-    '''
-    Regenerate the "set PhiBins {}; add PhiBins ...; foreach eta {...}
-    {add EtaPhiBins $eta $PhiBins}" Tcl text for `regions` (one
-    self-contained block per region, in order) - always the literal-list
-    eta style regardless of the original's style, since that's valid for
-    any region (including ones parsed from an arithmetic eta-loop) and
-    robust to any coarsening factor, including ones that don't evenly
-    divide the original bin count or aren't integers.
+    '''Regenerate the Tcl text defining `regions`, one self-contained block each.
+
+    Always uses the literal-list eta style, whatever the original used: it is valid for any
+    region and robust to any coarsening factor, including one that does not evenly divide
+    the original bin count.
     '''
     blocks = []
     for r in regions:
@@ -168,12 +150,14 @@ def format_regions_as_tcl(regions, indent='  '):
 
 
 def replace_grid(text, module_name, new_regions):
-    '''Return `text` with module_name's whole tower-grid definition replaced by new_regions.'''
+    '''`text` with the named module's whole tower-grid definition replaced by new_regions.
+    '''
     start, end = find_grid_span(text, module_name)
     return text[:start] + format_regions_as_tcl(new_regions) + text[end:]
 
 
 def _coarsen_contiguous_run(run_edges, factor):
+    '''Coarsen one gap-free run of edges by `factor`, interpolating in index space.'''
     n_orig_bins = len(run_edges) - 1
     if n_orig_bins < 1:
         return list(run_edges)
@@ -184,20 +168,15 @@ def _coarsen_contiguous_run(run_edges, factor):
 
 
 def coarsen_edges(edges, factor):
-    '''
-    Resample a list of bin edges so each new bin is (on average) `factor`
-    times wider - works for any factor >= 1, not just integers. Implemented
-    as linear interpolation in INDEX space (for uniformly-spaced edges,
-    true of every grid in these cards, this is exactly "factor" wider
-    bins; for an integer factor that evenly divides the original bin count
-    it's identical to plain index-striding) - but several of these cards'
-    eta lists have a deliberate GAP (e.g. an endcap list jumping straight
-    from the negative side to the positive side, skipping the barrel
-    entirely, which a different region/block already covers). Interpolating
-    across such a gap would invent a bogus intermediate edge spanning it,
-    so gaps (a step more than 3x the list's median step) are detected and
-    each contiguous run between them is coarsened independently, never
-    interpolated across.
+    '''Resample bin edges so each new bin is, on average, `factor` times wider.
+
+    Works for any factor >= 1, not only integers, by interpolating in index space. For the
+    uniformly-spaced edges these cards use that gives exactly `factor` times wider bins.
+
+    Some eta lists have a deliberate gap, e.g. an endcap list that jumps across the barrel
+    another region already covers. Interpolating across such a gap would invent a bogus
+    edge spanning it, so gaps are detected and each contiguous run between them is
+    coarsened on its own.
     '''
     if factor == 1:
         return list(edges)
@@ -219,6 +198,7 @@ def coarsen_edges(edges, factor):
 
 
 def coarsen_regions(regions, factor):
+    '''coarsen_edges() applied to every region's eta and phi edges.'''
     if factor == 1:
         return regions
     return [{'eta_edges': coarsen_edges(r['eta_edges'], factor),
@@ -226,12 +206,11 @@ def coarsen_regions(regions, factor):
 
 
 def assign_towers(regions, eta, phi):
-    '''
-    Vectorized tower assignment for arrays `eta`, `phi` (same length).
-    Returns an integer array of the same length: a unique tower ID
-    (encodes region + eta-bin + phi-bin), or -1 if outside every region's
-    eta span. IDs are only unique within a single call (a fixed `regions`
-    grid) - fine for per-jet merging, not meant to be compared across calls.
+    '''Vectorized tower assignment for equal-length `eta` and `phi` arrays.
+
+    Returns a tower ID per entry, encoding region and bin, or -1 outside every region's eta
+    span. IDs are unique only within one call, for a fixed grid, so they are meant for
+    per-jet merging rather than comparison across calls.
     '''
     n = len(eta)
     tower_id = np.full(n, -1, dtype=np.int64)

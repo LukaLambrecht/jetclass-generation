@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 
-'''
-Plot the impact-parameter dependence of the offline-to-HLT tracking
-efficiency ratio measured by derive_ip_curves.py:
+'''Plot the impact-parameter dependence of the offline-to-HLT tracking efficiency ratio
+measured by derive_ip_curves.py:
 
-  - ip_efficiency_<category>.png: HLT/offline ratio vs offline |d0| (the
-    variable Delphes efficiency formulas can use), one panel per |eta| bin,
-    one line per (coarse) track-pT group;
-  - ip_dz_acceptance.png: the same for prompt charged hadrons vs offline
-    |dz| (HLT tracking's z acceptance around the leading vertex, which a
-    Delphes formula cannot express - see derive_ip_curves.py).
+  - ip_efficiency_<category>.png: HLT/offline ratio against offline |d0|, the variable
+    a Delphes efficiency formula can use, one panel per |eta| bin and one line per
+    coarse track-pT group;
+  - ip_dz_acceptance.png: the same for prompt charged hadrons against offline |dz|,
+    i.e. HLT tracking's z acceptance, which a Delphes formula cannot express.
 
-The ratio is n_matched / n_offline; reading it as an HLT efficiency *relative
-to offline* assumes the offline efficiency is uniform in the impact
-parameter (see derive_ip_curves.py). Error bars are binomial.
+The ratio is n_matched / n_offline, so reading it as an HLT efficiency relative to
+offline assumes the offline efficiency is uniform in the impact parameter. Error bars
+are binomial.
 
 Usage:
   python plot_ip_curves.py [--curves PATH] [--outdir DIR]
@@ -46,7 +44,9 @@ def group_counts(n_off, n_match, pt_edges, lo, hi):
 
 
 def x_positions(edges):
-    '''Log-scale-friendly bin representatives: geometric centre, first/last bins handled.'''
+    '''Log-friendly bin representatives: the geometric centre, with the first and last bins
+    handled separately.
+    '''
     xs = []
     for lo, hi in zip(edges[:-1], edges[1:]):
         if lo <= 0:
@@ -59,6 +59,7 @@ def x_positions(edges):
 
 
 def style_axis(ax):
+    '''Apply the shared log-x, grid and range styling to one panel.'''
     ax.set_xscale('log')
     ax.set_ylim(0, 1.05)
     ax.grid(True, which='major', color=GRID, linewidth=0.8)
@@ -71,6 +72,9 @@ def style_axis(ax):
 
 
 def plot_panels(n_off, n_match, pt_edges, eta_edges, x_edges, xlabel, title, outpath, edge_labels):
+    '''Draw one figure of HLT/offline ratio against x, with a panel per |eta| bin and a line
+    per coarse pT group.
+    '''
     ne = len(eta_edges) - 1
     fig, axes = plt.subplots(1, ne, figsize=(6.2 * ne, 4.6), sharey=True)
     axes = np.atleast_1d(axes)
@@ -103,6 +107,9 @@ def plot_panels(n_off, n_match, pt_edges, eta_edges, x_edges, xlabel, title, out
 
 
 def edge_labels(edges):
+    '''Human-readable range labels for a set of bin edges, with the open-ended last bin
+    written as a lower bound.
+    '''
     out = []
     for lo, hi in zip(edges[:-1], edges[1:]):
         out.append('>{:g}'.format(lo) if hi > 1e8 else '{:g}-{:g}'.format(lo, hi))
@@ -110,6 +117,7 @@ def edge_labels(edges):
 
 
 def main():
+    '''Read the curves file and write both figures.'''
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--curves', default=os.path.join(HLTEFF_DIR, 'curves_ip_qcd.json'))
     parser.add_argument('--outdir', default=os.path.join(HLTEFF_DIR, 'plots', 'ip'))

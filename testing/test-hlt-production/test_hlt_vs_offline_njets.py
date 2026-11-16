@@ -1,73 +1,27 @@
 #!/usr/bin/env python3
 
-'''
-Concretely checks WHERE HLT-card jets get lost relative to offline-card
-jets, by generating a small number of GEN events ONCE and running the SAME
-events.hepmc through both an offline and an HLT Delphes card (exactly like
-run.sh does) - so any difference between cards is attributable only to
-their detector modeling, not to independent proton collisions.
+'''Check where HLT-card jets get lost relative to offline-card jets.
+
+Generates a small number of GEN events once and runs the same events.hepmc through both
+an offline and an HLT Delphes card, exactly as run.sh does, so any difference between
+the cards comes only from their detector modelling and not from different collisions.
 
 Two things are measured:
 
-  - Delphes-level clustering, per card independently (see
-    count_delphes_jets.C for the actual counting):
-      STAGE_A "clustered"  - entries in the raw Delphes Jet branch, i.e. how
-                              many jets Delphes' own clustering found at all
-                              (FastJetFinderPUPPIAK8's JetPTMin=200 cut,
-                              applied at clustering time - IDENTICAL in every
-                              card - but stored PT is post the
-                              JetEnergyScalePUPPIAK8 correction, which is NOT
-                              identical between cards).
-      STAGE_B "pt/eta cut" - of those, how many pass makeNtuplesPaired.C's
-                              own `jet->PT < 120 || |eta| > 2.5` cut (also
-                              IDENTICAL code/threshold in every card).
-    This part is still per-card/independent - it's a property of each
-    card's own clustering, upstream of any offline/HLT correspondence.
+  - Delphes-level clustering, per card independently (see count_delphes_jets.C):
+      STAGE_A "clustered"  - entries in the raw Delphes jet branch, i.e. how many jets
+                             the clustering found at all. Its pT cut is identical in
+                             every card, but the stored PT is after the jet energy
+                             scale correction, which is not.
+      STAGE_B "pt/eta cut" - of those, how many pass the ntuplizer's own cut, also
+                             identical in every card.
+    This part is a property of each card's own clustering, upstream of any
+    offline-to-HLT correspondence.
 
-  - The actual offline-vs-HLT correspondence, from ONE PAIRED ntuple (see
-    delphes_analyzers/makeNtuplesPaired.C) instead of diffing two
-    independently-produced ntuples with no shared jet indexing: one row per
-    SELECTED offline jet, carrying its own jet_* branches plus its matched
-    HLT jet's hlt_jet_* branches (or hlt_matched=false if none was found
-    within --hlt-match-dr) in the SAME entry. This directly answers "what
-    does HLT reconstruct for jets I would have selected offline?", which
-    the old independent-files approach couldn't (see makeNtuplesPaired.C's
-    own docstring for why not) - among other things, it now also
-    distinguishes "HLT reconstructs this jet, just softer" from "HLT jet
-    vanished entirely" from "HLT jet vanished only because our own
-    onlyFatJetHLT card's FastJetFinder JetPTMin killed it before it was
-    ever written" (see the HLT cards' own header comments on why their
-    JetPTMin needs to be relaxed near zero for this to be meaningful).
-
-This was written to concretely confirm (with real numbers from a live run,
-not just reading the cards) the offline-vs-HLT njets discussion from the
-output_jetclass1_10M production run's size cross-check - see print_njets.py
-for the actual per-process/card jet-count table from real production output.
-
-IMPORTANT: this is a SELF-CONTAINED, from-scratch check - it generates its
-own small batch of fresh GEN events and runs its own local Delphes/ntuple
-step in a temp workdir (see --workdir/--keep below), completely separate
-from any existing production output directory (e.g. output_jetclass2_5M).
-It does NOT read anything under an --output-path - use print_njets.py for
-diagnostics on already-produced ntuples. Results are only printed to the
-terminal; nothing is written to EOS or kept on disk unless --keep is given.
-
-Works for both jetclass1 and jetclass2 processes (see --proc) - which label
-scheme (v1 Top_*/W_*/Z_*/H_* vs v2 X_*/QCD_*) is used follows the process'
-own family, same as run.sh's own PROC case statement.
-
-Usage:
-  # default: 1000 TTBarLep (jetclass1) events, onlyFatJetNoPU+onlyFatJetHLTNoPU pair
-  python3 test_hlt_vs_offline_njets.py
-
-  # a jetclass2 process instead - same "+"-joined card-pair convention as
-  # run.sh's own DELPHES_CARD_NAMES syntax
-  python3 test_hlt_vs_offline_njets.py --proc jetclass2/train_higgs2p --nevent 2000 \\
-      --cards onlyFatJetNoPU+onlyFatJetHLTNoPU
-
-  # keep the intermediate events.hepmc/events_delphes*.root/paired_ntuple.root
-  # files around afterward for further inspection instead of deleting them
-  python3 test_hlt_vs_offline_njets.py --keep --workdir /tmp/hlt_test
+  - The actual correspondence, from one paired ntuple rather than by diffing two
+    independently produced ones with no shared jet indexing: one row per selected
+    offline jet, carrying its own branches plus its matched HLT jet's, or hlt_matched
+    false where none was found.
 '''
 
 import os
@@ -116,21 +70,8 @@ DEFAULT_CARD_PAIR = 'onlyFatJetNoPU+onlyFatJetHLTNoPU'
 
 
 def normalize_proc(proc):
-    '''
-    Accepts either family - jetclass1: "HToGG", "jetclass1/HToGG"; jetclass2:
-    "train_qcd", "jetclass2/train_qcd" - and returns (short, full, use_v1_labels)
-    where short (e.g. "HToGG"/"train_qcd") is used for job/workdir naming, full
-    is the gen_configs/ subdirectory to copy ("jetclass1/<short>/precompiled" or
-    "jetclass2/<short>" - jetclass1 always goes through its precompiled gridpack,
-    same as run_timing_scan.py's own generalized version of this, which this
-    mirrors), and use_v1_labels is run.sh's own PROC case statement, reproduced
-    here: jetclass1/* uses the v1 Top_*/W_*/Z_*/H_* label scheme, everything
-    else (jetclass2) keeps the v2 X_*/QCD_* scheme.
-
-    A BARE name with no jetclass1/jetclass2 prefix is disambiguated the same
-    way run_timing_scan.py's normalize_proc() does: every jetclass2 process
-    directory is named train_* (train_qcd, train_higgs2p, ...); no jetclass1
-    one is.
+    '''Accept a process in either family, with or without its family prefix, and return
+    (short, full, use_v1_labels).
     '''
     parts = [p for p in proc.split('/') if p and p != 'precompiled']
     if parts and parts[0] in ('jetclass1', 'jetclass2'):
@@ -146,7 +87,7 @@ def normalize_proc(proc):
 
 
 def run_bash(script, cwd=None, label=''):
-    '''Run a bash -c script, streaming output live (like run.sh's own -x trace) - raises on failure.'''
+    '''Run a bash script, streaming its output live. Raises on failure.'''
     print('--- running: {} ---'.format(label))
     result = subprocess.run(['bash', '-c', 'set -e\n' + script], cwd=cwd)
     if result.returncode != 0:
@@ -154,18 +95,10 @@ def run_bash(script, cwd=None, label=''):
 
 
 def run_bash_lenient(script, label=''):
-    '''
-    Captures and returns stdout - but, unlike run_bash(), does NOT treat a
-    nonzero exit code as failure. `root -b -q [-l] -e '...'` can exit
-    nonzero on interpreter shutdown even after correctly printing/writing
-    everything it was asked to (a known ROOT quirk, reproduced directly
-    while writing this script: a TFile::Open() one-liner left unclosed
-    printed the right answer and still returned exit code 255). Neither
-    run_timing_scan.py's own count_njets_command() nor run.sh's own
-    makeNtuples.C++/makeNtuplesPaired.C++ calls check root's exit code
-    either, for the same reason - only the captured output / the output
-    file's existence. Callers here do the equivalent: parse stdout for what
-    they need and raise their own error if it's missing/unparseable.
+    '''Run a bash script and return its stdout, without treating a nonzero exit as failure.
+
+    Needed because root can exit nonzero on interpreter shutdown even after printing its
+    results correctly.
     '''
     print('--- running: {} ---'.format(label))
     result = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
@@ -175,11 +108,7 @@ def run_bash_lenient(script, label=''):
 
 
 def generate_events(proc_full, nevent, workdir):
-    '''
-    Set up a fresh proc_base (same logic as run.sh: copy the gridpack config,
-    fall back to run_gen_default.sh if the process has no run_gen.sh of its
-    own) and generate `nevent` GEN events into it - returns the resulting
-    events.hepmc path.
+    '''Set up a fresh proc_base, as run.sh does, and generate `nevent` GEN events into it.
     '''
     proc_base = os.path.join(workdir, 'proc_base')
     os.makedirs(proc_base, exist_ok=True)
@@ -210,7 +139,7 @@ rm -f events.hepmc
 
 
 def run_delphes(card_name, hepmc_path, proc_base, workdir):
-    '''Run DelphesHepMC2 with `card_name` on hepmc_path - same call as run.sh's own.'''
+    '''Run DelphesHepMC2 with `card_name` on hepmc_path, the same call run.sh makes.'''
     if card_name not in CARD_FILE_FOR_NAME:
         raise ValueError('unknown Delphes card {!r} - expected one of: {}'.format(
             card_name, ', '.join(CARD_FILE_FOR_NAME)))
@@ -233,7 +162,7 @@ rm -f {out}
 
 
 def count_delphes_stages(events_delphes_path, jet_branch, pt_cut, eta_cut):
-    '''Run count_delphes_jets.C on events_delphes_path, return its parsed KEY->value dict.'''
+    '''Run count_delphes_jets.C and return its parsed KEY -> value dict.'''
     call = 'count_delphes_jets.C++("{}", "{}", {}, {})'.format(events_delphes_path, jet_branch, pt_cut, eta_cut)
     # single-quote (not double-quote) the whole call when embedding it in the
     # bash script below: `call` itself contains double quotes (the TString
@@ -264,13 +193,8 @@ root -b -q '{call}'
 
 
 def run_ntuplizer_paired(offline_delphes_path, hlt_delphes_path, workdir, use_v1_labels):
-    '''
-    Run the real, unmodified delphes_analyzers/makeNtuplesPaired.C - same
-    call as run.sh's own offline+HLT pair branch - in an isolated workdir
-    copy (same reasoning as run.sh: avoids ACLiC compilation races). Returns
-    the resulting (single, paired) ntuple path: one row per selected
-    OFFLINE jet, with its own jet_* branches plus the matched HLT jet's
-    hlt_matched/hlt_jet_* branches in the same entry.
+    '''Run the real makeNtuplesPaired.C, as run.sh's offline+HLT branch does, in an isolated
+    workdir copy so ACLiC compilation cannot race with other jobs.
     '''
     analyzer_dir = os.path.join(workdir, 'analyzer_paired')
     os.makedirs(analyzer_dir, exist_ok=True)
@@ -298,12 +222,7 @@ root -b -q '{call}'
 
 
 def read_paired_ntuple(root_path, tree_name='tree'):
-    '''
-    Read the branches needed for the offline-vs-HLT match summary straight
-    out of the paired ntuple (see run_ntuplizer_paired()) via uproot - one
-    entry per selected offline jet, each already carrying both its own
-    (jet_*) and its matched HLT jet's (hlt_matched/hlt_jet_*) content, so no
-    separate matching/joining step is needed here at all.
+    '''Read the branches needed for the offline-against-HLT summary out of the paired ntuple.
     '''
     with uproot.open(root_path) as f:
         arrays = f[tree_name].arrays(
@@ -312,6 +231,7 @@ def read_paired_ntuple(root_path, tree_name='tree'):
 
 
 def print_report(proc_short, nevent, offline_card, hlt_card, pt_cut, eta_cut, stages, paired):
+    '''Print the per-card stage counts and the offline-to-HLT matching summary.'''
     print()
     print('=' * 100)
     print('HLT vs offline jet-loss breakdown (paired) - proc={} nevent={} offline_card={} hlt_card={}'

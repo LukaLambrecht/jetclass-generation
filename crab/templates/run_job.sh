@@ -1,18 +1,16 @@
 #!/bin/bash
 # Drives the fullsim chain for one CRAB job.
 #
-# TWO CONTAINERS, ONE JOB. This script runs on the worker node itself and re-invokes
-# ITSELF with --step inside whichever container that step needs:
+# Two containers, one job: this script runs on the worker node itself and re-invokes
+# itself with --step inside whichever container a step needs.
 #
-#   EL7 (cmssw-el7)  everything CMSSW: the conditions/MG5 fetches (xrdcp comes from the
-#                    release), run_chain.sh, and the final hadd. CMSSW_10_6_30 is slc7.
-#   EL9 (cmssw-el9)  MadGraph5 + Pythia8 generation for hepmc processes. The MG5 install
-#                    is built against glibc 2.34 and python >= 3.7; under SLC7 (glibc
-#                    2.17, python 2.7) it does not start at all.
+#   EL7  everything CMSSW: the conditions and MG5 fetches, run_chain.sh, the final
+#        hadd. The release used is slc7.
+#   EL9  MadGraph5 + Pythia8 generation for hepmc processes. The MG5 install needs a
+#        newer glibc and python than SLC7 provides and will not start there.
 #
 # Containers cannot be nested, so the dispatcher has to sit outside both. This mirrors
-# what run.sh does on lxplus, where generation runs on the EL9 host and only CMSSW
-# enters the container.
+# run.sh, where generation runs on the host and only CMSSW enters the container.
 #
 # Leaves exactly one ntuple.root in the job directory for CRAB to stage out.
 set -u
@@ -25,8 +23,8 @@ PROC_KIND=__PROCKIND__          # cmssw_fragment | hepmc
 MG5_URL=__MG5_URL__             # only used when PROC_KIND=hepmc
 
 # ---------------------------------------------------------------------------
-# Steps. Each runs INSIDE a container; the environment and cwd are inherited from
-# the dispatcher (verified: cmssw-elX --command-to-run passes both through).
+# Steps. Each runs inside a container, inheriting the environment and cwd from the
+# dispatcher.
 # ---------------------------------------------------------------------------
 cmssw_env() {
     source /cvmfs/cms.cern.ch/cmsset_default.sh >/dev/null 2>&1
@@ -59,15 +57,13 @@ if [ "${1:-}" = "--step" ]; then
         # $1 = events to generate. run_gen.sh cd's to its own directory and writes
         # events.hepmc there.
         #
-        # MG5 COMPILES the process code it generates, so it needs a Fortran compiler.
-        # The bare EL9 container has none ("No Fortran Compiler detected! Please install
-        # one"), and on lxplus this is invisible because the host supplies it. A CMSSW
-        # el9 release ships its own gcc toolchain, gfortran included, so set that up
-        # purely to put a compiler on PATH - nothing in the generation uses CMSSW itself.
-        # Borrow ONLY the compiler directory, in a subshell, and put it on PATH.
-        # Sourcing the full CMSSW environment here drags in variables that break MG5 -
-        # notably PYTHIA8DATA, which points at CMSSW's Pythia 8.309 xmldoc and makes
-        # MG5's bundled Pythia 8.317 abort with "unmatched version numbers".
+        # MG5 compiles the process code it generates, so it needs a Fortran compiler,
+        # which the bare EL9 container has none of. A CMSSW el9 release ships a gcc
+        # toolchain including gfortran, so borrow only that directory, in a subshell,
+        # and put it on PATH. Nothing in the generation uses CMSSW itself, and
+        # sourcing its full environment would break MG5: PYTHIA8DATA would point at
+        # CMSSW's Pythia xmldoc and make MG5's own Pythia abort on a version
+        # mismatch.
         GEN_ARCH=${GEN_SCRAM_ARCH:-el9_amd64_gcc12}
         FC_DIR=$( source /cvmfs/cms.cern.ch/cmsset_default.sh >/dev/null 2>&1
                   export SCRAM_ARCH=$GEN_ARCH
@@ -75,11 +71,10 @@ if [ "${1:-}" = "--step" ]; then
                   [ -n "$R" ] || exit 0
                   cd "$R" && eval "$(scram runtime -sh)" >/dev/null 2>&1
                   command -v gfortran >/dev/null && dirname "$(command -v gfortran)" )
-        # PATH alone is not enough: f951 (the Fortran front end) loads libisl.so.23 from
-        # the toolchain's own lib/, so that has to be on LD_LIBRARY_PATH too, or every
-        # compile dies with "error while loading shared libraries: libisl.so.23".
-        # Still only the compiler's directories - NOT CMSSW's full LD_LIBRARY_PATH,
-        # which would reintroduce the Pythia conflict.
+        # PATH alone is not enough: the Fortran front end loads a library from the
+        # toolchain's own lib/, so that must be on LD_LIBRARY_PATH too. Still only the
+        # compiler's directories, never CMSSW's full path, which would bring the
+        # Pythia conflict back.
         if [ -n "$FC_DIR" ]; then
             export PATH="$FC_DIR:$PATH"
             GCC_ROOT=$(dirname "$FC_DIR")
@@ -89,17 +84,13 @@ if [ "${1:-}" = "--step" ]; then
             || { echo "ERROR: no gfortran on PATH in the EL9 container - MG5 cannot build" >&2; exit 1; }
         echo "  gen: $(gfortran --version | head -1)  [from $FC_DIR]"
 
-        # Data paths for MG5's bundled Pythia8 and LHAPDF.
+        # Data paths for MG5's bundled Pythia8 and LHAPDF, set explicitly.
         #
-        # Two ways to get this wrong, and we hit both:
-        #  * CRAB sets up its own CMSSW_14_0_0 before calling scriptExe, so PYTHIA8DATA
-        #    arrives pointing at CMSSW's Pythia 8.309 xmldoc; MG5 bundles 8.317 and
-        #    aborts with "unmatched version numbers".
-        #  * Merely UNSETTING it is not enough: the MG5aMC_PY8_interface binary then
-        #    falls back to a path compiled in when MG5 was installed, which points at
-        #    the machine it was built on and does not exist on a worker node
-        #    ("settings file /eos/.../xmldoc/Index.xml not found").
-        # So point them at MG5's own directories explicitly.
+        # Neither of the two easier options works: CRAB sets up its own release before
+        # calling scriptExe, so PYTHIA8DATA arrives pointing at CMSSW's Pythia xmldoc
+        # and MG5's own Pythia aborts on the version mismatch; and merely unsetting it
+        # makes the interface binary fall back to a path baked in at install time,
+        # which names the machine MG5 was built on.
         unset LHAPATH
         if [ -d "$MG5_PATH/bin/HEPTools/pythia8/share/Pythia8/xmldoc" ]; then
             export PYTHIA8DATA="$MG5_PATH/bin/HEPTools/pythia8/share/Pythia8/xmldoc"
@@ -159,18 +150,18 @@ if [ "$PROC_KIND" = "cmssw_fragment" ]; then
     export FS_FRAGNAME=__FRAGNAME__
     export FS_NEVENT=$BATCH
 else
-    # run_chain.sh keys off an EMPTY FS_FRAGMENT to take its HepMC route (MCFileSource
-    # via patch_gen); -1 means "every event in this batch's events.hepmc", so a batch
-    # that generated slightly fewer events is still fully reconstructed.
+    # run_chain.sh takes its HepMC route when FS_FRAGMENT is empty, and -1 means
+    # "every event in this batch's events.hepmc", so a batch that generated fewer
+    # events than asked is still fully reconstructed.
     export FS_FRAGMENT=''
     export FS_FRAGNAME=''
     export FS_NEVENT=-1
 fi
 
 # ---- conditions: CVMFS if mounted, else fetch from the open-data portal ----
-# /cvmfs/cms-opendata-conddb.cern.ch is not auto-mounted at most sites, and at ~1.67 GB
-# cannot ride in the CRAB sandbox - but the same files are published as ordinary
-# xrootd-readable files, anonymously. So no site whitelist is needed.
+# The open conditions repo is not auto-mounted at most sites, and is far too large for
+# the CRAB sandbox, but the same files are published as ordinary xrootd-readable files,
+# anonymously. So no site whitelist is needed.
 CONDDB_FILES="__CONDDB_FILES__"
 need_fetch=false
 for db in $CONDDB_FILES; do [ -s "$FULLSIM_CONDDB/$db" ] || need_fetch=true; done
@@ -214,23 +205,18 @@ if [ "$PROC_KIND" = "hepmc" ]; then
     chmod +x "$GENDIR/run_gen.sh" 2>/dev/null
 fi
 
-# MG5 looks up lhapdf-config by BARE NAME unless told otherwise, and it is on PATH
-# nowhere. On lxplus this is masked by a user config in the developer's home
-# (~/.mg5/mg5_configuration.txt) holding an absolute path to the EOS install - which is
-# in neither the repo nor the tarball, so the grid never sees it and generate_events
-# dies with "lhapdf executable (lhapdf-config) is not found on your system".
-#
-# Write our own user config instead, derived from wherever MG5 actually landed. CRAB
-# sets HOME to the job directory, so this is job-local and touches no shared install.
+# MG5 looks up lhapdf-config by bare name unless told otherwise, and it is on PATH
+# nowhere, so generate_events dies without a user config. Write one here, derived from
+# wherever MG5 actually landed. CRAB sets HOME to the job directory, so this is
+# job-local and touches no shared install.
 if [ "$PROC_KIND" = "hepmc" ]; then
-    # HEPTools' *-config scripts bake the INSTALL-TIME prefix in, so after unpacking
-    # somewhere else they still advertise the original machine's paths and MG5 goes
-    # looking for e.g. .../share/LHAPDF/pdfsets.index where nothing exists. Rewrite the
-    # baked root to wherever MG5 actually landed. (pythia8-config locates itself and
-    # needs no help; lhapdf-config does not.)
-    # NEVER rewrite an install we did not unpack: MG5_PATH may point at a shared
-    # read-only copy (local testing uses the one on EOS), and sed -i would corrupt it
-    # for everyone.
+    # HEPTools' *-config scripts bake in the prefix they were installed under, so
+    # after unpacking elsewhere they still advertise the original machine's paths and
+    # MG5 looks for its PDF index where nothing exists. Rewrite that root to wherever
+    # MG5 landed; pythia8-config locates itself and needs no help, lhapdf-config does.
+    #
+    # Never rewrite an install this job did not unpack: MG5_PATH may point at a shared
+    # read-only copy, and sed -i would corrupt it for everyone.
     OLDROOT=$(grep -m1 '^prefix=' "$MG5_PATH/bin/HEPTools/lhapdf6_py3/bin/lhapdf-config" 2>/dev/null \
               | sed 's/^prefix=//; s|/bin/HEPTools/.*||')
     if [ "${MG5_IS_OURS:-false}" = true ] && [ -n "$OLDROOT" ] && [ "$OLDROOT" != "$MG5_PATH" ]; then
@@ -257,9 +243,9 @@ mkdir -p "$FS_WORK"
 nok=0
 for i in $(seq 0 $((NBATCH-1))); do
     if [ "$PROC_KIND" = "hepmc" ]; then
-        # run_gen.sh re-draws a random (mass, pT_min) point on every call, so each batch
-        # samples the scan independently - the same behaviour as the lxplus path. The MG5
-        # `proc` directory built on the first call is reused by later batches.
+        # run_gen.sh draws a fresh random parameter point on every call, so each
+        # batch samples the scan independently. The MG5 `proc` directory built on the
+        # first call is reused by the later batches.
         rm -f "$GENDIR/events.hepmc"
         mkdir -p "$FS_WORK/batch_$i"
         if ! "$EL9" --command-to-run "./run_job.sh --step gen $BATCH"; then
@@ -282,9 +268,8 @@ if [ "$nok" -eq 0 ]; then
     echo "ERROR: no batch produced an ntuple - failing rather than staging out nothing" >&2
     exit 1
 fi
-# NOTE: space-separated, NOT the newline-separated output of a bare `ls`. This string
-# is passed to --command-to-run as one command line, and embedded newlines break it
-# ("--step: $./run_job.sh: No such file or directory").
+# Space-separated, not the newline-separated output of a bare `ls`: this string is
+# passed to --command-to-run as one command line, and an embedded newline breaks it.
 files=$(ls "$FS_WORK"/batch_*/ntuple.root 2>/dev/null | tr '\n' ' ')
 nfiles=$(echo $files | wc -w)
 if [ "$nfiles" -eq 1 ]; then
@@ -297,26 +282,21 @@ echo "=== done: $nok/$NBATCH batches -> $(stat -c %s "$HERE/ntuple.root") bytes 
 # ---------------------------------------------------------------------------
 # FrameworkJobReport.xml
 #
-# CRAB's wrapper (CMSRunAnalysis.py) parses this the moment the scriptExe returns.
-# If it is missing or unparseable the job is failed with exit code 50115 "BadFWJRXML"
-# and - this is the expensive part - NO STAGEOUT IS DONE, however well the physics
-# went. The 2026-10-13 round lost every one of 11 tasks this way: the application
-# exited 0 after hours of work, then "cat: FrameworkJobReport.xml: No such file or
-# directory" and the whole job was discarded.
+# CRAB's wrapper parses this the moment the scriptExe returns. If it is missing or
+# unparseable the job fails with exit code 50115 and, the expensive part, no stageout
+# is done however well the work went.
 #
-# A scriptExe that runs cmsRun as its last act gets the report for free. Ours does
-# not - the ntuplizer is a standalone FWLite binary and the merge is a hadd - so we
-# have to write the report ourselves.
+# A scriptExe that runs cmsRun as its last act gets the report for free. This one does
+# not - the ntuplizer is a standalone FWLite binary and the merge is a hadd - so the
+# report is written here.
 #
-# It is an <AnalysisFile>, not a <File>. A <File> entry describes an EDM output, and
-# CRAB follows it up by reading the file's provenance with `edmProvDump`, which aborts
-# on our plain TTree and fails the job with exit code 56 - again only after all the
-# work is done. <AnalysisFile> is what cmsRun emits for a TFileService output, i.e.
-# for an ordinary ROOT file, which is exactly what the ntuplizer writes. Keep this in
-# step with the TFileService declaration in pset.py; the two together are what make
-# CRAB treat the ntuple as a TFile output rather than an EDM one.
-#
-# Both forms were taken from real `cmsRun -j` output rather than written from memory.
+# It must be an <AnalysisFile>, not a <File>. A <File> describes an EDM output, and
+# CRAB follows it by reading provenance with edmProvDump, which aborts on a plain TTree
+# and fails the job with exit code 56, again only after all the work is done.
+# <AnalysisFile> is what cmsRun emits for a TFileService output, i.e. an ordinary ROOT
+# file, which is what the ntuplizer writes. Keep this in step with the TFileService
+# declaration in pset.py: together they are what make CRAB treat the ntuple as a TFile
+# output rather than an EDM one.
 NEV_DONE=$(( nok * BATCH ))
 cat > "$HERE/FrameworkJobReport.xml" <<EOF
 <FrameworkJobReport>

@@ -1,27 +1,21 @@
 #!/usr/bin/env python3
 
-'''
-Compares jet-level kinematics (jet_pt, jet_eta) of our own production
-(offline conditions, onlyFatJetNoPU/JetClassI card) to the
-centrally-available JetClass dataset, per process/class - same style as
-plot_nparticles.py (see that module's docstring for the full context), but
-checking a different, more direct question: the JetClass paper (Qu, Li,
-Qian 2022) states jets are selected with "transverse momentum in 500-1000
-GeV and pseudorapidity |eta| < 2", but it's unclear whether that window is
-actually baked into the released dataset files themselves, or only applied
-at some later analysis stage. Plotting the ACTUAL jet_pt/jet_eta
-distributions found in the central files answers this directly: a hard
-edge at those values means the cut IS in the files; a smooth tail past
-them means it's a later-stage cut and the files themselves are broader.
+'''Compare jet-level kinematics, jet_pt and jet_eta, of our own production to the
+centrally-available JetClass dataset, per process.
 
-Deliberately uses fixed (not per-process, not percentile-cropped) bin
-ranges that extend well past the paper's stated window on both sides, so
-any real edge (or lack of one) is directly visible rather than potentially
-hidden by auto-ranging.
+Same style as plot_nparticles.py, but answering a more direct question: the JetClass
+paper states jets are selected with pT in 500-1000 GeV and |eta| < 2, and it is unclear
+whether that window is baked into the released files or only applied later. Plotting the
+actual distributions found in the central files answers it: a hard edge at those values
+means the cut is in the files, a smooth tail past them means it is applied later and the
+files themselves are broader.
 
-Reuses plot_nparticles.py's file-discovery/CLI-default plumbing directly
-(same --central-path/--our-output-path/etc. semantics) rather than
-duplicating it.
+Uses fixed bin ranges, neither per-process nor percentile-cropped, extending well past
+the stated window on both sides, so any real edge - or the lack of one - is visible
+rather than hidden by auto-ranging.
+
+Reuses plot_nparticles.py's discovery and CLI defaults directly rather than duplicating
+them.
 
 Usage:
   python3 plot_jet_kinematics.py
@@ -57,16 +51,8 @@ KINEMATICS = [
 
 
 def read_kinematics(files, max_jets=None, apply_selection=True):
-    '''
-    Same semantics as plot_nparticles.read_jet_data() - single-pass read,
-    capped at max_jets SELECTED jets. apply_selection (default on, see
-    plot_nparticles.selection_mask()'s own comment) restricts both sources
-    to the same pT/eta window before capping/plotting - note this means
-    the resulting plot's x-axis range (still fixed wide, see KINEMATICS
-    above) will show both curves hard-edged at the same values by
-    construction; what's still informative is whether the SHAPE within
-    that shared window matches, not the edges themselves (already
-    established separately, with --no-selection, before this option existed).
+    '''Single-pass read of the jet kinematics, capped at max_jets selected jets, as in
+    plot_nparticles.read_jet_data().
     '''
     branches = [key for key, _, _ in KINEMATICS]
     chunks = {key: [] for key in branches}
@@ -95,7 +81,9 @@ def read_kinematics(files, max_jets=None, apply_selection=True):
 
 
 def make_plot(ax, label, our_vals, central_vals, xlabel, bin_range):
-    '''Same look as plot_nparticles.make_plot(), but fixed-range float bins instead of integer ones.'''
+    '''One (process, quantity) comparison, as in plot_nparticles.make_plot() but on
+    fixed-range float bins.
+    '''
     lo, hi, nbins = bin_range
     bins = np.linspace(lo, hi, nbins + 1)
 
@@ -124,6 +112,7 @@ def make_plot(ax, label, our_vals, central_vals, xlabel, bin_range):
 
 
 def make_grid(results, procs, key, xlabel, bin_range, outpath):
+    '''One small-multiples figure with every process together, for one quantity.'''
     ncols = 5
     nrows = (len(procs) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
@@ -140,11 +129,8 @@ def make_grid(results, procs, key, xlabel, bin_range, outpath):
 
 
 def print_stats(proc, source, vals):
-    '''
-    min/1st-percentile/99th-percentile/max, not mean/median/std (unlike
-    plot_nparticles.py's own print_stats) - the question here is whether
-    there's a hard edge at a specific value, which percentiles/extrema
-    show directly and a mean would just wash out.
+    '''Print min, 1st and 99th percentile and max, rather than mean and spread: the point here
+    is where the distribution ends, not its centre.
     '''
     if len(vals) == 0:
         print('{:<14}{:<20}{:>10}'.format(proc, source, 'no data'))

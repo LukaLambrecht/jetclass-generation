@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
 
-'''
-Derive a multiplicative correction to the HLT card's JetEnergyScalePUPPIAK8
-so that OUR HLT/offline AK8 jet-pT ratio matches the one measured in CMS
-FullSim (median scoutfj_pt/fj_pt per offline jet (|eta|, pT) bin, the
-jetEnergyScale.scout_over_offline_ratio of curves_qcd.json).
+'''Derive a multiplicative correction to the HLT card's JetEnergyScalePUPPIAK8, so that
+our HLT/offline AK8 jet-pT ratio matches the one measured in CMS FullSim.
 
-Why a separate correction: generate_hlt_card.py builds JetEnergyScalePUPPIAK8
-as offline(pt,eta) * FullSim ratio, which assumes our raw HLT jets already
-have the same response as our offline jets. That holds for the PUPPI-based
-HLT card, but not once the HLT jets are built WITHOUT PUPPI
-(--no-puppi): our offline jets lose most of their neutral energy to a
-Delphes PUPPI bug (see delphes_cards/KNOWN_ISSUES.md) that the no-PUPPI HLT
-jets don't have, so the HLT/offline jet-pT ratio comes out 10-30% high.
-This script measures that residual from paired ntuples and stores a
-per-HLT-jet-pT-bin factor, which generate_hlt_card.py --jes-correction
-multiplies onto the JES table.
+generate_hlt_card.py builds that table as offline(pt, eta) times the FullSim ratio,
+which assumes our raw HLT jets already have the same response as our offline jets. That
+holds for the PUPPI-based HLT card but not once the HLT jets are built without PUPPI:
+our offline jets then lose most of their neutral energy to a Delphes PUPPI bug the
+no-PUPPI HLT jets do not have, and the ratio comes out tens of percent high. This
+measures that residual and stores a per-HLT-jet-pT factor, which
+generate_hlt_card.py --jes-correction multiplies onto the JES table.
 
-Input: paired ntuples (delphes_analyzers/makeNtuplesPaired.C) made with an
-HLT card generated WITHOUT --jes-correction but otherwise with the intended
-settings (the factors are relative to that card's JES table). Use QCD, and
-events independent of the ones used to validate the result.
+Input: paired ntuples made with an HLT card generated without --jes-correction but
+otherwise with the intended settings, since the factors are relative to that card. Use
+QCD, and events independent of those used to validate the result.
 
-Method: for each matched jet pair, target HLT pT = offline pT * R_FS(offline
-|eta|, pT bin); the factor for an HLT-jet-pT bin (the JES formula is a
-function of the HLT jet's own pT) is the median of target / current HLT pT
-over the jets in that bin (bins starting below --min-hlt-pt are filled from the
-nearest measured bin instead, see its help). |eta|-inclusive (the endcap has few jets); bins
-with fewer than --min-jets jets are filled from the nearest valid bin. One
-iteration suffices in practice (a second one gave factors within 1-5% of 1).
+Method: for each matched pair the target HLT pT is the offline pT times the FullSim
+ratio for that offline (|eta|, pT) bin, and the factor for an HLT-pT bin is the median
+of target over current HLT pT across its jets. |eta|-inclusive, since the endcap has
+few jets, and a bin with too few jets is filled from the nearest valid one. One
+iteration suffices in practice.
 
-Note: this matches the MEDIAN ratio per HLT-pT bin; in offline-pT bins a
-residual offset can remain where our HLT/offline spread is wider/more skewed
-than FullSim's (a scale factor cannot change the spread).
+This matches the median ratio per bin, so a residual offset can remain in offline-pT
+bins where our spread is wider or more skewed than FullSim's: a scale factor cannot
+change a spread.
 
 Usage:
   python derive_hlt_jes_correction.py NTUPLE [NTUPLE ...] [--output PATH] [--min-jets N]
@@ -53,6 +44,9 @@ from generate_hlt_card import fill_missing
 
 
 def main():
+    '''Read the paired ntuples, measure the residual ratio per HLT-pT bin, and write the
+    correction factors.
+    '''
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('ntuples', nargs='+')
     parser.add_argument('--curves', default=os.path.join(HLTEFF_DIR, 'curves_qcd.json'))

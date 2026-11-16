@@ -1,31 +1,17 @@
 #!/usr/bin/env python3
 
-'''
-Plot number of jets (njets=, see run_timing_scan.py/backfill_njets.py)
-versus NEVENT, and fit a linear-through-the-origin model per process:
+'''Plot number of jets against NEVENT, fitting a line through the origin per process:
 
     njets = a * NEVENT
 
-(no intercept - unlike plot_timing.py's timing fits, there's no reason to
-expect a nonzero jet count at NEVENT=0, so this deliberately doesn't fit
-one). `a` is the mean jet yield per generated event; comparing it across
-processes shows which ones produce more than one selected jet per event on
-average (e.g. TTBar/TTBarLep, from top-pair topologies) versus close to one
-(most others) - see README.md.
+No intercept, unlike plot_timing.py's fits: there is no reason to expect a nonzero jet
+count at zero events. `a` is the mean jet yield per generated event, and comparing it
+across processes shows which produce more than one selected jet per event on average.
 
-Same combined-plot style as plot_timing.py: one color per process, used for
-both its markers and its (same-colored, dashed) fit line, one legend entry
-per process (no individual per-process plots here, unlike plot_timing.py).
+Same combined-plot style as plot_timing.py: one colour per process, used for both its
+markers and its dashed fit line, one legend entry each.
 
-Writes two files: --output (linear axes) and a "_log" log-log version
-alongside it. Points with no valid njets (missing/-1) are dropped, with a
-warning; a file left with fewer than 2 usable points is skipped entirely.
-
-Usage:
-  python plot_njets.py timing_results_HToBB.txt timing_results_HToCC.txt timing_results_TTBar.txt
-
-  # also print the NEVENT needed to reach 150000 jets, per process (fit inverted)
-  python plot_njets.py timing_results_*.txt --target-njets 150000
+Writes --output on linear axes plus a log-log version alongside it.
 '''
 
 import os
@@ -49,7 +35,7 @@ DEFAULT_OUTPUT = os.path.join(THISDIR, 'output_plots', 'njets_scan_all_processes
 
 
 def fit_through_origin(x, y):
-    '''Ordinary least squares fit of y = a*x (no intercept). Returns (a, r_squared).'''
+    '''Least-squares slope of a line through the origin.'''
     a = np.sum(x * y) / np.sum(x ** 2)
     pred = a * x
     ss_res = np.sum((y - pred) ** 2)
@@ -59,6 +45,7 @@ def fit_through_origin(x, y):
 
 
 def build_series(inputs, labels):
+    '''Group the loaded results into one labelled series per process.'''
     series = []
     for i, (fname, label) in enumerate(zip(inputs, labels)):
         nevents, elapsed, njets, size_bytes = load_results(fname)
@@ -80,6 +67,7 @@ def build_series(inputs, labels):
 
 
 def print_fits(series):
+    '''Print each process' fitted jets-per-event slope.'''
     for s in series:
         print('{}: njets = {:.4f} * NEVENT  (R^2 = {:.3f})'.format(s['label'], s['a'], s['r_squared']))
         for x, y in zip(s['x'], s['y']):
@@ -89,10 +77,8 @@ def print_fits(series):
 
 
 def print_events_needed(series, target_njets):
-    '''Print, per process, the NEVENT needed to reach target_njets jets - just the fit inverted
-    (NEVENT = target_njets / a) since it's a through-origin linear model, so this is exact
-    within the fit (extrapolation beyond the fitted NEVENT range is not separately flagged -
-    the fit's own R^2/residuals, printed by print_fits(), are the guide to how much to trust it).'''
+    '''Print how many events each process needs for a target jet count, from its fitted slope.
+    '''
     print('Events needed to reach {:g} jets:'.format(target_njets))
     for s in series:
         nevent_needed = target_njets / s['a']
@@ -101,6 +87,7 @@ def print_events_needed(series, target_njets):
 
 
 def make_plot(series, output, log=False):
+    '''Draw every series and its fit on one figure, on linear or log axes.'''
     fig, ax = plt.subplots(figsize=(9, 7))
 
     all_x = np.concatenate([s['x'] for s in series])

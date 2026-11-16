@@ -1,56 +1,22 @@
 #!/usr/bin/env python3
 
-'''
-Plot the mean per-jet particle-flow composition (energy fraction of
-electrons, muons, charged hadrons, photons, neutral hadrons, and any
-unclassified constituents) versus jet pT, as horizontal stacked bar
-charts - one panel for Offline, one for HLT. Reads EITHER of two schemas
-transparently (see ntuple_io.py for the full description of each, and how
-they're normalized onto the same part_*/hlt_part_*/jet_pt/hlt_matched
-naming used below):
+'''Plot the mean per-jet particle-flow composition against jet pT, as horizontal stacked
+bars, with one panel for Offline and one for HLT.
 
-  - our own PAIRED ntuples (delphes_analyzers/makeNtuplesPaired.C): one
-    row per selected offline jet, carrying its own part_*/jet_* branches
-    plus its matched HLT jet's hlt_part_*/hlt_jet_* branches in the SAME
-    entry.
+Reads either ntuple schema transparently, detected automatically and needing no flag -\nour own paired ntuples, one row per selected offline jet carrying its matched HLT jet\nalongside, or the CMS offline+scouting reference dataset, where every row is already a\nmatched pair. See ntuple_io.py, which normalizes both onto one naming.
 
-  - the real FullSim/scouting reference dataset this pipeline is trying to
-    mimic (see hlteff/README.md's "Data source") - same one-entry-two-
-    collections structure (every row already IS a matched pair there, see
-    ntuple_io.py), letting the exact same comparison be made directly
-    against real detector data instead of only Delphes-vs-Delphes.
+Both panels are binned by the offline jet's own pT, even the HLT panel, so the two
+describe exactly the same physical jets and the HLT panel reads as "and here is what
+HLT reconstructs for them". Only rows with an HLT match enter its per-bin means, since
+a composition fraction is undefined, not zero, for a jet HLT never reconstructed. The
+match fraction achieved per bin is printed next to the jet count, so that exclusion is
+never hidden.
 
-Pass either kind of ntuple as `files` - which schema it is is detected
-automatically (see ntuple_io.detect_schema()) and needs no flag.
-
-Both panels are binned by the OFFLINE jet's own pT (not the HLT jet's,
-even in the HLT panel) so the two panels describe exactly the same
-physical jets in each row - the HLT panel is then implicitly "...and here
-is what HLT reconstructs for them", including only rows with an HLT match
-(hlt_matched) in its own per-bin means (a composition FRACTION is
-undefined, not 0%, for a jet HLT didn't reconstruct at all) - the
-match fraction actually achieved in each bin is printed alongside the
-jet count so that's never silently hidden. (Every fullsim row is matched
-by construction, so its HLT panel's match fraction is always 100%.)
-
-Usage (from any directory - output defaults to output_plots/ next to this script):
+Usage (from any directory; output defaults to output_plots/ next to this script):
   python plot_composition.py FILE_OR_GLOB [FILE_OR_GLOB ...] [options]
 
-`files` are every ntuple belonging to ONE production/sample (e.g. all of a
-process' condor-job ntuple_*.root under one card-pair directory, or a
-fullsim sample's dnnTuples_nanov15_*.root) - pass a glob (quoted, so this
-script expands it, not the shell) or a full file list; they're all
-concatenated before plotting.
-
-Examples:
-  python plot_composition.py \\
-      '/eos/user/l/llambrec/jetclass/output_jetclass2_5M/jetclass2/train_higgs2p/onlyFatJet+onlyFatJetHLT/ntuple_*.root' \\
-      --output output_plots/plot_composition_train_higgs2p.png
-
-  # same, but against the real FullSim/scouting reference dataset
-  python plot_composition.py \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/H0HpHm_mixed_new/dnnTuples_nanov15_*.root' \\
-      --output output_plots/plot_composition_fullsim_h0hphm.png
+`files` are every ntuple of one sample; pass a quoted glob, so this script expands it
+rather than the shell, or a full list. They are all concatenated before plotting.
 '''
 
 import os
@@ -112,30 +78,15 @@ DEFAULT_PT_BINS = [200, 250, 300, 400, 500, 650, 800, 1000, 1500, 2000, 3000, 50
 
 
 def expand_files(patterns):
-    '''Expand the command-line inputs into a file list, via
-    ntuple_io.expand_inputs(): a DIRECTORY is searched recursively for ntuples of
-    either schema (so a whole production tree can be passed as-is, exactly as
-    print_njets.py accepts), a glob is expanded, and a pattern matching nothing is
-    kept as a literal so a typo fails loudly on the read rather than vanishing here.
-    Shared with the other plotting scripts through ntuple_io so all of them accept
-    the same inputs.'''
+    '''Expand the command-line inputs into a file list, via ntuple_io.expand_inputs().
+    '''
     return nio.expand_inputs(patterns)
 
 
 
 def load_composition_data(files, treename='tree'):
-    '''
-    Read the branches needed to compute per-jet composition fractions, for
-    whichever schema `files` actually are (see ntuple_io.py - detected
-    automatically, works the same for our own paired ntuples or the real
-    fullsim reference dataset) and for whichever side(s) it has (only ever
-    both for fullsim; either for "ours", depending on whether it's a
-    paired production). Returns (jet_pt, hlt_matched, fracs, sides):
-    jet_pt is the OFFLINE jet pT (used to bin BOTH panels - see module
-    docstring), hlt_matched is None if there's no HLT side at all, and
-    fracs is {'part_<category>': array, 'hlt_part_<category>': array},
-    one energy-fraction value per jet (NaN where the corresponding side's
-    total energy is zero, i.e. an unmatched HLT row).
+    '''Read the branches needed for the per-jet composition fractions, for whichever schema the
+    files are.
     '''
     data = nio.load_particles(files, suffixes=SUFFIXES, treename=treename)
     sides = [s for s in ALL_SIDES if (s[0] + 'energy') in data]
@@ -161,15 +112,16 @@ def load_composition_data(files, treename='tree'):
 
 
 def format_bin_label(lo, hi):
+    '''Human-readable label for one jet-pT bin.'''
     fmt = lambda v: '{:g}'.format(v)
     return '{}–{}'.format(fmt(lo), fmt(hi))
 
 
 def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labels,
                 label_threshold, title_text, outpath, paper_style=False):
-    '''One composition figure (Offline and, when present, HLT panel) for ONE jet class -
-    everything below is the original whole-sample plotting code, now called once per
-    class with that class's own already-masked arrays.'''
+    '''Draw one jet class' composition figure, with the Offline panel and, where present, the
+    HLT one.
+    '''
     nbins = len(pt_bins) - 1
     y = np.arange(nbins)
     njets = len(jet_pt)
@@ -259,6 +211,7 @@ def make_figure(class_name, jet_pt, hlt_matched, fracs, sides, pt_bins, bin_labe
 
 
 def main():
+    '''Read the files and write one figure per jet class.'''
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('files', nargs='+',

@@ -1,37 +1,25 @@
 #!/usr/bin/env python3
 
 '''
-Submit --njobs run_condor.py jobs per process, for one or more processes -
-run_condor.py itself only ever submits a single job for a single process,
-this is the loop around it.
+Submit --njobs jobs per process, for one or more processes. run_condor.py
+submits a single job for a single process; this is the loop around it.
 
 NEVENT (or the target jet count, via --target-njets-per-job) is PER JOB, not
-split across jobs - each of the --njobs jobs for a given process
-independently generates that many events/jets, exactly as if you'd called
-run_condor.py that many times by hand with the same NEVENT and different
-JOBNUM. JOBNUM itself is swept from --jobnum-base to --jobnum-base+njobs-1
-for each process (reused across processes, not globally unique - fine,
-since each process already gets its own output subdirectory, same
-reasoning as testing/test-generation-time/run_timing_scan.py's own
---jobnum-base).
+split across jobs: each of the --njobs jobs independently generates that many
+events. JOBNUM runs from --jobnum-base to --jobnum-base+njobs-1 per process,
+reused across processes rather than globally unique, since each process already
+gets its own output subdirectory.
 
---output-path is REQUIRED (this is run.sh's OUTPUT_PATH, positional arg 6 -
-where the jobs' own events_delphes_*.root/ntuple_*.root end up; NOT the
-same thing as -o/--outputdir, which is where THIS script's condor
-submission files go - see run_condor.py's own docstring for the same
-distinction).
+As in run_condor.py, --output-path (the jobs' ntuple_*.root) and -o/--outputdir
+(this script's condor submission files) are two different directories.
 
-By default all the jobs of ONE process go into ONE condor cluster (one
-submission, --njobs procs in it), which is both tidier for the queue and what
-lets --max-materialize throttle how many run at a time. Pass
---job-per-cluster for the older behaviour, one `python run_condor.py ...`
-subprocess (and hence one cluster) per job; that is the only mode in which
---target-njets-per-job's translation happens inside run_condor.py rather than
-here.
+By default all the jobs of one process go into one condor cluster, which is
+tidier for the queue and is what lets --max-materialize throttle how many run at
+a time. With --job-per-cluster each job is instead its own cluster, submitted
+through a separate run_condor.py call; that is the only mode in which
+--target-njets-per-job is translated by run_condor.py rather than here.
 
-Every argument is named (no positional arguments at all - same reasoning as
-run_condor.py: a command line should be self-explanatory without having to
-know run.sh's own positional-arg order to know what a bare number means).
+Every argument is named, so a command line is self-explanatory.
 
 Usage:
   # 10 jobs of 5000 events each, for 2 processes (20 condor jobs total)
@@ -101,7 +89,7 @@ def submit_clusters(args, procs, backend_opts):
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
 
-    # chdir for the same reason the per-job path does it - see its own comment
+    # Submit from inside the output directory, as the per-job path does.
     cwd = os.getcwd()
     os.chdir(outputdir)
     try:
@@ -119,8 +107,8 @@ def submit_clusters(args, procs, backend_opts):
             print('=== {}: one cluster of {} job(s) ==='.format(proc, len(arglists)))
             ct.submitArgsAsCondorCluster(
                 jobname, runsh, arglists,
-                # explicit cd, in addition to jobtools' own cwd-based cd, so the job
-                # works regardless of where this script was invoked from
+                # Explicit cd, on top of jobtools' own, so the job works
+                # wherever this script was invoked from.
                 prelude=(['cd {}'.format(THISDIR), 'echo "###starting###"']
                          + ['export {}'.format(pp.strip())
                             for pp in (args.extra_env or '').split(',') if pp.strip()]),
@@ -213,31 +201,22 @@ if __name__ == '__main__':
     procs = [p.strip() for p in args.procs.split(',') if p.strip()]
     if not procs:
         raise Exception('--procs did not contain any process names')
-    # validate ALL requested procs upfront, before creating any output
-    # directory or submitting a single job - run_condor.py itself validates
-    # too, but only proc-by-proc as the loop below reaches it, so a mistake
-    # affecting every proc (e.g. a missing "/precompiled" suffix applied to
-    # the whole --procs list - see validate_proc()'s own docstring for the
-    # incident that motivated this) would otherwise still submit everything
-    # up to the first bad one before failing
+    # Validate every requested process before creating any directory or
+    # submitting anything. run_condor.py validates too, but only as the loop
+    # reaches each process, so a mistake affecting the whole --procs list would
+    # otherwise submit everything up to the first bad one before failing.
     for proc in procs:
         validate_proc(proc, THISDIR)
     backend_opts = args.backend_opts if args.backend_opts is not None \
         else RUNSH_DEFAULT_OPTS[args.backend]
     subdirs = output_subdirs(args.backend, backend_opts)
 
-    # pre-create every (process, output subdirectory) pair ONCE, serially,
-    # before submitting any jobs - run.sh's own "mkdir -p" (done
-    # independently by every job right before it copies its output to EOS)
-    # is NOT safe against this: when the shared parent directory doesn't
-    # exist yet at all and many jobs race to create it for the first time
-    # simultaneously, EOS's FUSE client on some worker nodes can end up
-    # with a stale/negative cache entry for it that a few in-job retries
-    # don't reliably clear, causing that job's copy-to-EOS step to fail for
-    # real (this is exactly what happened in an earlier 100-job test - see
-    # testing/test-generation-time/README.md). Doing it here instead, one
-    # directory at a time from a single process before any job starts,
-    # means no worker node ever has to create a brand-new shared directory.
+    # Create every (process, output subdirectory) pair here, serially, before any
+    # job starts. run.sh's own "mkdir -p" is not enough: when many jobs race to
+    # create the same brand-new shared directory, the EOS client on some worker
+    # nodes keeps a negative cache entry that the in-job retries do not clear,
+    # and that job's copy to EOS then fails for real. Creating them up front means
+    # no worker node ever has to create a new shared directory.
     print('Pre-creating output directories...')
     for proc in procs:
         for sub in subdirs:

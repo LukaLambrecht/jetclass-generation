@@ -2,23 +2,20 @@
 #
 # Submit the two-prong Higgs signal (jetclass2/train_higgs2p) to lxplus HTCondor.
 #
-# This is the BACKUP ROUTE to crab/submit_production_higgs2p.sh. Same chain, same
-# output schema - only the batch system differs.
+# The alternative to crab/submit_production_higgs2p.sh: same chain, same output
+# schema, only a different batch system.
 #
-# HOW THIS DIFFERS FROM THE QCD SUBMITTER: QCD is ten pThat bins that must carry equal
-# events per bin to keep the jet pT spectrum flat. The signal is a single process, so
-# there is no mixture to preserve and no per-bin table.
+# Unlike the QCD submitter there is no per-bin table, because the signal is a single
+# process with no mixture to preserve.
 #
-# IT IS ALSO A hepmc PROCESS, NOT A CMSSW FRAGMENT, and that is what makes it need more
-# than the repo: MadGraph5 generates an LHE for a randomly drawn (Higgs mass, pT_min)
-# point from the 4900-point grid in gen_configs/jetclass2/train_higgs2p/mg5_params.dat,
-# Pythia8 showers it to events.hepmc, and only then does CMSSW reconstruct. So unlike
-# the QCD submitter, THIS ONE NEEDS AN MG5 INSTALL - see INSTALL.md steps 2-3, and set
-# MG5_PATH below or in the environment.
+# It is a hepmc process rather than a CMSSW fragment, which is why it needs more than
+# the repo: MadGraph5 generates an LHE for a randomly drawn mass point from the grid in
+# the process' mg5_params.dat, Pythia8 showers it to events.hepmc, and only then does
+# CMSSW reconstruct. So this one needs an MG5 install - set MG5_PATH below or in the
+# environment.
 #
-# SIZING: 4000 jobs x 500 events = 2,000,000 events. The 630k trial yielded 32.9%
-# non-QCD ("useful") jets, so this targets roughly 1.5M useful jets. Runtime per job
-# was never measured directly, so the default flavour is `tomorrow` (24 h) to be safe.
+# Sized at 4000 jobs x 500 events. Runtime per job has not been measured directly, so
+# the default flavour is `tomorrow` (24 h) to be safe.
 #
 # USAGE
 #   ./submit_production_higgs2p.sh --dry-run
@@ -54,8 +51,8 @@ done
 
 run() { echo "+ $*"; if [ "$DRYRUN" = false ]; then "$@"; fi; }
 
-# The generation step needs a working MG5 install; fail now with a pointer rather than
-# letting 4000 jobs die one by one on a missing binary.
+# The generation step needs a working MG5 install; fail now, with a pointer, rather
+# than letting every job die on a missing binary.
 MG5=${MG5_PATH:-/eos/user/${USER:0:1}/$USER/jetclass/MG5_aMC_v3_7_2}
 if [ ! -x "$MG5/bin/mg5_aMC" ]; then
     echo "ERROR: no MG5 install at $MG5 (looked for bin/mg5_aMC)." >&2

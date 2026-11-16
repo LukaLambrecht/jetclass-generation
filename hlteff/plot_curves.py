@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 
-'''
-Visualize the output of derive_curves.py: for each retuned Delphes module,
-plot the offline formula and the resulting HLT formula on the same axes,
-together with the raw data-driven curve derive_curves.py measured (the
-ratio, for a multiplicative module; the extra sigma, for a quadrature one)
-- so the effect of "offline formula" x/+ "data curve" -> "HLT formula" is
-directly visible, not just its end result.
+'''Visualize the output of derive_curves.py.
 
-The offline and HLT curves are read from the actual .tcl cards (not
-recomputed from curves_qcd.json independently), so what's plotted is
-exactly what generate_hlt_card.py produced - if you edit either card by
-hand afterwards, or regenerate it with different threshold options, this
-plot reflects that.
+For each retuned Delphes module, plot the offline formula, the resulting HLT formula
+and the raw data-driven curve on the same axes - the ratio for a multiplicative module,
+the extra sigma for a quadrature one - so the step from offline formula and data curve
+to HLT formula is visible rather than only its end result.
 
-One figure per module, one panel per |eta| bin (from curves_qcd.json's own
-binning), saved to hlteff/plots/ by default.
+The offline and HLT curves are read from the actual .tcl cards rather than recomputed,
+so the plot shows exactly what generate_hlt_card.py produced, including any later edit
+or a regeneration with different options.
+
+One figure per module, one panel per |eta| bin, saved to hlteff/plots/ by default.
 
 Usage:
   python plot_curves.py [--curves PATH] [--offline-card PATH] [--hlt-card PATH]
@@ -62,24 +58,29 @@ plt.rcParams.update({
 
 
 def fine_pt_grid(pt_edges, n_per_decade=60):
+    '''A log-spaced pT grid spanning the bin edges, for drawing a smooth formula curve.
+    '''
     lo, hi = pt_edges[0], pt_edges[-1]
     n = max(2, int(n_per_decade * (np.log10(hi) - np.log10(lo))))
     return np.logspace(np.log10(lo), np.log10(hi), n)
 
 
 def sample_formula(formula_text, eta, pt_values):
+    '''Evaluate a Delphes formula at one |eta| across a grid of pT values.'''
     return np.array([evaluate_formula(formula_text, pt=pt, eta=eta) for pt in pt_values])
 
 
 def step_edges(edges, values):
-    ### (x, y) suitable for ax.step(x, y, where='post') representing a
-    # piecewise-constant function equal to values[i] on [edges[i], edges[i+1])
+    '''(x, y) for ax.step(..., where='post'), representing a piecewise-constant function
+    equal to values[i] on [edges[i], edges[i+1]).
+    '''
     x = list(edges)
     y = list(values) + [values[-1]]
     return x, y
 
 
 def new_panel_figure(ne):
+    '''A figure with one shared-y panel per |eta| bin.'''
     fig, axes = plt.subplots(1, ne, figsize=(7 * ne, 5.5), sharey=True)
     if ne == 1:
         axes = [axes]
@@ -87,6 +88,7 @@ def new_panel_figure(ne):
 
 
 def finish_panel(ax, eta_edges, ie, xlabel, logx=True, logy=False):
+    '''Apply the shared axis styling, labels and |eta| title to one panel.'''
     if logx:
         ax.set_xscale('log')
     if logy:
@@ -100,6 +102,7 @@ def finish_panel(ax, eta_edges, ie, xlabel, logx=True, logy=False):
 
 
 def save(fig, outdir, name):
+    '''Write the figure to outdir and close it.'''
     outpath = os.path.join(outdir, name)
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
@@ -108,6 +111,9 @@ def save(fig, outdir, name):
 
 
 def plot_efficiency(curves, offline_text, hlt_text, cat, module, eta_edges, pt_edges, outdir, min_count=200):
+    '''Plot one tracking-efficiency module: offline and HLT formulas against the measured
+    HLT/offline ratio.
+    '''
     offline_formula = extract_formula_block(offline_text, module, 'EfficiencyFormula')
     hlt_formula = extract_formula_block(hlt_text, module, 'EfficiencyFormula')
     data = curves['categories'][cat]
@@ -138,6 +144,9 @@ def plot_efficiency(curves, offline_text, hlt_text, cat, module, eta_edges, pt_e
 
 
 def plot_pt_resolution(curves, offline_text, hlt_text, cat, module, eta_edges, pt_edges, outdir, min_pairs=200):
+    '''Plot one momentum-resolution module: offline and HLT formulas against the measured
+    extra sigma.
+    '''
     offline_formula = extract_formula_block(offline_text, module, 'ResolutionFormula')
     hlt_formula = extract_formula_block(hlt_text, module, 'ResolutionFormula')
     data = curves['categories'][cat]
@@ -167,6 +176,8 @@ def plot_pt_resolution(curves, offline_text, hlt_text, cat, module, eta_edges, p
 
 def plot_impact_parameter(curves, offline_text, hlt_text, formula_name, sigma_key, eta_edges, pt_edges, outdir,
                            min_pairs=200, ylabel=''):
+    '''Plot one TrackSmearing resolution formula, d0 or dz, against its measured extra sigma.
+    '''
     offline_formula = extract_formula_block(offline_text, 'TrackSmearing', formula_name)
     hlt_formula = extract_formula_block(hlt_text, 'TrackSmearing', formula_name)
     tip = curves['trackImpactParameter']
@@ -195,6 +206,9 @@ def plot_impact_parameter(curves, offline_text, hlt_text, formula_name, sigma_ke
 
 
 def plot_jet_energy_scale(curves, offline_text, hlt_text, eta_edges, jet_pt_edges, outdir, min_count=200):
+    '''Plot the jet energy scale: offline and HLT formulas against the measured HLT/offline
+    jet-pT ratio.
+    '''
     offline_formula = extract_formula_block(offline_text, 'JetEnergyScalePUPPIAK8', 'ScaleFormula')
     hlt_formula = extract_formula_block(hlt_text, 'JetEnergyScalePUPPIAK8', 'ScaleFormula')
     jes = curves['jetEnergyScale']
@@ -225,6 +239,7 @@ def plot_jet_energy_scale(curves, offline_text, hlt_text, eta_edges, jet_pt_edge
 
 
 def main():
+    '''Read the curves file and both cards, and write one figure per module.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--curves', default=DEFAULT_CURVES)

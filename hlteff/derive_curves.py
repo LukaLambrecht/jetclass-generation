@@ -1,63 +1,40 @@
 #!/usr/bin/env python3
 
-'''
-Derive data-driven offline-vs-HLT("scouting") charged-particle tracking
-efficiency and momentum-resolution degradation curves, from paired
-offline/scouting CMS ntuples (see README.md for what these files contain
-and where they come from).
+'''Derive data-driven offline-against-HLT charged-particle tracking efficiency and
+momentum-resolution degradation curves, from paired offline/scouting CMS ntuples.
 
-For each jet, offline candidates (cpfcandlt_*, split by isChargedHad/isEl/isMu)
-are geometrically matched (nearest-neighbor in (eta,phi), greedy, within
---dr-max) to scouting candidates (scoutpfcand_*, same category flags) in the
-same jet. Per (category, |eta| bin, pT bin) - see binning.py - we record:
-  - n_offline: number of offline candidates (the efficiency denominator)
-  - n_matched: number of those with a scouting match (the numerator)
-  - the distribution of (pt_scout - pt_offline)/pt_offline for matched pairs,
-    summarized as a robust sigma (half the 16-84 percentile width), i.e. how
-    much *extra* smearing scouting reconstruction adds on top of whatever
-    offline resolution already is.
+For each jet, offline candidates, split by category, are geometrically matched to
+scouting candidates of the same category in the same jet: nearest neighbour in
+(eta, phi), greedy, within --dr-max. Per (category, |eta| bin, pT bin) this records
+  - n_offline, the efficiency denominator,
+  - n_matched, those with a scouting match,
+  - the spread of the relative pT difference over matched pairs, as a robust sigma,
+    i.e. how much extra smearing the scouting reconstruction adds on top of offline.
 
-For every matched pair, regardless of category (chargedHadron/electron/muon
-combined, matching TrackMerger's own species-agnostic pooling upstream of
-TrackSmearing), we additionally record (scout_dxy - off_dxy) and
-(scout_dz - off_dz), converted from the ntuple's cm to the Delphes card's mm
-(see README "Notable findings" for how that unit inference was made) -
-the same kind of "extra smearing" measurement as pT, but for the impact
-parameters TrackSmearing's D0/DZResolutionFormula model.
+For every matched pair, pooled across categories to match TrackMerger's own
+species-agnostic pooling upstream of TrackSmearing, it also records the dxy and dz
+differences, converted from the ntuple's cm to the card's mm. That is the same kind of
+extra-smearing measurement as for pT, but for the impact parameters TrackSmearing
+models.
 
-Separately, and needing no per-particle matching at all (the jets
-themselves are already paired row-by-row, see README), we measure the
-direct scoutfj_pt/fj_pt ratio - binned by the jet's own (pT, |eta|) on the
-coarser JET_PT_EDGES grid - for JetEnergyScalePUPPIAK8, plus fj_pt/fj_genjet_pt
-(offline reco vs. real gen-jet truth) purely as a documentation/validation
-number (see the module's own comments for why only the offline side has a
-usable truth reference in this ntuple production).
+Separately, and needing no per-particle matching since the jets are already paired row
+by row, it measures the direct HLT/offline jet-pT ratio on the coarser jet-pT grid, for
+the jet energy scale, plus the offline reco-to-gen-jet ratio purely as a validation
+number: only the offline side has a usable truth reference in this ntuple production.
 
-Neutral particles (photon/neutralHadron, via npfcand_*/scoutpfcand_* isGamma/
-isNeutralHad flags) are matched the same way as the charged categories, but
-binned by *energy* (reusing PT_EDGES as an energy grid, since Delphes'
-SimpleCalorimeter ResolutionFormula is a function of energy, not pT) rather
-than pT, and the "extra smearing" is the *absolute* (scout_energy -
-off_energy) in GeV (not a relative difference - ECal/HCal's resolution
-formulas are already absolute-GeV, unlike the fractional pT resolution
-formulas). There's no Efficiency module for neutrals to retune this way
-(see README "Scope"), so this measurement instead feeds a separate
-closure check (see check_calo_closure.py): does degrading only the
-resolution formula (holding EnergyMin/EnergySignificanceMin fixed)
-reproduce the neutral efficiency loss (n_matched/n_offline) that's
-measured directly here, or is there a residual that resolution alone
-can't explain?
+Neutral particles are matched the same way but binned by energy rather than pT, since
+the calorimeter resolution formulas are functions of energy, and their extra smearing
+is an absolute energy difference in GeV rather than a relative one, since those
+formulas are already in absolute GeV. There is no Efficiency module for neutrals to
+retune, so this measurement feeds the separate closure check in check_calo_closure.py
+instead.
 
-Output is a single JSON file (default hlteff/curves_qcd.json) consumed by
-generate_hlt_card.py to actually build the new Delphes card - this script
-only measures, it does not touch any Delphes card itself.
+Output is one JSON file, consumed by generate_hlt_card.py to build the new card. This
+script only measures and touches no card itself.
 
 Usage:
   python derive_curves.py [--input-dir DIR] [--n-files N] [--max-jets N]
                            [--dr-max DR] [--output PATH]
-
-Default input is the QCD sample (see README for why QCD, not signal, is
-the basis here).
 '''
 
 import os
@@ -91,11 +68,9 @@ NEUTRAL_CATEGORIES = {
     'neutralHadron': ('npfcand_isNeutralHad', 'scoutpfcand_isNeutralHad'),
 }
 
-# the ntuple stores dxy/dz in cm (inferred from magnitude: median offline
-# |dxy| ~43 micron, physically sensible for cm); the Delphes card's D0/DZ
-# resolution tables are in mm (their own low-pT/high-pT endpoints, 0.35mm
-# and 0.011mm, match published CMS d0-resolution curves in mm) - see
-# README "Notable findings".
+# The ntuple stores dxy/dz in cm, while the Delphes card's resolution tables are in mm.
+# Both were established by comparing magnitudes against published CMS resolution
+# curves; see README "Notable findings".
 CM_TO_MM = 10.0
 
 BRANCHES = [
@@ -114,34 +89,13 @@ BRANCHES = [
 
 
 def wrap_phi(phi):
+    '''Wrap phi into -pi..pi.'''
     return (phi + np.pi) % (2 * np.pi) - np.pi
 
 
 def match_jet(off_eta, off_phi, scout_eta, scout_phi, dr_max,
               off_energy=None, scout_energy=None, rel_e_tol=None):
-    '''
-    Greedy nearest-neighbor matching within dr_max between one jet's offline
-    and scouting candidates (of the same category). Returns an array of
-    length len(off_eta): the matched scouting index, or -1 if unmatched.
-
-    ACCEPTANCE is purely geometric (deltaR < dr_max) - that gate is
-    unchanged by the energy option below. What can change is the ASSIGNMENT
-    ORDER among candidates that both pass that gate: by default (off_energy/
-    scout_energy/rel_e_tol all None) pairs are assigned strictly
-    closest-deltaR-first, so a scouting candidate is never claimed by two
-    offline candidates. If off_energy/scout_energy/rel_e_tol are given,
-    pairs are instead ranked by (deltaR/dr_max)^2 + (relative energy
-    difference/rel_e_tol)^2 - i.e. within the same geometric window,
-    energy-similar pairs are preferred over energy-dissimilar ones. This is
-    a soft disambiguator, not a second cut: it only changes *which* nearby
-    candidate wins when several are within dr_max of each other (e.g.
-    overlapping calorimeter showers), not whether a candidate is matched at
-    all - so with a generous rel_e_tol it shouldn't meaningfully bias the
-    energy-difference distribution among genuinely unambiguous pairs, which
-    is what makes it safe to use for measuring that same distribution (see
-    README "Notable findings" - this exists to address the HCal matched-pair
-    energy-difference blowup, suspected to be shower-matching confusion).
-    '''
+    '''Greedily match one jet's offline candidates to its scouting candidates.'''
     n_off = off_eta.shape[0]
     n_scout = scout_eta.shape[0]
     match = np.full(n_off, -1, dtype=np.int64)
@@ -168,7 +122,7 @@ def match_jet(off_eta, off_phi, scout_eta, scout_phi, dr_max,
     n_matched = 0
     for idx in order:
         if flat_dR2[idx] > dr_max2:
-            continue  # not "break": rank_metric order != dR2 order once energy is included
+            continue  # not a break: the rank-metric order differs from the dR order once energy counts
         i, j = divmod(int(idx), n_scout)
         if used_off[i] or used_scout[j]:
             continue
@@ -184,6 +138,9 @@ def match_jet(off_eta, off_phi, scout_eta, scout_phi, dr_max,
 def robust_sigma(values, min_count=20):
     ### half the 16th-84th percentile width - a resolution estimator that's
     # far less sensitive to occasional mismatched pairs than a plain std
+    '''Half the 16th-to-84th percentile width: a resolution estimator far less sensitive to
+    the occasional mismatched pair than a plain standard deviation. None below min_count.
+    '''
     if len(values) < min_count:
         return None
     lo, hi = np.percentile(values, [15.87, 84.13])
@@ -191,12 +148,16 @@ def robust_sigma(values, min_count=20):
 
 
 def robust_median(values, min_count=20):
+    '''Median of the values, or None below min_count.'''
     if len(values) < min_count:
         return None
     return float(np.median(values))
 
 
 def main():
+    '''Read the paired ntuples, fill every category's count and difference grids, and write
+    the curves file.
+    '''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input-dir', default=DEFAULT_INPUT_DIR,
@@ -239,8 +200,8 @@ def main():
     n_offline = {c: np.zeros((ne, npt), dtype=np.int64) for c in CATEGORIES}
     n_matched = {c: np.zeros((ne, npt), dtype=np.int64) for c in CATEGORIES}
     pt_reldiff = {c: [[[] for _ in range(npt)] for _ in range(ne)] for c in CATEGORIES}
-    # impact-parameter differences, pooled across all categories (see
-    # module docstring - matches TrackSmearing's own species-agnostic input)
+    # Impact-parameter differences, pooled across all categories, matching TrackSmearing's
+    # own species-agnostic input.
     dxy_diff = [[[] for _ in range(npt)] for _ in range(ne)]
     dz_diff = [[[] for _ in range(npt)] for _ in range(ne)]
 
@@ -248,8 +209,8 @@ def main():
     jes_response_offline = [[[] for _ in range(npt_jet)] for _ in range(ne_jet)]
     jes_response_scout = [[[] for _ in range(npt_jet)] for _ in range(ne_jet)]
 
-    # neutral (calorimeter) categories: binned by energy (reusing PT_EDGES,
-    # see module docstring), "extra smearing" is an absolute energy diff (GeV)
+    # Neutral (calorimeter) categories, binned by energy rather than pT, where the extra
+    # smearing is an absolute energy difference in GeV.
     n_offline_neutral = {c: np.zeros((ne, npt), dtype=np.int64) for c in NEUTRAL_CATEGORIES}
     n_matched_neutral = {c: np.zeros((ne, npt), dtype=np.int64) for c in NEUTRAL_CATEGORIES}
     energy_diff = {c: [[[] for _ in range(npt)] for _ in range(ne)] for c in NEUTRAL_CATEGORIES}
@@ -273,28 +234,15 @@ def main():
                 scoutfj_eta = ak.to_numpy(chunk['scoutfj_eta'])
                 scoutfj_phi = ak.to_numpy(chunk['scoutfj_phi'])
 
-                # jet energy scale: whole-jet quantities, no per-particle
-                # matching needed (the jets are already paired row-by-row).
+                # Jet energy scale: whole-jet quantities, so no per-particle matching is needed, the
+                # jets being paired row by row already.
                 #
-                # fj_gen_pt/fj_gen_deltaR (and their scoutfj_ counterparts)
-                # are NOT generic gen-jet matching - they're -999/999
-                # sentinels for every jet in this QCD sample (they match to
-                # a specific signal resonance, which QCD jets don't have).
-                # fj_genjet_pt (genuine dR-matched gen-jet truth) IS
-                # populated, but there is no scoutfj_genjet_pt at all in
-                # this ntuple production - so a truth-based measurement is
-                # only possible on the offline side. We use it there purely
-                # as a validation/documentation number (is the offline
-                # card's ScaleFormula=1.00 - i.e. "no correction" - actually
-                # justified by real data?), and separately measure the
-                # direct scoutfj_pt/fj_pt ratio (no truth reference needed)
-                # for the actual HLT ScaleFormula, applying the same
-                # "offline formula x measured ratio" convention used
-                # everywhere else in this pipeline. See README for the
-                # resulting numbers and the double-counting caveat this
-                # carries (the ratio is measured in real data, but applied
-                # on top of jets already built from the retuned, already
-                # somewhat-degraded track-level modules).
+                # The gen-matching branches are sentinels for every jet in this QCD sample, since they
+                # match to a signal resonance a QCD jet does not have. The genuine dR-matched gen-jet
+                # pT is populated, but only on the offline side: this production has no scouting
+                # counterpart. So the truth-based number is used purely as validation - is the offline
+                # card's unit scale actually justified by data? - and the HLT/offline ratio, which
+                # needs no truth reference, is measured separately.
                 fj_pt = ak.to_numpy(chunk['fj_pt'])
                 fj_genjet_pt = ak.to_numpy(chunk['fj_genjet_pt'])
                 scoutfj_pt = ak.to_numpy(chunk['scoutfj_pt'])

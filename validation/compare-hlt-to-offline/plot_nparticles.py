@@ -1,77 +1,53 @@
 #!/usr/bin/env python3
 
-'''
-Compares the "number of particles per jet" distribution between OFFLINE
-and HLT reconstruction of the SAME jets, per jet class - the compare-hlt-
-to-offline sibling of ../compare-to-central-jetclass2/plot_nparticles.py:
-same 10-class grid (QCD aggregated into one class, X_tauhtaue/X_tauhtaum
-merged into one "X_tauhtaul" class, the flavor-mixed two-prong labels
-excluded - see CLASS_SUFFIXES/CLASSES), but comparing Offline vs HLT
-reconstruction of ONE production (via a PAIRED ntuple - see ntuple_io.py)
-instead of comparing our production against the published central dataset.
+'''Compare the "number of particles per jet" distribution between Offline and HLT
+reconstruction of the same jets, per jet class.
 
-Works with EITHER schema ntuple_io.py knows about (see its own module
-docstring) - whatever `files` actually are is detected automatically and
-needs no flag:
+The compare-hlt-to-offline sibling of ../compare-to-central-jetclass2/plot_nparticles.py:
+the same class grid, with QCD aggregated into one class, the two semi-leptonic ditau
+labels merged, and the flavour-mixed two-prong labels excluded, but comparing Offline
+against HLT within one production rather than our production against the central
+dataset.
 
-  - "ours": jet_label directly (index 0-14 for the 10 Res2P classes -
-    RES2P_LABEL_INDEX - index 161-187 for QCD - QCD_LABEL_RANGE - see
-    delphes_analyzers/FatJetMatching.h's own labels_ vector).
-  - "fullsim": each raw fj_label value's resolved SUFFIX name (bb/cc/ss/
-    .../tauhtauh - see ntuple_io.resolve_fullsim_label_names()) matched
-    against the identical CLASS_SUFFIXES scheme "ours" uses, rather than
-    by fj_label index directly (fullsim's own index list doesn't
-    correspond to ours) - a name-based match, not a claim that a given
-    suffix comes from the same underlying resonance (neutral vs charged)
-    in both datasets.
+Works with either schema ntuple_io.py knows about, detected automatically:
 
-`files` is just every ntuple to pool together and then bucket by class,
-same as ../plot_particle_pt.py/plot_composition.py - no separate "QCD source"/
-"Higgs source" arguments: since every jet is bucketed by its OWN label
-regardless of which file it came from, one combined glob (or several)
-covering every process/sample you want represented is enough - e.g. an
-"ours" production's train_qcd AND train_higgs2p ntuples together, or one
-fullsim sample's files, or several fullsim samples' files at once. (A
-train_higgs2p production's own QCD-fallback jets - see makeNtuples.C - do
-end up in the QCD class alongside a train_qcd file's jets if you pool
-both; if that's not wanted for a given comparison, simply don't include
-that file in `files`.)
+  - "ours": the jet_label index directly.
+  - "fullsim": each raw label value's resolved suffix name, matched against the same
+    class scheme by name. The upstream index list does not correspond to ours, and a
+    name match is not a claim that a suffix comes from the same underlying resonance in
+    both datasets.
 
-Offline vs HLT correspondence and the per-jet TOTAL particle counting both
-come from ntuple_io.load_nparticles() - the lightest read ntuple_io.py
-offers, since that plot never needs any per-particle CONTENT, just how
-many there are per jet ("ours" has this precomputed as a flat branch
-already; fullsim needs one small branch per underlying collection). The
-PER-TYPE plots (below) additionally read the five per-particle type flags
-via ntuple_io.load_particles(), which normalizes them onto the same
-part_is*/hlt_part_is* names for both schemas - a heavier read (jagged
-per-particle branches), collapsed to per-jet integer counts immediately.
+`files` is simply every ntuple to pool and then bucket by class, as in the sibling
+scripts: every jet is bucketed by its own label whatever file it came from, so one
+combined glob covering the processes or samples wanted is enough. Note that a signal
+production's own QCD-fallback jets land in the QCD class alongside a QCD file's jets if
+both are pooled.
 
-Output (see --plots to produce only one kind):
-  - "total": one multi-axes ("small multiples") figure, 2 rows x 5 columns,
-    all 10 classes together, TOTAL particles per jet:
-      nparticles_offline_vs_hlt_all_classes.png
-  - "types": one figure PER JET CLASS, 1 row x 5 columns - one panel per
-    particle type (charged hadron / neutral hadron / photon / electron /
-    muon, see PARTICLE_TYPES), each comparing Offline vs HLT for that type
-    only, with each panel's own Offline/HLT means and their ratio:
-      nparticles_by_type_<class>.png
+The Offline/HLT correspondence and the per-jet totals both come from
+ntuple_io.load_nparticles(), the lightest read available, since this never needs any
+per-particle content. The per-type figures additionally read the particle type flags
+through load_particles(), a heavier jagged read, collapsed to per-jet counts at once.
+
+Output, selectable with --plots:
+  - "total": one small-multiples figure of all classes, total particles per jet;
+  - "types": one figure per jet class, one panel per particle type, each comparing
+    Offline against HLT for that type only.
 
 Usage:
-  # our own paired (onlyFatJet+onlyFatJetHLT) production - every process pooled together
-  python3 plot_nparticles.py \\
+  # our own paired production - every process pooled together
+  python3 plot_nparticles.py \
       '/eos/user/l/llambrec/jetclass/output_jetclass2_10M_20260910/jetclass2/*/onlyFatJet+onlyFatJetHLT/ntuple_*.root'
 
-  # the real FullSim/scouting reference dataset instead
-  python3 plot_nparticles.py \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new/dnnTuples_nanov15_*.root' \\
-      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/H0HpHm_mixed_new/dnnTuples_nanov15_*.root' \\
+  # the reference dataset instead
+  python3 plot_nparticles.py \
+      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/QCD_PT-mixed_TuneCP5_13p6TeV_pythia8_new/dnnTuples_nanov15_*.root' \
+      '/eos/cms/store/cmst3/group/vhcc/ScoutingAK8/2024/train/H0HpHm_mixed_new/dnnTuples_nanov15_*.root' \
       --outdir output_plots/fullsim
 
   # a subset of classes / capped statistics
   python3 plot_nparticles.py 'FILES...' --classes QCD,X_bb,X_cc --max-jets 200000
 
-  # only the per-type figures (skip the total-particles grid, and its extra read)
+  # only the per-type figures
   python3 plot_nparticles.py 'FILES...' --plots types
 '''
 
@@ -149,35 +125,22 @@ PARTICLE_TYPES = [
 
 
 def expand_files(patterns):
-    '''Expand the command-line inputs into a file list, via
-    ntuple_io.expand_inputs(): a DIRECTORY is searched recursively for ntuples of
-    either schema (so a whole production tree can be passed as-is, exactly as
-    print_njets.py accepts), a glob is expanded, and a pattern matching nothing is
-    kept as a literal so a typo fails loudly on the read rather than vanishing here.
-    Shared with the other plotting scripts through ntuple_io so all of them accept
-    the same inputs.'''
+    '''Expand the command-line inputs into a file list, via ntuple_io.expand_inputs().
+    '''
     return nio.expand_inputs(patterns)
 
 
 
 def read_jet_label(files):
-    '''"ours"-schema only: plain jet_label read (flat int branch) alongside
-    ntuple_io.load_particles()'s own read of the same `files` (see class_masks()) - two
-    independent uproot.concatenate calls over the identical, already-fixed file list
-    stay aligned element-wise (uproot preserves file order deterministically).'''
+    '''"ours" schema only: read the flat jet_label branch alongside the particle data.
+    '''
     paths = ['{}:{}'.format(f, TREE_NAME) for f in files]
     return uproot.concatenate(paths, filter_name=['jet_label'], library='np')['jet_label']
 
 
 def class_masks(files, class_names):
-    '''
-    Returns ({class_name: boolean mask}, njets) for `files` (a fixed list, pooling
-    every jet together regardless of which file it came from) and the requested
-    `class_names` - dispatches on ntuple_io.detect_schema(): "ours" matches each
-    class's CLASS_SUFFIXES set by exact jet_label index (via RES2P_LABEL_INDEX/
-    QCD_LABEL_RANGE); fullsim matches by each raw fj_label value's resolved SUFFIX
-    name instead (see module docstring's "fullsim" bullet for why this is a name-based
-    match, not a physical-origin one).
+    '''({class_name: boolean mask}, njets) for `files`, pooling every jet regardless of which
+    file it came from.
     '''
     schema = nio.detect_schema(files, treename=TREE_NAME)
 
@@ -218,28 +181,8 @@ def class_masks(files, class_names):
 
 
 def read_all_classes(files, class_names, max_jets, keep=None):
-    '''
-    One combined read of `files`: the requested classes' boolean masks (see
-    class_masks()) plus ntuple_io.load_nparticles()'s own per-jet counts - the
-    lightest possible read for this script's purposes, since it never needs any
-    per-particle CONTENT, just how many there are per jet (see load_nparticles()'s own
-    docstring: "ours" reads a precomputed flat int branch directly, no jagged data
-    touched at all). has_hlt is False for a single-card "ours" production with no
-    HLT/paired side at all (see ntuple_io.py), in which case this script falls back to
-    plotting Offline only. A `max_jets` cap is applied post-read (simpler than the
-    sibling script's own incremental per-file capping, at the cost of still reading
-    everything - fine for the dataset sizes this is meant for).
-
-    Unmatched jets (no HLT/scouting counterpart found at all - see
-    ntuple_io.load_particles()'s own docstring) are excluded from hlt_nparticles
-    entirely, not counted as "0 particles": an unmatched row's hlt_jet_nparticles is
-    genuinely 0 (empty hlt_part_* vectors), but that's a different thing from "HLT
-    reconstructed a real, near-empty jet" and would otherwise inflate the low end of
-    the HLT distribution with jets HLT never even saw. njets/n_matched (returned
-    alongside, for make_plot()'s own info text) still count every jet in the class,
-    matched or not - only the HLT nparticles VALUES themselves are matched-only.
-
-    Returns {class_name: (offline_nparticles, hlt_nparticles_or_None, njets, n_matched_or_None)}.
+    '''One combined read of `files`: the requested classes' masks plus the per-jet particle
+    counts.
     '''
     masks, njets_total = class_masks(files, class_names)
     if keep is not None:
@@ -270,33 +213,15 @@ def read_all_classes(files, class_names, max_jets, keep=None):
 
 
 def _as_numpy(arr):
-    '''ntuple_io returns awkward arrays for the "ours" schema's flat branches but plain
-    numpy for some of fullsim's synthesized ones (e.g. its always-True hlt_matched) -
-    normalize either to numpy without assuming which one a given field is.'''
+    '''Coerce to plain numpy, since the two schemas return awkward and numpy arrays
+    respectively.
+    '''
     return arr if isinstance(arr, np.ndarray) else ak.to_numpy(arr)
 
 
 def read_all_classes_by_type(files, class_names, max_jets, keep=None):
-    '''
-    Per-PARTICLE-TYPE counterpart to read_all_classes(): same class bucketing (via
-    class_masks()), but counting particles of each PARTICLE_TYPES type separately
-    instead of just the per-jet total.
-
-    Needs real per-particle content, so this reads ntuple_io.load_particles() with only
-    the five type-flag suffixes (the heaviest thing this script does - jagged branches -
-    hence the separate --plots switch). Each jagged flag array is collapsed to a per-jet
-    integer count (`flag != 0` summed per jet) immediately, so the jagged data itself is
-    not held across the whole class loop.
-
-    Unmatched jets are excluded from the HLT counts for exactly the same reason as in
-    read_all_classes() (an unmatched row's hlt_part_* vectors are empty, which is not
-    the same as "HLT reconstructed a jet with 0 particles of this type") - note this
-    means the offline and HLT arrays within a panel have DIFFERENT lengths whenever
-    anything is unmatched, which is fine since each is histogrammed independently
-    (density=True) rather than compared per-jet.
-
-    Returns {class_name: {'njets': n, 'n_matched': m_or_None,
-                          'types': {type_name: (offline_counts, hlt_counts_or_None)}}}.
+    '''Per-particle-type counterpart to read_all_classes(): the same class bucketing, with the
+    counts split by particle type.
     '''
     masks, njets_total = class_masks(files, class_names)
     if keep is not None:
@@ -339,11 +264,9 @@ def read_all_classes_by_type(files, class_names, max_jets, keep=None):
 
 
 def _draw_hist(ax, offline_vals, hlt_vals):
-    '''Draw the Offline (and, when present, HLT) step histograms of a per-jet integer
-    count on `ax`, on a shared integer binning covering both, log-y with headroom above
-    the tallest bin for the panel's own info text. Returns False if there was nothing to
-    draw at all (caller writes its own "no data" placeholder). Shared by make_plot() and
-    make_type_plot() so both figure kinds stay visually identical.'''
+    '''Draw the Offline and, where present, HLT step histograms of a per-jet integer count on
+    one axis.
+    '''
     both = np.concatenate([offline_vals, hlt_vals]) if hlt_vals is not None and len(hlt_vals) else offline_vals
     if len(both) == 0:
         return False
@@ -377,8 +300,7 @@ def _draw_hist(ax, offline_vals, hlt_vals):
 
 
 def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched, paper_style=False):
-    '''Same look as ../compare-to-central-jetclass2/plot_nparticles.py's own make_plot(),
-    Offline vs HLT instead of central vs ours, plus a jet-count/match-rate caption.'''
+    '''One class' panel of total particles per jet, Offline against HLT.'''
     if not _draw_hist(ax, offline_vals, hlt_vals):
         ax.text(0.5, 0.5, '{}: no data'.format(ps.class_label(label)), ha='center',
                 va='center', transform=ax.transAxes)
@@ -397,8 +319,7 @@ def make_plot(ax, label, offline_vals, hlt_vals, njets, n_matched, paper_style=F
 
 
 def make_grid(results, classes, outpath, paper_style=False):
-    '''One multi-axes ("small multiples") figure, 2 rows x 5 columns, all `classes` together -
-    same layout as the sibling script's own make_grid().'''
+    '''One small-multiples figure with every requested class.'''
     # capped at the number of classes actually plotted, so a --classes subset smaller
     # than the grid width doesn't produce a full-width canvas of blank axes (a no-op
     # for the default 10 classes, which still lay out 5 x 2)
@@ -418,11 +339,7 @@ def make_grid(results, classes, outpath, paper_style=False):
 
 
 def make_type_plot(ax, type_name, offline_vals, hlt_vals, class_name=None, paper_style=False):
-    '''One panel of a per-type figure: the same Offline-vs-HLT step histograms
-    make_plot() draws, but for ONE particle type's per-jet count, captioned with that
-    type's own Offline/HLT means and their ratio - the number this whole comparison is
-    really about, readable straight off each panel instead of only from the printed
-    table.'''
+    '''One panel of a per-type figure: the same histograms, for one particle type.'''
     if not _draw_hist(ax, offline_vals, hlt_vals):
         ax.text(0.5, 0.5, '{}: no data'.format(ps.type_label(type_name)), ha='center',
                 va='center', transform=ax.transAxes)
@@ -447,10 +364,7 @@ def make_type_plot(ax, type_name, offline_vals, hlt_vals, class_name=None, paper
 
 
 def make_type_grid(class_name, entry, outpath, paper_style=False):
-    '''One figure for ONE jet class: 1 row x 5 columns, one panel per PARTICLE_TYPES
-    type (see make_type_plot()), with the jet class itself (and its jet count/HLT match
-    rate - per class, so it belongs here rather than repeated in every panel) as the
-    figure title.'''
+    '''One figure for one jet class, with a panel per particle type.'''
     per_type, njets, n_matched = entry['types'], entry['njets'], entry['n_matched']
     fig, axes = plt.subplots(1, len(PARTICLE_TYPES), figsize=(6 * len(PARTICLE_TYPES), 6.4))
     axes = np.atleast_1d(axes).flatten()
@@ -477,6 +391,7 @@ def make_type_grid(class_name, entry, outpath, paper_style=False):
 
 
 def print_stats(name, source, vals):
+    '''Print each class' Offline and HLT means and their ratio.'''
     if vals is None:
         print('{:<16}{:<10}{:>10}'.format(name, source, 'n/a'))
         return

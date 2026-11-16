@@ -2,21 +2,17 @@
 # functionality for making job description files for the condor submission system #
 ###################################################################################
 
-# general use:
-# two ingredients are needed for a condor job:
-# - a job description (.txt) file
-# - an executable
-# the functions in this tool allow creating an executable bash script
-# and its submission via a job description file
+# A condor job needs two ingredients: a job description (.txt) file and an
+# executable. The functions here create an executable bash script and submit it
+# via a generated job description.
 
 import os
 import sys
 import subprocess
 
 def makeUnique(fname):
-    ### make a file name unique by appending a number to it,
-    # e.g. test.txt -> test1.txt (in case test.txt already exists)
-    # todo: works for now, but find cleaner way to submit jobs in a loop...
+    '''Make a file name unique by appending a number, e.g. test.txt -> test1.txt
+    if test.txt already exists.'''
     if not os.path.exists(fname): return fname
     [name,ext] = os.path.splitext(fname)
     app = 1
@@ -28,17 +24,17 @@ def makeUnique(fname):
     msg += ' consider choosing more specific names, splitting in folders, etc.'
     raise Exception(msg)
 
-def initJobScript(name, 
+def initJobScript(name,
                   home=None,
                   cmssw_version=None,
                   proxy=None):
-    ### initialize an executable bash script with:
-    # - setting HOME environment variable
-    #   note: use 'auto' to extract the HOME from os.environ
-    # - sourcing the shared cms software
-    # - setting correct cmssw release
-    # - exporting proxy
-    
+    '''Write the opening part of an executable bash script: set HOME (pass 'auto'
+    to take it from the environment), source the shared CMS software, set up a
+    CMSSW release, export a proxy, and cd back to the current directory.
+
+    The caller appends the actual commands to the file afterwards.
+    '''
+
     # parse filename
     name = os.path.splitext(name)[0]
     fname = name+'.sh'
@@ -48,20 +44,20 @@ def initJobScript(name,
     if home=='auto': home = os.environ['HOME']
     # write script
     with open(fname,'w') as script:
-	# write bash shebang
+        # write bash shebang
         script.write('#!/bin/bash\n')
-	# write echo script name
+        # write echo script name
         script.write("echo '###exename###: {}'\n".format(fname))
-	# write export home
+        # write export home
         if home is not None:
             script.write('export HOME={}\n'.format(home))
-	# write sourcing of common software
+        # write sourcing of common software
         script.write('source /cvmfs/cms.cern.ch/cmsset_default.sh\n')
-	# write setting correct cmssw release
+        # write setting correct cmssw release
         if cmssw_version is not None:
             script.write('cd {}\n'.format( os.path.join( cmssw_version,'src' ) ) )
             script.write('eval `scram runtime -sh`\n')
-	# write export proxy
+        # write export proxy
         if proxy is not None:
             script.write('export X509_USER_PROXY={}\n'.format( proxy ))
         script.write('cd {}\n'.format( cwd ) )
@@ -69,18 +65,19 @@ def initJobScript(name,
     os.system('chmod +x '+fname)
     print('initJobScript created {}'.format(fname))
 
-def makeJobDescription(name, exe, argstring=None, 
+def makeJobDescription(name, exe, argstring=None,
                        stdout=None, stderr=None, log=None,
-                       cpus=1, mem=1024, disk=10240, 
+                       cpus=1, mem=1024, disk=10240,
                        proxy=None, jobflavour=None, concurrency_limits=None):
-    ### create a single job description txt file
-    # note: exe can for example be a runnable bash script
-    # note: argstring is a single string containing the arguments to exe (space-separated)
-    # note: for job flavour: see here: https://batchdocs.web.cern.ch/local/submit.html
-    # note: concurrency_limits is a raw "<name>:<weight>" string limiting how many
-    #       of these jobs the negotiator lets RUN at the same time, across all
-    #       clusters sharing that name - see concurrency_limit_for_max_running()
-    
+    '''Create a job description txt file for a single job.
+
+    exe may be any runnable script; argstring is one space-separated string of
+    its arguments. For the job flavours see
+    https://batchdocs.web.cern.ch/local/submit.html. concurrency_limits is a raw
+    "<name>:<weight>" string bounding how many of these jobs run at once - see
+    concurrency_limit_for_max_running().
+    '''
+
     # parse arguments
     name = os.path.splitext(name)[0]
     fname = name+'.txt'
@@ -101,10 +98,10 @@ def makeJobDescription(name, exe, argstring=None,
         f.write('request_cpus = {}\n'.format(cpus))
         f.write('request_memory = {}\n'.format(mem))
         f.write('request_disk = {}\n'.format(disk))
-        if proxy is not None: 
+        if proxy is not None:
             f.write('x509userproxy = {}\n'.format(proxy))
             f.write('use_x509userproxy = true\n\n')
-        #f.write('should_transfer_files = yes\n\n') 
+        #f.write('should_transfer_files = yes\n\n')
         # (not fully sure whether to put 'yes', 'no' or omit it completely)
         if jobflavour is not None:
             f.write('+JobFlavour = "{}"\n\n'.format(jobflavour))
@@ -114,7 +111,7 @@ def makeJobDescription(name, exe, argstring=None,
     print('makeJobDescription created {}'.format(fname))
 
 def submitCondorJob(jobDescription):
-    ### submit a job description file as a condor job
+    '''Submit a job description file as a condor job.'''
 
     # check if file exists
     fname = os.path.splitext(jobDescription)[0]+'.txt'
@@ -122,9 +119,10 @@ def submitCondorJob(jobDescription):
         print('ERROR: job description file {} not found'.format(fname))
         sys.exit()
 
-    # standard batch schedds cannot submit jobs whose executable/log/output
-    # paths live on /eos; the EosSubmit schedds are needed instead, enabled
-    # by loading this module first (see https://batchdocs.web.cern.ch/local/eossubmit.html)
+    # Standard batch schedds cannot submit jobs whose executable, log or output
+    # paths live on /eos; the EosSubmit schedds are needed instead, enabled by
+    # loading this module first.
+    # See https://batchdocs.web.cern.ch/local/eossubmit.html
     modload = ''
     if os.path.abspath(fname).startswith('/eos'):
         modload = 'module load lxbatch/eossubmit; '
@@ -140,11 +138,11 @@ def submitCondorJob(jobDescription):
 def submitCommandAsCondorJob(name, command, stdout=None, stderr=None, log=None,
                         cpus=1, mem=1024, disk=10240,
                         home=None,
-                        proxy=None, 
+                        proxy=None,
                         cmssw_version=None,
                         jobflavour=None):
-    ### submit a single command as a single job
-    # command is a string representing a single command (executable + args)
+    '''Submit a single command, given as one "executable + args" string, as one
+    job.'''
     submitCommandsAsCondorJobs(name, [[command]], stdout=stdout, stderr=stderr, log=log,
             cpus=cpus, mem=mem, disk=disk,
             home=home,
@@ -158,10 +156,12 @@ def submitCommandsAsCondorCluster(name, commands, stdout=None, stderr=None, log=
                         proxy=None,
                         cmssw_version=None,
                         jobflavour=None):
-    ### run several similar commands within a single cluster of jobs
-    # note: each command must have the same executable and number of args, only args can differ!
-    # note: commands can be a list of commands (-> a job will be submitted for each command)
-    
+    '''Run several similar commands as one cluster of jobs, one job per command.
+
+    Every command must share the same executable and the same number of
+    arguments; only the argument values may differ.
+    '''
+
     # parse arguments
     name = os.path.splitext(name)[0]
     shname = makeUnique(name+'.sh')
@@ -193,17 +193,19 @@ def submitCommandsAsCondorCluster(name, commands, stdout=None, stderr=None, log=
     submitCondorJob(jdname)
 
 def submitCommandsAsCondorJob(name, commands, stdout=None, stderr=None, log=None,
-                        cpus=1, mem=1024, disk=10240, 
+                        cpus=1, mem=1024, disk=10240,
                         home=None,
                         proxy=None,
                         cmssw_version=None,
                         jobflavour=None,
                         concurrency_limits=None):
-    ### submit a set of commands as a single job
-    # commands is a list of strings, each string represents a single command (executable + args)
-    # the commands can be anything and are not necessarily same executable or same number of args.
+    '''Submit a list of commands as a single job, run one after another.
+
+    The commands are arbitrary: they need not share an executable or an argument
+    count.
+    '''
     submitCommandsAsCondorJobs(name, [commands], stdout=stdout, stderr=stderr, log=log,
-                        cpus=cpus, mem=mem, disk=disk, 
+                        cpus=cpus, mem=mem, disk=disk,
                         home=home,
                         proxy=proxy,
                         cmssw_version=cmssw_version,
@@ -217,9 +219,10 @@ def submitCommandsAsCondorJobs(name, commands, stdout=None, stderr=None, log=Non
             cmssw_version=None,
             jobflavour=None,
             concurrency_limits=None):
-    ### submit multiple sets of commands as jobs (one job per set)
-    # commands is a list of lists of strings, each string represents a single command
-    # the commands can be anything and are not necessarily same executable or number of args.
+    '''Submit several sets of commands, one job per set.
+
+    commands is a list of lists of command strings; the commands are arbitrary.
+    '''
     for commandset in commands:
         # parse arguments
         name = os.path.splitext(name)[0]
@@ -245,19 +248,16 @@ def concurrency_limit_for_max_running(max_running, name, quota=None):
     concurrency limits: the negotiator gives every named limit a total quota and
     each job consumes a weight of it, so the number of jobs running at once is
     floor(quota / weight). A limit the pool admin has not defined gets the
-    default quota (CONCURRENCY_LIMIT_DEFAULT, 2308032 on lxbatch), so picking a
-    private name and asking for quota/N per job throttles to N without needing
-    anything configured centrally.
+    default quota, so picking a private name and asking for quota/N per job
+    throttles to N without needing anything configured centrally.
 
-    The crucial property, and why this is used here rather than
-    `max_materialize` or DAGMan's -maxjobs: the negotiator enforces it across
-    ALL clusters sharing the name, and this repo submits one cluster per job.
-    (Verified on lxbatch: 6 jobs in 3 clusters with a weight for 2 -> exactly 2
-    running, 4 idle.)
+    The crucial property, and why this is used rather than `max_materialize` or
+    DAGMan's -maxjobs: the negotiator enforces it across all clusters sharing the
+    name, and this repo submits one cluster per job.
 
     The quota is read from the pool rather than hardcoded, since a throttle that
-    silently changes meaning if the admin retunes CONCURRENCY_LIMIT_DEFAULT would
-    be worse than no throttle.
+    silently changes meaning when the admin retunes the default would be worse
+    than no throttle.
     '''
     if max_running is None or max_running <= 0:
         return None
@@ -291,19 +291,16 @@ def makeClusterJobDescription(name, exe, arglists,
       - a SINGLE queue statement with an itemdata list, instead of a repeated
         "arguments = ...; queue" pair per job. That is required for late
         materialization: with repeated queue statements, condor_submit refuses
-        the file outright ("Failed to parse command file") as soon as
-        max_materialize is set.
+        the file outright as soon as max_materialize is set.
       - ONE itemdata variable holding the whole argument string, rather than one
         submit variable per field, so any field may differ between jobs without
-        per-field plumbing (and without depending on how HTCondor splits
-        multi-variable itemdata).
+        per-field plumbing.
 
     max_materialize limits how many of the cluster's jobs EXIST in the queue at
     a time (idle + running), so it also caps how many run; the rest are created
     as earlier ones finish. max_idle instead keeps materializing while fewer
     than that many jobs sit idle, which bounds the queue footprint but NOT the
-    number running. Both verified on lxbatch (HTCondor 25.0): a 6-job cluster
-    with max_materialize = 2 reports TotalSubmitProcs = 6 with 2 procs present.
+    number running.
     '''
     name = os.path.splitext(name)[0]
     fname = name+'.txt'

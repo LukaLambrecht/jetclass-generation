@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 
-'''
-Shared Offline-vs-HLT drawing style for the plotting scripts in this directory.
+'''Shared Offline-against-HLT drawing style for the plotting scripts in this directory.
 
-Exists so the three figure kinds that overlay Offline and HLT stay identical: same
-two colours, same statistical band, same legend keys. plot_particle_pt.py already
-drew a line-plus-band this way; this generalizes it to the step histograms in
-plot_jet_kinematics.py and plot_nparticles.py.
+Exists so that every figure overlaying Offline and HLT looks identical: the same two
+colours, the same statistical band, the same legend keys.
 
-THE BAND is the Poisson uncertainty sqrt(N) on the RAW per-bin count, carried
-through whatever scaling the nominal histogram got. For a density-normalized
-histogram that scaling is 1 / (N_total * bin_width) per bin, applied to the error
-exactly as to the count - so the band is the uncertainty on the plotted quantity,
-not on the raw count. Drawing it means reading raw counts ourselves rather than
-letting ax.hist(density=True) do the normalization internally, which is why these
-helpers take values and bins rather than wrapping ax.hist().
+The band is the Poisson uncertainty on the raw per-bin count, carried through whatever
+scaling the nominal histogram got. For a density-normalized histogram that scaling is
+applied to the error exactly as to the count, so the band is the uncertainty on the
+plotted quantity rather than on the raw count. Drawing it means reading the raw counts
+here rather than letting ax.hist(density=True) normalize internally, which is why these
+helpers take values and bins instead of wrapping ax.hist().
 
-THE LEGEND keys show the line over its band, not a box. matplotlib's default key
-for a step histogram is a rectangle outline, which says nothing about either the
-line or the band; a (Patch, Line2D) tuple drawn through HandlerTuple(ndivide=1)
-overlays them in one key instead. Note ndivide=1, NOT None: None splits the key box
-into one section per handle, which puts the band and the line SIDE BY SIDE; 1 keeps
-a single section so both are drawn over each other, i.e. the line on its band.
+The legend keys show the line over its band rather than a box. matplotlib's default key
+for a step histogram is a rectangle outline, which says nothing about either. A
+(Patch, Line2D) pair through HandlerTuple(ndivide=1) overlays them in one key instead -
+note ndivide=1 and not None, since None would split the key box and put the band and
+the line side by side.
 '''
 
 import os
@@ -41,10 +36,7 @@ LINE_WIDTH = 2
 def poisson_density(vals, bins):
     '''Per-bin (nominal, error) for a density-normalized histogram of `vals`.
 
-    Returns what ax.hist(vals, bins, density=True) would plot, plus the propagated
-    sqrt(N) error. Normalization matches matplotlib's: counts / (N_in_range *
-    bin_width), using the IN-RANGE total, since np.histogram drops values outside
-    the binning and matplotlib normalizes by what it kept.
+    Returns what ax.hist(vals, bins, density=True) would plot, plus the matching error.
     '''
     counts, edges = np.histogram(vals, bins=bins)
     widths = np.diff(edges)
@@ -57,10 +49,9 @@ def poisson_density(vals, bins):
 
 
 def step_band(ax, nominal, err, edges, color, zorder=2):
-    '''Draw one series as a step line with a semitransparent band of +/- err.
+    '''Draw one series as a step line with a semitransparent band of plus or minus err.
 
-    The band is clipped at zero: these are log-y panels and a negative lower edge
-    is meaningless for a count. Returns the (patch, line) pair to put in a legend.
+    The band is clipped at zero, since these are log-y panels.
     '''
     lower = np.clip(nominal - err, a_min=0.0, a_max=None)
     upper = nominal + err
@@ -71,8 +62,10 @@ def step_band(ax, nominal, err, edges, color, zorder=2):
 
 
 def legend_key(color, linewidth=LINE_WIDTH):
-    '''A (band, line) legend handle pair for `color` - see module docstring.
-    `linewidth` should match whatever the panel actually drew.'''
+    '''A (band, line) legend handle pair for `color`.
+
+    `linewidth` should match whatever the panel actually drew.
+    '''
     return (Patch(facecolor=color, alpha=BAND_ALPHA, linewidth=0),
             Line2D([], [], color=color, linewidth=linewidth))
 

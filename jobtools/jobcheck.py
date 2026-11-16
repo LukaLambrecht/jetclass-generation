@@ -3,27 +3,16 @@
 ################################################
 # Check the error and output log files of jobs #
 ################################################
-# Use case:
-#   Use this tool for automated checking of job failures.
-#   The check happens on the basis of the _err_ files
-#   that are created by the condor job scheduler.
-#   Two separate checks are being performed:
-#     - Scan for known error strings, see list below.
-#     - Scan for 'starting' and 'done' tags.
-#   For the latter check to work, your executable must write
-#   the correct tags to stderr at the beginning and at the end of the job.
-#   See existing examples for correct usage.
+# Scans the _err_ files written by the job scheduler and reports how many look
+# like failures. Two independent checks are made:
+#   - the file contains one of a list of known error strings;
+#   - the 'starting' and 'done' tags are both present and balanced, which
+#     requires the job's executable to write those tags to stderr.
 # Usage:
-#   Run 'python jobCheck.py -h' for a list of options.
-#   You can run the script from this directory and specify the job directory in the args,
-#   or alternatively you can run the script from the job directory
-#   (using 'python [path]/jobCheck.py) and leave the directory arg at its default.
-#   If you have sourced the 'source.sh' script in the project's main directory,
-#   you can simply run 'jobCheck [+args]' from anywhere, 
-#   without specifying "python" or the path to this script.
+#   Run 'python jobcheck.py -h' for the options. Either pass the job directory
+#   with --dir, or run it from inside that directory.
 # Note:
-#   Should work for both condor and qsub log files.
-#   The latter has not been used in a long time however, so not sure.
+#   Works for both condor and qsub log files.
 
 
 import sys
@@ -32,23 +21,23 @@ import argparse
 import glob
 
 
-def check_start_done( filename, 
+def check_start_done( filename,
                       starting_tag='###starting###',
                       done_tag='###done###',
                       ntarget=None,
                       verbose=True ):
-    ### check starting and done tags in a file.
-    # returns 0 in case of no errors, which is defined as:
-    #   - at least one starting tag is present in the file.
-    #   - the number of done tags equals the number of starting tags.
-    #   - the number of done tags equals the target number (if provided).
-    # returns 1 in all other cases.
 
     # read the file content
+    """Check the starting and done tags in one log file.
+
+    Returns 0 if the file looks healthy, meaning at least one starting tag is present and
+    the number of done tags equals both the number of starting tags and ntarget, if given.
+    Returns 1 otherwise.
+    """
     f = open(filename)
     filetext = f.read()
     f.close()
-    
+
     # count number of starting tags
     nstarted = filetext.count(starting_tag)
     if(nstarted==0):
@@ -76,11 +65,12 @@ def check_start_done( filename,
 
 
 def check_error_content(filename, contentlist='default', verbose=True):
-    ### check for known error messages in a file.
-    # returns 0 if none of the elements of contentlist is present in the file;
-    # returns 1 otherwise.
 
     # read the file content
+    """Check one log file for known error messages.
+
+    Returns 0 if none of the strings in contentlist occurs in the file, 1 otherwise.
+    """
     f = open(filename)
     filetext = f.read()
     f.close()
@@ -136,7 +126,7 @@ if __name__=='__main__':
     # some more parsing
     if args.ntags is not None: args.ntags = int(args.ntags)
 
-    # find files
+    # find files, for either scheduler's naming convention
     print('finding files...')
     condorpattern = os.path.join(args.dir,'*_err_*')
     qsubpattern = os.path.join(args.dir,'*.sh.e*')
@@ -152,12 +142,12 @@ if __name__=='__main__':
         error_start_done = 0
         error_content = 0
         # error checking
-        if not args.notags: 
+        if not args.notags:
             error_start_done = check_start_done(fname,
                 starting_tag = args.starting_tag,
                 done_tag = args.done_tag,
                 ntarget = args.ntags)
-        if not args.noerrors: 
+        if not args.noerrors:
             error_content = check_error_content(fname)
         if(error_start_done + error_content > 0): nerror += 1
 

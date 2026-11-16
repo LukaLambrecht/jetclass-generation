@@ -1,4 +1,4 @@
-"""Make CMS FullSim run for 2018 using ONLY openly available conditions.
+"""Make CMS FullSim run for 2018 using only openly available conditions.
 
 Applied to any cmsDriver-generated config with
 
@@ -7,50 +7,44 @@ Applied to any cmsDriver-generated config with
 and, for the HLT step, additionally patch_cond.prune_hlt(process).
 
 Nothing here needs a CERN account or CMS membership: the conditions are the two
-open-data condition databases (see fullsim_configs/README.md for where they come
-from and how to copy them anywhere), pointed at by FULLSIM_CONDDB.
+open-data condition databases, pointed at by FULLSIM_CONDDB.
 
-What it does, and why each piece is needed (all found empirically, 2026-10-02):
+What it does, and why each piece is needed:
  1. point the GlobalTag at the open condition sqlite files;
- 2. push snapshotTime into the future: the open 102X snapshot was taken
-    (2018-10-01) BEFORE its own tags were re-inserted (2018-10-30), so with the
-    stored snapshot time CMSSW sees no valid IOV for ANY record - this single
-    setting is the difference between "the 2018 open conditions are unusable"
-    and "everything works";
- 3. fill the gaps of the trimmed 2018 tag from the open 2016 UL MC tag - the
-    2018 snapshot was prepared for MiniAOD analysis and misses simulation
-    payloads (EcalSimPulseShape, SiStripApvSimulationParameters), the e/gamma
-    regressions and the b-tag payloads. Only records the 2018 tag does not have
-    AT ALL are taken from 2016, so no geometry, alignment or channel-status
-    payload ever comes from the wrong year;
- 4. override the PF calibration payloads: the 2018 tag's '...newCodeCompliant'
-    encoding makes PFProducer assert in CMSSW_10_6_30 (offline and HLT). The
-    2018 and 2016 payloads are the same 2017 calibration vintage in two
-    different encodings;
- 5. map SiPixelQuality to the 'forDigitizer' label the digitiser asks for (the
-    snapshot keeps only the default label);
- 6. switch off the 2018 'bad FED channel' simulation
-    (SiPixelStatusScenarioProbabilityRcd is not in the open conditions; these
-    are design conditions, i.e. an ideal detector, anyway);
- 7. drop GEM (no GEMeMapRcd in the open conditions; irrelevant for jets).
+ 2. push snapshotTime into the future, because the open snapshot was taken before its
+    own tags were re-inserted, so with the stored time CMSSW sees no valid IOV for any
+    record at all - this one setting is the difference between the conditions being
+    unusable and everything working;
+ 3. fill the gaps of the trimmed 2018 tag from the open 2016 UL MC tag, since the 2018
+    snapshot was prepared for analysis and misses simulation payloads, the e/gamma
+    regressions and the b-tag payloads. Only records the 2018 tag lacks entirely are
+    taken from 2016, so no geometry, alignment or channel-status payload ever comes
+    from the wrong year;
+ 4. override the PF calibration payloads, whose 2018 encoding makes PFProducer assert;
+    the two years' payloads are the same calibration vintage in different encodings;
+ 5. map SiPixelQuality to the 'forDigitizer' label the digitiser asks for, which the
+    snapshot does not carry;
+ 6. switch off the bad-FED-channel simulation, whose record is not in the open
+    conditions and which is meaningless for design conditions anyway;
+ 7. drop GEM, whose map is not in the open conditions and which is irrelevant for jets.
 
-set_beamspot() fixes a separate, easily-missed problem - see its own docstring.
+set_beamspot() fixes a separate, easily-missed problem; see its own docstring.
 """
 import os
 import math
 import FWCore.ParameterSet.Config as cms
 
-# Where the open condition sqlite files are. The default is the public CVMFS
-# mirror; set FULLSIM_CONDDB to a plain directory holding the same .db files to
-# run somewhere without CVMFS (they are ~1.7 GB in total, see README.md).
+# Where the open condition sqlite files are. The default is the public CVMFS mirror;
+# set FULLSIM_CONDDB to a plain directory holding the same .db files to run somewhere
+# without CVMFS.
 CONDDB = os.environ.get('FULLSIM_CONDDB', '/cvmfs/cms-opendata-conddb.cern.ch')
 GT = '102X_upgrade2018_design_v9'
 GT_FALLBACK = '106X_mcRun2_asymptotic_v17'
 SNAPSHOT = '2030-01-01 00:00:00.000'
 
-# The vertex smearing the GEN step uses. Kept here, rather than in the cmsDriver
-# command line, so that set_beamspot() below can read the ACTUAL numbers out of
-# the corresponding cfi instead of a second, hand-copied set that could drift.
+# The vertex smearing the GEN step uses. Kept here rather than on the cmsDriver
+# command line so set_beamspot() can read the actual numbers out of the matching cfi,
+# instead of a hand-copied second set that could drift.
 BEAMSPOT_NAME = 'Realistic25ns13TeVEarly2018Collision'
 
 # (record, label, tag, source db) overridden explicitly rather than gap-filled
@@ -62,6 +56,7 @@ EXPLICIT = [
 
 
 def _db(name):
+    """Path to one of the open condition sqlite files."""
     return 'sqlite_file:%s/%s.db' % (CONDDB, name)
 
 
@@ -81,6 +76,9 @@ def _gt_map(db):
 
 
 def apply(process):
+    """Point the GlobalTag at the open conditions and apply every fix listed in the module
+    docstring.
+    """
     process.GlobalTag.connect = cms.string(_db(GT))
     process.GlobalTag.snapshotTime = cms.string(SNAPSHOT)
 
@@ -104,8 +102,8 @@ def apply(process):
         print('[patch_cond] %d explicit overrides + %d records gap-filled from %s'
               % (len(EXPLICIT), len(missing), GT_FALLBACK))
     except Exception as e:
-        # Loud, because a silently skipped gap-fill shows up much later as a
-        # missing-record exception in an unrelated-looking module
+        # Loud, because a silently skipped gap-fill surfaces much later as a missing-record
+        # exception in an unrelated-looking module.
         print('[patch_cond] WARNING: could not gap-fill automatically (%s)' % e)
     process.GlobalTag.toGet = cms.VPSet(*toGet)
 
@@ -131,7 +129,7 @@ def remove_module(process, name):
                 pass
 
 
-# kept as the old private name too, since the generator patch used to call it
+# also exposed under the private name, which other patches call it by
 _remove_module = remove_module
 
 
@@ -147,22 +145,18 @@ def simulated_beamspot():
 
 
 def set_beamspot(process, **kw):
-    """Make the RECONSTRUCTED beamspot match the SIMULATED one.
+    """Make the reconstructed beamspot match the simulated one.
 
-    Needed because the open 2018 conditions are DESIGN conditions: their
-    BeamSpotObjects sits at the origin with a 15 um width, while the standard
-    2018 vertex smearing puts collisions 108 um / 417 um away in x / y - i.e. 7
-    and 28 'sigma' off the beam the reconstruction assumes. Offline track
-    selection and primary-vertex clustering use that beamspot, so with the
-    mismatch the hard interaction is split into several low-ndof vertices and
-    EVERY offline impact parameter is measured from a wrong point (median |d0|
-    0.35 mm instead of 0.011 mm, measured on 2 QCD events; the offline vertex
-    also disagrees with the HLT one). HLT tracking is barely affected - its
-    regions are wide enough that it finds the vertex correctly either way - but
-    this is applied in every step, since there is no reason not to.
+    The open 2018 conditions are design conditions, so their beamspot sits at the origin,
+    while the standard 2018 vertex smearing puts collisions some tens of microns away -
+    many sigma off the beam the reconstruction assumes. Offline track selection and
+    primary-vertex clustering use that beamspot, so with the mismatch the hard interaction
+    splits into several low-quality vertices and every offline impact parameter is measured
+    from a wrong point. HLT tracking is barely affected, but this is applied in every step
+    anyway.
 
-    Done with the BeamSpotFakeConditions ESSource, which takes the beamspot from
-    the configuration, so no new condition payload has to be produced.
+    Done with the BeamSpotFakeConditions ESSource, which takes the beamspot from the
+    configuration, so no new condition payload has to be produced.
     """
     p = simulated_beamspot()
     p.update(kw)
@@ -187,15 +181,15 @@ def set_beamspot(process, **kw):
 def prune_hlt(process, keep=('HT410_PFScouting', 'CaloJet40_CaloScouting_PFScouting',
                              'HT250_CaloScouting'),
               drop_endpaths=('HLTAnalyzerEndpath',)):
-    """Keep only the named HLT paths (plus the DIGI/L1/output steps).
+    """Keep only the named HLT paths, plus the DIGI/L1/output steps.
 
-    The GRun menu shipped in CMSSW_10_6_30 is newer than the 2018 L1 menu in the
-    open conditions, so unrelated paths request L1 seeds (Run-3 style names) that
-    do not exist there and the job dies on the first event. The hadronic
-    PF-scouting paths use Run-2 seeds that do exist. Note that the jets we
-    actually ntuplize do NOT come from any of these paths - patch_hlt.py adds
-    its own, unconditional one - these are kept only so that the scouting
-    products are in the file as well, for comparison.
+    The GRun menu shipped in this release is newer than the 2018 L1 menu in the open
+    conditions, so unrelated paths request L1 seeds that do not exist there and the job
+    dies on the first event. The hadronic PF-scouting paths use seeds that do exist.
+
+    The jets actually ntuplized do not come from any of these paths - patch_hlt.py adds
+    its own unconditional one - so these are kept only to have the scouting products in
+    the file for comparison.
     """
     names = {}
     for n, o in list(process.paths_().items()) + list(process.endpaths_().items()):

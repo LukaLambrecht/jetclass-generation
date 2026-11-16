@@ -1,54 +1,39 @@
-// FullSim ntuplizer: writes EXACTLY the same ntuple schema as the Delphes
-// paired ntuplizer (delphes_analyzers/makeNtuplesPaired.C), but from CMSSW
-// AODSIM produced by the fullsim backend (backends/fullsim.sh), so that a
-// downstream training/analysis script works on either backend's output
-// unchanged. One row per selected OFFLINE jet, with its matched HLT jet's
-// content under the parallel `hlt_`-prefixed branches.
+// FullSim ntuplizer: writes the same ntuple schema as the Delphes paired ntuplizer,
+// but from the CMSSW AODSIM the fullsim backend produces, so a downstream script works
+// on either backend's output unchanged. One row per selected offline jet, with its
+// matched HLT jet under the parallel hlt_* branches.
 //
-// The gen-level jet labelling is NOT reimplemented here: this file fills the
-// stand-in classes of StandaloneTypes.h from the CMSSW objects and then calls
-// the very same FatJetMatching used by the Delphes ntuplizers, so the two
-// backends cannot drift apart in how a jet is labelled. See
-// fullsim_analyzers/StandaloneTypes.h for how that works.
+// The gen-level jet labelling is not reimplemented: this fills the stand-in classes of
+// StandaloneTypes.h from the CMSSW objects and calls the same FatJetMatching the
+// Delphes ntuplizers use, so the two backends cannot label a jet differently.
 //
-// What the two sides are, concretely:
-//   offline : `ak8PFJetsCHS` (AODSIM) + `offlinePrimaryVertices`
-//   HLT     : `hltAK8PFJets` + `hltVerticesPFSelector` - the HLT reconstruction
-//             itself, NOT the compressed scouting format (which has no impact
-//             parameters at all in 2018); see fullsim_configs/README.md
-// Constituents are the jets' own reco::PFCandidate daughters on both sides, so
-// each charged one carries a reco::TrackRef and hence real impact parameters.
+// The two sides are:
+//   offline : ak8PFJetsCHS + offlinePrimaryVertices
+//   HLT     : hltAK8PFJets + hltVerticesPFSelector, i.e. the HLT reconstruction
+//             itself rather than the compressed scouting format, which carries no
+//             impact parameters
+// Constituents are the jets' own reco::PFCandidate daughters on both sides, so every
+// charged one carries a track and hence real impact parameters.
 //
-// CONVENTIONS - deliberately the Delphes/JetClass ones, not CMS's, so that the
-// two backends' ntuples are interchangeable (see delphes_cards/KNOWN_ISSUES.md,
-// "Impact parameters: units and sign"):
+// Conventions are deliberately the Delphes/JetClass ones, not CMS's, so the two
+// backends' ntuples are interchangeable (see delphes_cards/KNOWN_ISSUES.md):
 //   *_d0val  = -dxy * 10   (cm -> mm, and CMS's dxy sign is opposite to Delphes' D0)
-//   *_dzval  =  dz  * 10   (cm -> mm), w.r.t. that side's OWN primary vertex
-//   *_d0err/_dzerr = the errors * 10 (no sign flip)
-// So these columns mean the same thing as in our Delphes ntuples and in central
-// JetClass(-II). To get CMS's own convention back: dxy_cm = -d0val/10.
+//   *_dzval  =  dz  * 10   (cm -> mm), w.r.t. that side's own primary vertex
+//   *_d0err/_dzerr = the errors * 10, no sign flip
+// To get CMS's convention back: dxy_cm = -d0val/10.
 //
-// OFFLINE JET SELECTION: pT > 200 GeV, |eta| < 2.4.Same as in the
-// Delphes backend, whose AK8 cards impose the same 200 GeV via their
-// FastJetFinder JetPTMin.
+// Offline jet selection is pT > 200 GeV and |eta| < 2.4, matching the Delphes cards.
+// No requirement is applied to the matched HLT jet, so that a jet HLT lost, or merely
+// reconstructed softer, stays distinguishable.
 //
-// NO pT or eta requirement is applied to the matched HLT jet, deliberately -
-// see makeNtuplesPaired.C's docstring for why a vanished or merely-softer HLT
-// jet must stay distinguishable.
+// jet_sdmass and jet_tau1..4 are not in AODSIM for AK8, and do not exist for HLT jets,
+// so they are computed here from the constituents with fastjet, using the same
+// parameters as the Delphes cards: anti-kT R, SoftDrop beta=0/zcut=0.1/R0=R, and
+// N-subjettiness with NormalizedMeasure(beta=1, R) and OnePass_KT_Axes.
 //
-// jet_sdmass and jet_tau1..4 are not stored in AODSIM for AK8 (and do not exist
-// at all for HLT jets), so they are computed here from the jet's constituents
-// with fastjet, using the SAME parameters as the Delphes cards' FastJetFinder
-// (anti-kT R, SoftDrop beta=0/zcut=0.1/R0=R, N-subjettiness with
-// NormalizedMeasure(beta=1, R) and OnePass_KT_Axes) - see
-// delphes_cards/delphes_card_CMS_JetClassII_onlyFatJet.tcl and Delphes'
-// modules/FastJetFinder.cc for where each of those comes from.
-//
-// Built as a standalone executable (fullsim_analyzers/build.sh), NOT as a ROOT
-// macro: ACLiC works, but the moment FWLite opens the file, cling auto-parses
-// the CMSSW headers and ROOT 6.14 segfaults reverting a transaction that
-// contains a lambda. A compiled binary takes the interpreter out of the picture
-// entirely (and starts faster). Usage:
+// Built as a standalone executable rather than a ROOT macro: under ACLiC the compile
+// works, but the moment FWLite opens a file cling auto-parses the CMSSW headers and
+// segfaults. Usage:
 //   makeNtuplesFullSim in=reco.root out=ntuple.root [key=value ...]
 // see main() at the bottom for the keys.
 
@@ -88,12 +73,12 @@
 
 namespace {
 
-// Substructure of one jet, recomputed from its constituents. Delphes' own
-// FastJetFinder applies SoftDrop/N-subjettiness to the anti-kT jet it just
-// clustered, so the constituents are reclustered here with the same anti-kT R
-// to get a jet that carries a cluster sequence, and the same parameters are
-// then applied to it. Reclustering a jet's own constituents reproduces that
-// jet (up to the rare case of it splitting, where the hardest piece is taken).
+// Substructure of one jet, recomputed from its constituents.
+//
+// SoftDrop and N-subjettiness need a jet carrying a cluster sequence, so the
+// constituents are reclustered with the same anti-kT R before the same parameters
+// Delphes uses are applied. Reclustering a jet's own constituents reproduces that jet,
+// except in the rare case where it splits, and then the hardest piece is taken.
 struct Substructure {
     float sdmass = -999;
     float tau[4] = {-999, -999, -999, -999};
@@ -128,9 +113,8 @@ Substructure computeSubstructure(const std::vector<fastjet::PseudoJet> &parts, d
     return out;
 }
 
-// One jet side (offline or HLT): the constituents as both the stand-in
-// ParticleFlowCandidates the shared filling code wants and the PseudoJets the
-// substructure needs, already pT-ordered.
+// One jet side, offline or HLT: its constituents as both the stand-in candidates the
+// shared filling code wants and the PseudoJets the substructure needs, pT-ordered.
 struct JetContent {
     std::vector<ParticleInfo> particles;
     Substructure substructure;
@@ -145,8 +129,8 @@ JetContent buildJetContent(const reco::PFJet &jet, const reco::Vertex::Point &pv
         // same constituent sanity cuts as the Delphes ntuplizers
         if (cand.pt() <= 0 || std::abs(cand.eta()) > 5 || std::abs(cand.pz()) > 10000) continue;
 
-        // a stack-local stand-in is enough: ParticleInfo copies the values out of
-        // it, it holds no pointer back into it
+        // A stack-local stand-in is enough, since ParticleInfo copies the values
+        // out and keeps no pointer back into it.
         ParticleFlowCandidate pfc;
         pfc.PT = cand.pt();
         pfc.Eta = cand.eta();
@@ -157,8 +141,8 @@ JetContent buildJetContent(const reco::PFJet &jet, const reco::Vertex::Point &pv
         pfc.PID = cand.pdgId();
         const reco::TrackRef trk = cand.trackRef();
         if (trk.isNonnull()) {
-            // cm -> mm, and CMS's dxy has the opposite sign to Delphes' D0 (see
-            // this file's header and delphes_cards/KNOWN_ISSUES.md)
+            // cm -> mm, and CMS's dxy has the opposite sign to Delphes' D0; see
+            // this file's header.
             pfc.D0 = -10. * trk->dxy(pv);
             pfc.DZ = 10. * trk->dz(pv);
             pfc.ErrorD0 = 10. * trk->dxyError();
@@ -173,8 +157,8 @@ JetContent buildJetContent(const reco::PFJet &jet, const reco::Vertex::Point &pv
     return out;
 }
 
-// Greedy nearest-deltaR one-to-one jet matching - same algorithm (and the same
-// reasoning) as makeNtuplesPaired.C's own matchJets(), see its comment there.
+// Greedy nearest-deltaR one-to-one jet matching, the same algorithm
+// makeNtuplesPaired.C uses.
 std::vector<int> matchJets(const std::vector<const reco::PFJet *> &offlineJets,
                            const std::vector<const reco::PFJet *> &hltJets, double drMax) {
     std::vector<int> match(offlineJets.size(), -1);
@@ -217,8 +201,8 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
     TFile *fout = new TFile(outputFile, "RECREATE");
     TTree *tree = new TTree("tree", "tree");
 
-    // Branch list: identical set AND order to makeNtuplesPaired.C's, so the two
-    // backends' ntuples are drop-in replacements for each other
+    // Branch list: the same set and order as makeNtuplesPaired.C's, so the two
+    // backends' ntuples are drop-in replacements for each other.
     std::vector<std::pair<std::string, std::string>> branchList = {
         {"part_px", "vector<float>"},
         {"part_py", "vector<float>"},
@@ -348,23 +332,20 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
         const std::vector<reco::GenParticle> &genParticles = *hGenParticles;
 
         if (offlineVtx.empty()) {
-            // No offline primary vertex: every impact parameter of the event
-            // would be measured from an arbitrary point, so the event is
-            // dropped rather than written with meaningless IPs (counted and
-            // reported at the end).
+            // With no offline primary vertex every impact parameter would be
+            // measured from an arbitrary point, so the event is dropped rather
+            // than written with meaningless values. Counted and reported at the end.
             ++num_no_offline_vtx;
             continue;
         }
         const reco::Vertex::Point offlinePv = offlineVtx[0].position();
 
         // ---- gen particles -> the stand-in array FatJetMatching walks ----
-        // Delphes' convention, reproduced here: M1/M2 and D1/D2 are the FIRST
-        // and LAST index of the mothers/daughters, and getDaughters() walks the
-        // whole range in between (DelphesHepMC2Reader fills them from the HepMC
-        // vertex' in/out particle ranges). reco::GenParticle keeps the HepMC
-        // order, in which a vertex' outgoing particles are consecutive, so the
-        // range is the daughter set - verified by the contiguity counter below,
-        // which is reported if it ever fires.
+        // Delphes' convention, reproduced here: M1/M2 and D1/D2 are the first and
+        // last index of the mothers and daughters, and getDaughters() walks the whole
+        // range between them. reco::GenParticle keeps the HepMC order, in which a
+        // vertex' outgoing particles are consecutive, so that range is the daughter
+        // set. The contiguity counter below checks this and is reported if it fires.
         TObjArray genArray(genParticles.size());
         std::vector<std::unique_ptr<GenParticle>> genOwner;
         genOwner.reserve(genParticles.size());
@@ -414,8 +395,8 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
             hHltVtx.getByLabel(ev, hltVertexCollection.Data());
             hltJets = hHltJets.ptr();
             if (hHltVtx.isValid() && !hHltVtx->empty()) {
-                // the HLT run's OWN primary vertex: HLT dz must be measured
-                // w.r.t. what HLT itself reconstructed, not the offline vertex
+                // The HLT run's own primary vertex: HLT dz must be measured
+                // against what HLT itself reconstructed.
                 hltPv = (*hHltVtx)[0].position();
                 hltUsable = (hltJets != nullptr);
             } else {
@@ -633,8 +614,8 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
         }
     }
 
-    // back to the output file: opening the input file made IT the current
-    // directory, and TTree::Write() writes to whatever that is
+    // Back to the output file: opening the input made it the current directory, and
+    // TTree::Write() writes to whichever that is.
     fout->cd();
     tree->Write();
     std::cerr << TString::Format("** Written %d jets (offline-selected, HLT-matched where possible) from %d events to %s",
@@ -649,10 +630,9 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
                   << std::endl;
     }
     if (num_noncontiguous_daughters) {
-        // Not fatal, but worth knowing: it means FatJetMatching's getDaughters()
-        // (which walks the whole [D1, D2] range) saw particles that are not
-        // actual daughters, exactly as it would on a Delphes file with the same
-        // property. See the gen-particle block above.
+        // Not fatal, but worth knowing: getDaughters() walks the whole [D1, D2]
+        // range, so it saw particles that are not actual daughters. See the
+        // gen-particle block above.
         std::cerr << "** NOTE: " << num_noncontiguous_daughters << " of " << num_gen_particles
                   << " gen particles had a non-contiguous daughter index range" << std::endl;
     }
@@ -662,8 +642,8 @@ void makeNtuplesFullSim(TString inputFile, TString outputFile,
 
 
 // ---------------------------------------------------------------------------
-// Command line: key=value pairs, so the caller (fullsim_configs/run_chain.sh)
-// never has to care about argument ORDER. `in` and `out` are required.
+// Command line: key=value pairs, so the caller never has to care about argument
+// order. `in` and `out` are required.
 // ---------------------------------------------------------------------------
 namespace {
 

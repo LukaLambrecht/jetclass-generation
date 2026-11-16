@@ -1,20 +1,30 @@
 #ifndef ParticleInfo_h
 #define ParticleInfo_h
 
+// Angular helpers and one flat view over the particle types the ntuplizers read.
+
+// Signed phi difference, wrapped into (-pi, pi].
 double deltaPhi(double phi1, double phi2) { return TVector2::Phi_mpi_pi(phi1 - phi2); }
 
+// Angular distance in the (eta, phi) plane.
 double deltaR(double eta1, double phi1, double eta2, double phi2) {
   double deta = eta1 - eta2;
   double dphi = deltaPhi(phi1, phi2);
   return std::hypot(deta, dphi);
 }
 
+// deltaR between any two objects exposing Eta and Phi.
 template <class T1, class T2>
 double deltaR(const T1 &a, const T2 &b) {
   return deltaR(a->Eta, a->Phi, b->Eta, b->Phi);
 }
 
+// One particle's kinematics and identity, built from either a generator particle or
+// a reconstructed candidate, so the ntuplizers can fill their branches from a single
+// type. Fields a given source does not carry keep their zero default: a GenParticle
+// has no impact parameters, and a candidate has no production vertex.
 struct ParticleInfo {
+  // From a generator particle: adds the production vertex, no impact parameters.
   ParticleInfo(const GenParticle *particle) {
     pt = particle->PT;
     eta = particle->Eta;
@@ -33,6 +43,7 @@ struct ParticleInfo {
     t = particle->T;
   }
 
+  // From a reconstructed candidate: adds the impact parameters, no vertex.
   ParticleInfo(const ParticleFlowCandidate *particle) {
     pt = particle->PT;
     eta = particle->Eta;

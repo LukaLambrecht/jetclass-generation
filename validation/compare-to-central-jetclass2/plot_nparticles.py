@@ -1,90 +1,28 @@
 #!/usr/bin/env python3
 
-'''
-Compares the "number of particles per jet" distribution of our own
-JetClass-II production (offline+PU conditions, onlyFatJet card by default)
-to the published JetClass-II dataset (huggingface.co/datasets/jet-universe/
-jetclass2), per class - both for the total particle count and split by
-particle type (charged hadron, neutral hadron, photon, electron, muon).
+'''Compare the "number of particles per jet" distribution of our own JetClass-II
+production to the published JetClass-II dataset, per class, both for the total count
+and split by particle type.
 
-This is the JetClass-II sibling of ../compare-to-central-jetclass/
-plot_nparticles.py - same purpose and house style, but adapted to
-JetClass-II's different data format and class scheme:
+The JetClass-II sibling of ../compare-to-central-jetclass/plot_nparticles.py: same
+purpose and style, adapted to the different data format and class scheme.
 
-- The published dataset ships as .parquet (not .root), grouped into three
-  file families by *topology*, not by physics process: QCD_*.parquet (all
-  27 QCD_* flavor labels mixed together), Res2P_*.parquet (all 15 two-prong
-  resonance flavor labels X_bb..X_tauhtauh mixed together, both neutral and
-  charged X), Res34P_*.parquet (3-/4-prong resonance decays). Every file
-  carries an integer `jet_label` column (0-187) instead of one label per
-  file - see delphes_analyzers/FatJetMatching.h's own `labels_` vector for
-  the authoritative index -> name mapping this mirrors exactly (our own
-  ntuples' `jet_label` branch is `findLabelIndex()`, i.e. the same indices).
-- Per the request that motivated this script: Res34P (3-/4-prong) is out of
-  scope entirely (neither downloaded centrally nor produced by us yet), and
-  QCD is kept as a single combined class (all 27 sub-flavors together, like
-  JetClass-I's single QCD_all). Of the 15 Res2P flavor labels, only the 10
-  "diagonal" ones (X_bb, X_cc, X_ss, X_qq, X_gg, X_ee, X_mm, X_tauhtaue,
-  X_tauhtaum, X_tauhtauh) are plotted - the other 5 (X_bc, X_cs, X_bq, X_cq,
-  X_sq) are flavor-MIXED two-prong decays, physically only reachable from a
-  CHARGED resonance (X+ -> c b~ etc., like a charged-current decay - a
-  neutral resonance's couplings are flavor-diagonal by construction) and we
-  only generate the neutral one (jetclass2/train_higgs2p, not
-  train_higgspm2p) - see CLASS_INFO's own comment. Of the 10 diagonal
-  flavors, X_tauhtaue and X_tauhtaum are further merged into one combined
-  "X_tauhtaul" class/panel (plotting-only grouping - the underlying
-  jet_label values stay exactly as FatJetMatching.h defines them, nothing
-  upstream changes), purely so the whole grid (QCD + 9 Res2P panels = 10
-  classes) fits on 2 rows of 5 instead of 3.
-- Our own production has no per-class files either: jetclass2/train_qcd's
-  ntuples are (almost) purely QCD_*-labelled and jetclass2/train_higgs2p's
-  are a MIX of X_* (fully-merged) and QCD_* (fallback - the same
-  assignQCDLabel fallback used everywhere, see FatJetMatching::qcdLabel())
-  labels, since jetclass2 processing (useV1Labels=false) has no event-level
-  "is_signal" rejection of non-fully-merged jets, unlike jetclass1 (see
-  makeNtuples.C). Concretely this means: the QCD class is sourced from
-  train_qcd only (not train_higgs2p's QCD-fallback jets - a different
-  process with different kinematics, mixing it in would bias the
-  comparison), and the X_* classes are sourced from train_higgs2p only,
-  each selected by its own exact jet_label value(s).
-- Selection window: JetClass-I's published files bake in a hard pT in
-  [500,1000] GeV / |eta|<2 cut (see the sibling script's own SELECTION_*
-  comment); JetClass-II's do not use that window - checking the actual
-  downloaded jet_pt/jet_eta range directly (see plot_jet_kinematics.py's
-  own module docstring) shows a hard floor at pT>200 GeV and |eta|<2.5 (no
-  upper pT bound - JetClass-II spans a broad boosted-jet pT range by
-  design, unlike JetClass-I's narrow analysis window), matching Delphes'
-  own JetPTMin=200 floor and the offline card's own eta acceptance.
-
-Both sources here share almost the exact same branch names by construction
-(our own delphes_analyzers/makeNtuples.C was written to match the published
-"sophon"-style ntuple schema, see jet-universe/jetclass2_generation's own
-README) - the only real translation needed is file format (parquet vs
-root), handled by reading both into an awkward Array via ak.from_arrow()/
-uproot's own library='ak', respectively, so the rest of the pipeline
-(bucketing by class, applying selection, histogramming) is source-agnostic.
-
-Output (one multi-axes "small multiples" figure per quantity, all 10
-classes together, matching the sibling script's own reasoning):
-  nparticles_all_classes.png
-  nparticles_charged_hadron_all_classes.png
-  nparticles_neutral_hadron_all_classes.png
-  nparticles_photon_all_classes.png
-  nparticles_electron_all_classes.png
-  nparticles_muon_all_classes.png
-
-Usage:
-  # default: compares our production (output_jetclass2_1M) against the
-  # locally downloaded partial central JetClass-II sample (see
-  # DEFAULT_CENTRAL_PATH/DEFAULT_OUR_OUTPUT_PATH)
-  python3 plot_nparticles.py
-
-  # a different central download, a different production output
-  python3 plot_nparticles.py --central-path /path/to/JetClass2/data \\
-      --our-output-path /eos/user/l/llambrec/jetclass/output_jetclass2_other
-
-  # just QCD and a couple of flavors, capped statistics (faster)
-  python3 plot_nparticles.py --classes QCD,X_bb,X_cc --max-jets-per-source 100000
+- The published dataset ships as .parquet grouped by topology rather than by physics
+  process, and every file carries an integer jet_label column instead of one label per
+  file. FatJetMatching.h's labels_ vector is the authoritative index-to-name mapping,
+  which our own jet_label branch uses too.
+- The 3- and 4-prong topology is out of scope: neither downloaded nor produced here.
+  QCD is kept as one combined class, as in JetClass-I. Of the two-prong flavour labels
+  only the flavour-diagonal ones are plotted: the mixed ones are reachable only from a
+  charged resonance, and only the neutral one is generated here. The two semi-leptonic
+  ditau classes are merged into one panel, purely so the grid fits on two rows; the
+  underlying labels are untouched.
+- Our own production has no per-class files either. The QCD class is sourced from the
+  QCD process only, not from the signal process' QCD-fallback jets, which have
+  different kinematics and would bias the comparison; the signal classes come from the
+  signal process only, each selected by its own exact label values.
+- JetClass-II's published files do not bake in the narrow pT and |eta| window
+  JetClass-I's do; see plot_jet_kinematics.py for what they actually contain.
 '''
 
 import os
@@ -169,26 +107,24 @@ SELECTION_ETA_MAX = 2.5
 
 
 def selection_mask(jet_pt, jet_eta):
+    '''Boolean mask for the jet pT and |eta| selection, or all-true when it is disabled.
+    '''
     return (jet_pt > SELECTION_PT_MIN) & (np.abs(jet_eta) < SELECTION_ETA_MAX)
 
 
 def our_files(output_path, proc, card):
+    '''The ntuples of our own production for one process.'''
     d = os.path.join(output_path, 'jetclass2', proc, card)
     return sorted(glob.glob(os.path.join(d, 'ntuple_*.root')))
 
 
 def central_files(central_path, prefix):
+    '''The published dataset's files for one topology family.'''
     return sorted(glob.glob(os.path.join(central_path, '{}_*.parquet'.format(prefix))))
 
 
 def read_root(files, branches, max_jets=None):
-    '''
-    Single-pass read of our own ntuples (ROOT, via uproot) into one
-    concatenated awkward record array with fields `branches` - capped at
-    max_jets rows READ (not per eventual class - class bucketing/selection
-    happens afterwards, by bucket_by_class(), since a single file here can
-    feed into up to 15 different output classes). A file that fails to
-    open/read is skipped with a warning rather than aborting.
+    '''Single-pass read of our own ntuples into one concatenated awkward record array.
     '''
     chunks = []
     total = 0
@@ -210,7 +146,7 @@ def read_root(files, branches, max_jets=None):
 
 
 def read_parquet(files, branches, max_jets=None):
-    '''Same semantics as read_root(), but for the published .parquet files, via pyarrow + ak.from_arrow().'''
+    '''read_root()'s counterpart for the published .parquet files.'''
     chunks = []
     total = 0
     for path in files:
@@ -230,14 +166,7 @@ def read_parquet(files, branches, max_jets=None):
 
 
 def bucket_by_class(arr, class_names, apply_selection=True):
-    '''
-    Given a flat awkward record array (jet_label/jet_pt/jet_eta + whatever
-    else) read from ONE source, split it into {class_name: sub-array} for
-    each of `class_names` whose CLASS_INFO label set is a match - after
-    applying the pT/eta selection (default on). A class with no matching
-    jets in this array gets an empty sub-array (not an error - e.g. this
-    array came from train_qcd, so every Res2P class name passed here
-    legitimately gets nothing).
+    '''Split one source's flat record array into the requested classes, by exact label value.
     '''
     jet_pt = ak.to_numpy(arr['jet_pt'])
     jet_eta = ak.to_numpy(arr['jet_eta'])
@@ -252,13 +181,7 @@ def bucket_by_class(arr, class_names, apply_selection=True):
 
 
 def read_all_classes(central_path, our_output_path, our_card, class_names, max_jets_per_source, apply_selection=True):
-    '''
-    Reads every distinct underlying source exactly once (2 central file
-    families - QCD/Res2P - and 2 of our own process directories -
-    train_qcd/train_higgs2p - regardless of how many of the 10 classes are
-    requested, since e.g. all 9 Res2P classes share the same underlying
-    files), then buckets each into its requested class(es). Returns
-    {class_name: (our_sub_array, central_sub_array)}.
+    '''Read every distinct source exactly once and bucket it into the requested classes.
     '''
     central_cache, our_cache = {}, {}
     results = {}
@@ -279,7 +202,7 @@ def read_all_classes(central_path, our_output_path, our_card, class_names, max_j
 
 
 def make_plot(ax, label, our_vals, central_vals, xlabel):
-    '''Same look as ../compare-to-central-jetclass/plot_nparticles.py's own make_plot().'''
+    '''One class' overlaid step-histogram comparison, ours against central.'''
     both = np.concatenate([our_vals, central_vals]) if len(our_vals) and len(central_vals) else \
         (our_vals if len(our_vals) else central_vals)
     if len(both) == 0:
@@ -309,15 +232,7 @@ def make_plot(ax, label, our_vals, central_vals, xlabel):
 
 
 def make_grid(results, classes, key, xlabel, outpath, value_fn):
-    '''
-    One multi-axes ("small multiples") figure, all `classes` together, for
-    `value_fn(sub_array)` of each (ours, central) pair - `value_fn`
-    computes the per-jet quantity from the raw bucketed record array (e.g.
-    jet_nparticles directly, or a summed part_is<Type> count), matching how
-    ../compare-to-central-jetclass/plot_nparticles.py precomputed these as
-    plain columns instead (not possible here without re-reading, since
-    bucketing already happened once for ALL quantities together).
-    '''
+    '''One small-multiples figure with every requested class, for one quantity.'''
     ncols = 5
     nrows = (len(classes) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
@@ -334,14 +249,17 @@ def make_grid(results, classes, key, xlabel, outpath, value_fn):
 
 
 def total_nparticles(arr):
+    '''Total particles per jet.'''
     return ak.to_numpy(arr[NPARTICLES_BRANCH]) if len(arr) else np.array([], dtype=np.int64)
 
 
 def particle_type_count(arr, branch):
+    '''Particles of one type per jet.'''
     return ak.to_numpy(ak.sum(arr[branch], axis=1)) if len(arr) else np.array([], dtype=np.int64)
 
 
 def print_stats(name, source, vals):
+    '''Print each class' mean and median for both datasets.'''
     if len(vals) == 0:
         print('{:<16}{:<24}{:>10}'.format(name, source, 'no data'))
         return

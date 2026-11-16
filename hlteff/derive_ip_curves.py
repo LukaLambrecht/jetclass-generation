@@ -1,52 +1,38 @@
 #!/usr/bin/env python3
 
-'''
-Derive the offline-to-HLT ("scouting") tracking-efficiency ratio as a
-function of the TRANSVERSE IMPACT PARAMETER, on top of the same (|eta|, pT)
-bins as derive_curves.py - i.e. n_matched / n_offline in 3D bins of
-(|eta|, pT, |d0|), per charged category.
+'''Derive the offline-to-HLT tracking-efficiency ratio as a function of the transverse
+impact parameter, in 3D bins of (|eta|, pT, |d0|) per charged category.
 
-Why: HLT tracking barely reconstructs displaced tracks (see
-delphes_cards/KNOWN_ISSUES.md, "HLT tracking efficiency should depend on the
-impact parameters"), which the flat (pT, |eta|) ratio of derive_curves.py
-can only absorb as an average over CMS FullSim's own track population - one
-with far more displaced tracks (material interactions, conversions, V0s)
-than Delphes has. Delphes efficiency formulas can use `d0`
-(classes/DelphesFormula.cc), and D0 is already set by ParticlePropagator
-when the *TrackingEfficiency modules run, so a d0-dependent HLT efficiency
-is expressible at card level. `dz` is also accepted by the formula, but in
-Delphes it is the ABSOLUTE z of closest approach (the primary vertex z is
-not available inside a formula), so the z dependence cannot be expressed
-the same way - it is measured here only as a side study (dz_acceptance, for
-prompt tracks), to choose a z window that generate_hlt_card.py can emulate
-via TrackPileUpSubtractor instead.
+HLT tracking barely reconstructs displaced tracks, which the flat (pT, |eta|) ratio of
+derive_curves.py can only absorb as an average over FullSim's own track population -
+one with far more displaced tracks than Delphes has. Delphes efficiency formulas can
+use `d0`, which ParticlePropagator has already set by the time the tracking-efficiency
+modules run, so a d0-dependent HLT efficiency is expressible at card level.
 
-Method (as derive_curves.py): same input, same fj_isQCD selection, same
-greedy deltaR matching (match_jet(), --dr-max) of offline cpfcandlt_* to
-scouting scoutpfcand_* candidates of the same category, in the same jet.
-The matching itself runs on ALL offline candidates of the category (so
-the assignment is identical to derive_curves.py); only the COUNTING below
-applies the extra selection. The offline side's |dxy| (cm -> mm) is the
-|d0| variable.
+`dz` is also accepted by a formula, but in Delphes it is the absolute z of closest
+approach, with no access to the primary vertex z, so the z dependence cannot be
+expressed the same way. It is measured here only as a side study, to choose a z window
+generate_hlt_card.py can emulate through TrackPileUpSubtractor instead.
 
-Denominator selection (differs from derive_curves.py, which counts every
-offline candidate):
-  - lost tracks (cpfcandlt_isLostTrack) are excluded: they are offline
-    tracks without a PF candidate, which has no equivalent in Delphes, so
-    they must not dilute the efficiency applied to Delphes tracks;
-  - pile-up-like tracks, i.e. PROMPT (|dxy| < --pu-like-dxy) but far from
-    the offline primary vertex in z (|dz| > --pu-like-dz), are excluded:
-    HLT drops those because of its limited z acceptance around the leading
-    vertex (see dz_acceptance), not because of their d0, and Delphes
-    handles pile-up tracks separately (by truth, see generate_hlt_card.py).
+Method as in derive_curves.py: same input, same selection, same greedy deltaR matching
+of offline to scouting candidates of the same category in the same jet. The matching
+runs on all offline candidates of the category, so the assignment is identical to
+derive_curves.py; only the counting applies the extra selection below. The offline
+side's |dxy| is the |d0| variable.
 
-Assumption (needed to use the ratio as a multiplicative factor on the
-offline Delphes efficiency, which does not depend on d0): the OFFLINE
-tracking efficiency is uniform in d0 within each (|eta|, pT) bin.
+The denominator differs from derive_curves.py, which counts every offline candidate:
+  - lost tracks are excluded, being offline tracks without a PF candidate, which has
+    no Delphes equivalent and must not dilute the efficiency applied to Delphes tracks;
+  - pile-up-like tracks, prompt but far from the primary vertex in z, are excluded,
+    since HLT drops those for its limited z acceptance rather than for their d0, and
+    Delphes handles pile-up tracks separately, by truth.
 
-Output: a JSON file (default hlteff/curves_ip_qcd.json), consumed by
-generate_hlt_card.py --ip-curves and plotted by plot_ip_curves.py. Does not
-touch curves_qcd.json or any Delphes card.
+Using the ratio as a multiplicative factor on an offline efficiency that does not
+depend on d0 assumes the offline tracking efficiency is uniform in d0 within each
+(|eta|, pT) bin.
+
+Output: a JSON file consumed by generate_hlt_card.py --ip-curves and plotted by
+plot_ip_curves.py. Neither curves_qcd.json nor any Delphes card is touched.
 
 Usage:
   python derive_ip_curves.py [--input-dir DIR] [--n-files N] [--max-jets N]
@@ -69,9 +55,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from binning import PT_EDGES, ETA_EDGES
 from derive_curves import DEFAULT_INPUT_DIR, CATEGORIES, CM_TO_MM, match_jet, wrap_phi
 
-# |d0| bin edges in mm (last bin open-ended). Below ~0.05 mm the offline
-# measurement is resolution-dominated, and HLT efficiency is flat there
-# anyway, so the first bin is simply "prompt".
+# |d0| bin edges in mm, the last one open-ended. Below the first edge the offline
+# measurement is resolution-dominated and the HLT efficiency is flat anyway, so that
+# bin is simply "prompt".
 D0_EDGES = [0.0, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 1e9]
 
 # |dz| bin edges in mm for the z-acceptance side study (prompt tracks only)
@@ -95,6 +81,7 @@ def bin_index(values, edges):
 
 
 def main():
+    '''Read the reference ntuples, fill the 3D count grids, and write the ratios.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input-dir', default=DEFAULT_INPUT_DIR)
@@ -189,11 +176,15 @@ def main():
     print('Total jets processed: {} in {:.1f}s'.format(n_jets_done, time.time() - t0))
 
     def ratio(num, den):
+        '''num / den, with non-finite results replaced by NaN.'''
         with np.errstate(invalid='ignore', divide='ignore'):
             r = num / den
         return np.where(np.isfinite(r), r, np.nan)
 
     def to_list(a):
+        '''Convert an array to nested lists, mapping non-finite values to None so the result is
+        JSON-serializable.
+        '''
         return [None if not np.isfinite(v) else float(v) for v in a.ravel()] if a.ndim == 1 else [to_list(x) for x in a]
 
     result = {

@@ -1,41 +1,34 @@
 #!/usr/bin/env python3
 
-'''
-Merge a production's per-job ntuples into a few large ones, with hadd.
+'''Merge a production's per-job ntuples into a few large ones, with hadd.
 
-WHY: a full round leaves ~10,000 files of a few MB each (CRAB writes one per job,
-and splits them over 0000/, 0001/, ... counter directories of 1000). Every
-downstream tool then pays a per-file cost that has nothing to do with the amount
-of data: validation/print_njets.py needs ~60 s for the QCD set purely in uproot's
-own per-file Python work, and the plotting scripts, which open the same files
-again per plot, cost correspondingly more. Merging to ~2 GB files cuts the file
-count by two or three orders of magnitude and most of that overhead with it.
+A full round leaves thousands of files of a few MB each, since CRAB writes one per job
+and splits them over counter directories. Every downstream tool then pays a per-file
+cost unrelated to the amount of data, which dominates the runtime of the validation and
+plotting scripts. Merging to ~2 GB files removes most of that.
 
-WHAT IT PRODUCES: the merged files are written to a SEPARATE --dest tree, in the
-layout every reader in this repo already understands -
+The merged files go to a separate --dest tree, in the layout every reader here already
+understands:
 
     <dest>/<family>/<proc>/<card>/ntuple_merged_<i>.root
 
-so validation/print_njets.py --output-path <dest> and the compare-hlt-to-offline
-scripts work on it unchanged. Nothing under --input is touched or deleted; check
-the merged output before removing the originals (and see --verify).
+so the validation scripts work on it unchanged. Nothing under --input is touched;
+check the output, and see --verify, before removing the originals.
 
-GROUPING: one group per process, EXCEPT that a real card is never merged away.
-  * CRAB layout, <family>/<proc>/<timestamp>/<counter>/ - the timestamp and the
-    counter are bookkeeping, not physics, so everything for a process is merged
-    together, including across several tasks for the same process (e.g. an
-    original task plus a later top-up). The output card is --card-name.
+Grouping is one group per process, except that a real card is never merged away:
+  * CRAB layout, <family>/<proc>/<timestamp>/<counter>/ - timestamp and counter are
+    bookkeeping, not physics, so everything for a process is merged together, across
+    several tasks if need be. The output card is --card-name.
   * local layout, <family>/<proc>/.../<card>/ - <card> is a real detector
-    configuration (fullsim_offline+hlt, onlyFatJet+onlyFatJetHLT, ...). Those are
-    different datasets and are merged separately, each keeping its own card.
+    configuration, so those are different datasets, merged separately, each keeping
+    its own card.
 
-MODES:
-  --mode local    hadd each output file one after another, in this terminal.
-  --mode condor   one condor job per output file, all submitted at once.
-                  Re-running only skips outputs that already EXIST on disk, so check
-                  the queue before resubmitting - a merge still in flight has not
-                  written its output yet and would get a duplicate job.
-Both run exactly the same hadd commands; --dry-run prints them and does nothing.
+Modes:
+  --mode local    hadd each output file in turn, in this terminal.
+  --mode condor   one condor job per output file, all submitted at once. Re-running
+                  skips only outputs that already exist on disk, so check the queue
+                  first: a merge still in flight would get a duplicate job.
+Both run the same hadd commands; --dry-run prints them and does nothing.
 
 Usage:
   python postprocess.py --input /eos/user/l/llambrec/jetclass/output_jetclass2sb_4M --dry-run
@@ -64,33 +57,32 @@ DEFAULT_CARD_NAME = 'merged'
 DEFAULT_TARGET_GB = 2.0
 BYTES_PER_GB = 1e9
 
-# A CRAB output directory is <outLFNDirBase>/<primaryDataset>/<datasetTag>/<timestamp>/
-# <counter>/, with the timestamp as YYMMDD_HHMMSS and the counter as four digits.
-# Matching both is what distinguishes it from a local production, whose last path
-# component is a real detector card - see GROUPING in the module docstring.
+# A CRAB output directory ends in <timestamp>/<counter>/, with the timestamp as
+# YYMMDD_HHMMSS and the counter as four digits. Matching both is what distinguishes
+# it from a local production, whose last component is a real detector card.
 CRAB_TIMESTAMP_RE = re.compile(r'^\d{6}_\d{6}$')
 CRAB_COUNTER_RE = re.compile(r'^\d{4}$')
 
-# hadd comes from ROOT. lxplus and lxbatch el9 nodes have one on PATH already; if not,
-# fall back to the LCG view INSTALL.md uses for the Delphes backend. Kept as a shell
-# fragment because it has to run inside the condor job too, not just here.
+# hadd comes from ROOT. el9 nodes usually have one on PATH; if not, fall back to the
+# LCG view INSTALL.md uses. Kept as a shell fragment because it has to run inside the
+# condor job too, not only here.
 ROOT_SETUP = ('command -v hadd >/dev/null 2>&1 || '
               'source /cvmfs/sft.cern.ch/lcg/views/LCG_104/x86_64-el9-gcc13-opt/setup.sh'
               ' >/dev/null 2>&1')
 
-# Scratch directory for a CONDOR merge. NOT '.': jobtools/condortools.py's
-# initJobScript() makes every job `cd` back to the submission directory, which lives
-# on EOS, so a relative path would have hadd write its (multi-GB) temporary straight
-# onto EOS over fuse - slow, and it drops the write-then-copy safety this relies on.
-# HTCondor sets _CONDOR_SCRATCH_DIR to the job's own directory on the worker node's
-# local disk, which is what we want.
+# Scratch directory for a condor merge, deliberately not '.': condortools makes every
+# job cd back to the submission directory, which is on EOS, so a relative path would
+# have hadd write its multi-GB temporary onto EOS and lose the write-then-copy safety
+# this relies on. HTCondor points _CONDOR_SCRATCH_DIR at local disk on the worker.
 CONDOR_SCRATCH = '${_CONDOR_SCRATCH_DIR:-.}'
 
 
 def discover(input_path, procs=None):
-    '''Map group -> sorted list of input files. A group is (family, proc, card,
-    outdir_rel): the first three for reporting, the last being where the merged
-    output goes relative to --dest.'''
+    '''Map group -> sorted list of input files.
+
+    A group is (family, proc, card, outdir_rel): the first three for reporting, the last
+    being where the merged output goes relative to --dest.
+    '''
     groups = defaultdict(list)
     pattern = os.path.join(input_path, '**', NTUPLE_GLOB)
     for path in glob.glob(pattern, recursive=True):
@@ -115,8 +107,10 @@ def discover(input_path, procs=None):
 
 
 def plan_chunks(files, target_bytes):
-    '''Split files into chunks of at most target_bytes of input, never splitting a
-    file. A single file larger than the target gets a chunk to itself.'''
+    '''Split files into chunks of at most target_bytes of input, never splitting a file.
+
+    A single file larger than the target gets a chunk to itself.
+    '''
     chunks, cur, cur_size = [], [], 0
     for f in files:
         try:
@@ -134,10 +128,12 @@ def plan_chunks(files, target_bytes):
 
 
 def hadd_command(out_path, inputs, tmpdir):
-    '''The shell commands that produce one merged file. hadd writes to a scratch
-    file first and the result is moved into place only on success, so an
-    interrupted or failed merge never leaves a half-written ntuple under --dest
-    that later looks like a valid input.'''
+    '''The shell commands that produce one merged file.
+
+    hadd writes to a scratch file and the result is moved into place only on success, so an
+    interrupted merge never leaves a half-written ntuple under --dest that would later look
+    like a valid input.
+    '''
     tmp = os.path.join(tmpdir, os.path.basename(out_path))
     return [
         ROOT_SETUP,
@@ -149,8 +145,9 @@ def hadd_command(out_path, inputs, tmpdir):
 
 
 def abbreviate(cmds, keep=2):
-    '''The hadd line carries every input path, which for a 600-file merge is tens of
-    kilobytes - useless to read. Show the first few and say how many follow.'''
+    '''Shorten a long input list for logging: show the first few paths and say how many
+    follow.
+    '''
     out = []
     for c in cmds:
         if c.startswith('hadd '):
@@ -163,10 +160,12 @@ def abbreviate(cmds, keep=2):
 
 
 def format_bytes(n):
+    '''Human-readable size, in GB or MB.'''
     return '{:.1f} GB'.format(n / BYTES_PER_GB) if n >= BYTES_PER_GB else '{:.0f} MB'.format(n / 1e6)
 
 
 def main():
+    '''Discover the inputs, plan the merges, and run or submit them.'''
     parser = argparse.ArgumentParser(
         description='hadd a production\'s per-job ntuples into a few large ones.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -299,7 +298,8 @@ def main():
 
 
 def verify_one(out_path, inputs):
-    '''Reopen a merged file and check its entry count against the sum over its inputs.'''
+    '''Reopen a merged file and check its entry count against the sum over its inputs.
+    '''
     try:
         import uproot
         with uproot.open(out_path) as f:

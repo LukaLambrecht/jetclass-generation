@@ -2,47 +2,38 @@
 #
 # Submit the REFERENCE two-prong signal (jetclass2sb/train_higgs2p) to CRAB.
 #
-# This is the counterpart of submit_production_qcd.sh: both halves of the sample then
-# come from the reference production's own cards, at 13 TeV with the 13 TeV CP5 tune.
-# It replaces submit_production_higgs2p.sh (jetclass2/train_higgs2p), which generates a
-# DIFFERENT process - non-resonant HEFT p p > h h with a pT cut, Pythia's Monash
-# default, and no H -> b sbar decay at all. See gen_configs/jetclass2sb/train_higgs2p/
-# for what changed and why.
+# The counterpart of submit_production_qcd.sh, so that both halves of the sample come
+# from the reference production's own cards, at 13 TeV with the 13 TeV CP5 tune. The
+# jetclass2 signal submitter generates a different process: non-resonant HEFT p p > h h
+# with a pT cut, Pythia's default tune, and no H -> b sbar decay.
 #
-# SETTINGS ARE DELIBERATELY IDENTICAL to the jetclass2 signal round, so the two are
-# comparable: 4000 jobs x 500 events = 2,000,000 events, which there yielded 3.22M jets
-# (~1.61 jets/event). Both Higgses are produced per event here too, so the jet yield
-# should land in the same place - but it has NOT been measured for this process, and
-# the runtime per event has not either. Treat the first round as the measurement.
+# Settings are deliberately identical to the jetclass2 signal round, so the two are
+# comparable. Neither the jet yield nor the runtime per event has been measured for
+# this process, so treat the first round as the measurement.
 #
-# PREREQUISITES beyond the QCD side:
-#   * the MG5 tarball on EOS, which jobs fetch per job (crab/make_mg5_tarball.sh).
-#     It must contain NNPDF31_nnlo_as_0118 - this process asks for it both as the
-#     matrix-element PDF (lhaid 303600) and through CP5's PDF:pSet.
-#   * the UFO model, which ships inside the simpack from
-#     gen_configs/jetclass2sb/train_higgs2p/model/ (build_simpack.py copies
-#     subdirectories, not just files - a silently missing model fails on the worker).
+# Prerequisites beyond the QCD side:
+#   * the staged MG5 tarball, which jobs fetch per job. It must contain
+#     NNPDF31_nnlo_as_0118, which this process asks for both as the matrix-element PDF
+#     and through CP5's PDF:pSet.
+#   * the UFO model, which ships inside the simpack from the process' own model/
+#     directory. build_simpack.py copies subdirectories for exactly this reason: a
+#     silently missing model fails on the worker.
 #
-# Build and submit the two-prong Higgs signal (jetclass2sb/train_higgs2p) as ONE CRAB task.
-#
-# HOW THIS DIFFERS FROM THE QCD SUBMITTER
-# ---------------------------------------
-# QCD (jetclass2sb) is ten pThat bins that must carry EQUAL events per bin to keep the
-# jet pT spectrum flat. The signal is a single process, so there is no mixture to
-# preserve and no per-bin table - just one task.
+# Unlike the QCD submitter, which runs ten pThat bins that must carry equal events per
+# bin to keep the jet pT spectrum flat, the signal is a single process: no mixture to
+# preserve, no per-bin table, one task.
 #
 # It is also a hepmc process, not a CMSSW fragment: MadGraph5 generates an LHE for a
-# randomly drawn (Higgs mass, pT_min) point from the 4900-point grid in
-# gen_configs/jetclass2sb/train_higgs2p/mg5_params.dat, Pythia8 showers it to
-# events.hepmc, and only then does CMSSW reconstruct. run_gen.sh re-draws that point on
-# every batch, so the scan is sampled independently throughout the production.
+# randomly drawn mass point from the grid in the process' mg5_params.dat, Pythia8
+# showers it to events.hepmc, and only then does CMSSW reconstruct. run_gen.sh draws a
+# fresh point every batch, so the scan is sampled independently throughout.
 #
-# Consequences handled by run_job.sh, not here:
-#   * generation runs in an EL9 container, CMSSW in EL7 - MG5 is built against glibc
-#     2.34 and will not start under SLC7;
-#   * MG5 itself (~363 MB compressed) is fetched per job from
-#     crab/make_mg5_tarball.sh's staged tarball, since it is far over the CRAB sandbox
-#     limit and the CVMFS copy is a different major version.
+# Two consequences, both handled by run_job.sh rather than here:
+#   * generation runs in an EL9 container and CMSSW in EL7, since MG5 will not start
+#     under SLC7;
+#   * MG5 is fetched per job from the tarball crab/make_mg5_tarball.sh stages, being
+#     far over the CRAB sandbox limit while the CVMFS copy is a different major
+#     version.
 #
 # SIZING: 4000 jobs x 500 events = 2,000,000 events. The 630k trial yielded 32.9%
 # non-QCD ("useful") jets, so this targets roughly 1.5M useful jets.

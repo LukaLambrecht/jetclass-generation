@@ -1,21 +1,20 @@
 #ifndef StandaloneTypes_h
 #define StandaloneTypes_h
 
-// Minimal stand-ins for the handful of Delphes classes the SHARED ntuplizer
-// headers need, so that delphes_analyzers/FatJetMatching.h, ParticleInfo.h and
-// ParticleID.h can be reused verbatim by a ntuplizer that has no Delphes at all
-// (fullsim_analyzers/makeNtuplesFullSim.C, which reads CMSSW AODSIM instead).
+// Minimal stand-ins for the few Delphes classes the shared ntuplizer headers need, so
+// that delphes_analyzers/FatJetMatching.h, ParticleInfo.h and ParticleID.h can be
+// reused verbatim by makeNtuplesFullSim.cc, which has no Delphes and reads CMSSW
+// AODSIM instead.
 //
-// The only field set that matters is the one those three headers actually touch:
+// Only the fields those three headers actually touch need to exist:
 //   GenParticle:              PID Status M1 M2 D1 D2 PT Eta Phi Mass Charge X Y Z T P4()
 //   ParticleFlowCandidate:    PID Charge PT Eta Phi Mass D0 ErrorD0 DZ ErrorDZ
 //   Jet:                      PT Eta Phi Mass P4()
 //
-// TObject base: FatJetMatching::getLabel() takes the gen-particle collection as
-// a TObjArray (a TClonesArray IS-A TObjArray, so the Delphes callers are
-// unaffected), which stores TObject*. Deriving from TObject is enough for
-// TObjArray; no ROOT dictionary is needed, since these objects are never
-// written to a file - they only ever live for the duration of one event.
+// They derive from TObject because FatJetMatching::getLabel() takes the gen-particle
+// collection as a TObjArray, which stores TObject*. A TClonesArray is itself a
+// TObjArray, so the Delphes callers are unaffected. No ROOT dictionary is needed,
+// since these objects are never written to a file and live only for one event.
 
 #include <cmath>
 #include "TObject.h"

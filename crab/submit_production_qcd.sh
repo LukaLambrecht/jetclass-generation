@@ -5,37 +5,20 @@
 # Signal (jetclass2/train_higgs2p) is NOT handled here - it is a hepmc process needing
 # MadGraph5+Pythia8 before CMSSW; see crab/README.md.
 #
-# THE INVARIANT: njobs x nev/job = 200,000 for EVERY bin. That equal events-per-bin is
-# what makes the jet pT spectrum flat (see gen_configs/jetclass2sb/README.md). Job size
-# varies per bin only because per-event cost rises with pThat; njobs moves the opposite
-# way to compensate. Change one without the other and you skew the mixture.
+# The invariant: njobs x nev/job must be the same for every bin. Equal events per bin
+# is what makes the jet pT spectrum flat. Job size varies per bin because the per-event
+# cost rises with pThat, and njobs moves the opposite way to compensate; change one
+# without the other and the mixture is skewed.
 #
-# SIZING: p90 job time ~7-8 h, from the marginal per-event cost measured on the
-# completed 2026-10-09 lxplus round (its p90 job times with the fixed costs removed,
-# so they stay valid at a different job size).
+# Sized for a p90 job time of 7-8 h rather than something shorter, because the
+# conditions fetch is per job and not per event: halving the job length would nearly
+# double the volume pulled from a public service, for about 5% less CPU. CRAB's
+# automatic retries also cover most of what short jobs would buy, and there is no
+# checkpointing on this path, so a killed job loses its batches either way.
 #
-# WHY 8 h AND NOT 4 h. Shorter jobs are tempting now that CRAB makes job count cheap,
-# but the ~1.67 GB conditions fetch is per JOB, not per event:
-#
-#     target p90   jobs     CPU        conditions transfer
-#     4 h          14,250   37,014 h   23.8 TB
-#     8 h           7,000   35,157 h   11.7 TB      <- this table
-#
-# 4 h costs ~5% more CPU (the ~600 s of fixed overhead - scram build, conditions fetch,
-# cmsRun startups - spread over fewer events) AND doubles the pull from eospublic, a
-# public service. CRAB also retries failed jobs automatically, which is most of what
-# short jobs would otherwise buy. 8 h is additionally what CRAB itself aims for.
-#
-# REVISIT IF the site probe (site-probe/) comes back mostly CVMFS_OK: those sites fetch
-# nothing, the transfer argument disappears, and 4 h costs only the 5% CPU. Then halve
-# every nev/job and double every njobs in TABLE below - both, or the mixture skews.
-#
-# NOTE: there is no checkpointing on the CRAB path (run_job.sh merges at the end), so a
-# killed job loses its batches. CRAB's automatic retries replace that, which is fine
-# unless jobs are SYSTEMATICALLY over the limit - another reason not to push length.
-#
-# Expected: 7,000 jobs, 2,000,000 events, ~3.89M jets, ~35,000 CPU-h, ~11.7 TB fetched
-# from eospublic (zero for jobs landing on sites that mount the conditions on CVMFS).
+# Worth revisiting if the site probe shows most sites mount the conditions on CVMFS:
+# those fetch nothing, and the transfer argument disappears. Halve every nev/job and
+# double every njobs in the table below - both, or the mixture skews.
 #
 # USAGE
 #   voms-proxy-init -voms cms -valid 192:00

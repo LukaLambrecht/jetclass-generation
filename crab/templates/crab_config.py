@@ -19,19 +19,19 @@ config.Data.outputPrimaryDataset = '__PRIMARYDS__'
 config.Data.outputDatasetTag     = '__DATASETTAG__'
 
 config.JobType.pluginName  = 'PrivateMC'
-# a formal requirement even though scriptExe replaces it; it is also where CRAB reads
-# the output file name from - keep 'ntuple.root' in sync with run_job.sh
+# A formal requirement even though scriptExe replaces it, and where CRAB reads the
+# output file name from - keep 'ntuple.root' in sync with run_job.sh.
 config.JobType.psetName    = 'pset.py'
 config.JobType.scriptExe   = 'run_in_container.sh'
 config.JobType.scriptArgs  = ['events=__NEVENTS__', 'batch=__BATCH__']
-# What gets shipped to the worker node. For a production simpack this is run_job.sh
-# plus the 'payload' DIRECTORY (chain configs, patches, ntuplizer sources - CRAB ships
-# directories recursively). The site probe has no payload at all, so it must not ask
-# for one: CRAB refuses to submit if a listed input file does not exist.
+# What gets shipped to the worker node: for a production simpack, run_job.sh plus
+# the 'payload' directory, which CRAB ships recursively. The site probe has no
+# payload, and must not ask for one, since CRAB refuses to submit when a listed
+# input file does not exist.
 config.JobType.inputFiles  = __INPUTFILES__
-# Deliberately NOT set: ntuple.root is declared by the TFileService in pset.py, so
-# CRAB already collects it (as CRAB_TFileOutputFiles). JobType.outputFiles is for
-# files CRAB cannot infer, and listing it here as well double-counts it.
+# Deliberately not set: ntuple.root is declared by the TFileService in pset.py, so
+# CRAB already collects it. JobType.outputFiles is for files CRAB cannot infer, and
+# listing it here too double-counts it.
 # config.JobType.outputFiles = ['ntuple.root']
 # CRAB refuses a 1-core task above 3000 MB; measured peak usage is ~1.4 GB
 config.JobType.maxMemoryMB    = __MEMORY__

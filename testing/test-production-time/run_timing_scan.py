@@ -1,43 +1,16 @@
 #!/usr/bin/env python3
 
-'''
-Timing scan: submit one condor job per (process, NEVENT) pair, each running
-the full run.sh chain (gen + Delphes + ntupling, i.e. the "delphes"
-backend), timing the whole run.sh
-call with the bash builtin `time`, and appending
-"NEVENT=... JOBNUM=... elapsed_sec=... njets=... size_bytes=... rc=..." to
-that process's own results file once the job finishes. njets is the number
-of entries in the output ntuple's "tree" (one entry per jet, per
-makeNtuples.C); size_bytes is that same ntuple file's size on disk - both
-measured *after* elapsed_sec has already been captured, so neither inflates
-the timing measurement; both are -1 if run.sh failed or the ntuple is
-missing. Used to check how per-job runtime (and jet yield, and output size)
-scales with the number of events requested, and whether that scaling is
-similar across processes - see README.md in this directory for the results
-and conclusions.
+'''Timing scan: submit one condor job per (process, NEVENT) pair, each running the full
+run.sh chain and timing it.
 
-All jobs (every process x every NEVENT value) are independent and run in
-parallel; each writes its own detector output under --output-path (a
-directory kept completely separate from routine production output - see
---output-path's help) and its own line to its process's results file
-(--results-template) once done, so partial results can be inspected before
-every job has finished.
+Each job appends a line of NEVENT, JOBNUM, elapsed_sec, njets, size_bytes and rc to its
+process' own results file. njets is the number of entries in the output ntuple, one per
+jet, and size_bytes is that file's size on disk. Both are measured after the elapsed
+time has been captured, so neither inflates it, and both are -1 if run.sh failed or the
+ntuple is missing.
 
-Usage:
-  # the single-process scan behind this directory's original README.md findings
-  python3 run_timing_scan.py --procs HToBB --nevents 10,20,50,100,200,500,1000,2000,5000,10000
-
-  # the same scan repeated for all 10 jetclass1 processes (100 jobs total) -
-  # one results file per process, e.g. timing_results_HToBB.txt, timing_results_HToCC.txt, ...
-  python3 run_timing_scan.py --procs HToBB,HToCC,HToGG,HToWW2Q1L,HToWW4Q,TTBar,TTBarLep,WToQQ,ZJetsToNuNu,ZToQQ \\
-      --nevents 10,20,50,100,200,500,1000,2000,5000,10000
-
-  # jetclass2 processes work the same way - bare "train_*" names are enough
-  # (see normalize_proc()); --card should match whatever card the real
-  # production actually uses (jetclass2's own production runs "onlyFatJet",
-  # WITH pileup, unlike jetclass1's DEFAULT_CARD "onlyFatJetNoPU" here)
-  python3 run_timing_scan.py --procs train_qcd,train_higgs2p --card onlyFatJet \\
-      --nevents 10,20,50,100,200,500,1000,2000,5000,10000
+Used to check how per-job runtime, jet yield and output size scale with the number of
+events requested, and whether that scaling is similar across processes.
 '''
 
 import os
@@ -52,9 +25,9 @@ import condortools as ct
 DEFAULT_NEVENTS = '10,20,50,100,200,500,1000,2000,5000,10000'
 DEFAULT_PROCS = 'HToBB'
 DEFAULT_CARD = 'onlyFatJetNoPU'
-# deliberately NOT output_test (the routine-production output directory) -
-# run.sh's optional 6th positional arg points it here instead, so these
-# throwaway timing runs never mix into real output (see run.sh's own docstring)
+# Deliberately not the routine-production output directory: run.sh's optional output
+# argument points here instead, so these throwaway timing runs never mix into real
+# output.
 DEFAULT_OUTPUT_PATH = '/eos/user/l/llambrec/jetclass/output_timing_test'
 DEFAULT_CONDOR_DIR = os.path.join(THISDIR, 'condor')
 # {proc} is substituted with each process's short name, e.g. HToBB - so
@@ -66,24 +39,7 @@ NTUPLE_TREE_NAME = 'tree'  # see makeNtuples.C: one entry per jet
 
 
 def normalize_proc(proc):
-    '''
-    Accepts either family:
-      - jetclass1: "HToGG", "jetclass1/HToGG", or "jetclass1/HToGG/precompiled"
-      - jetclass2: "train_qcd", "jetclass2/train_qcd"
-    Returns (short, full) where short (e.g. "HToGG"/"train_qcd") is used for
-    filenames/job names and full is run.sh's own PROC positional arg 1 -
-    "jetclass1/<short>/precompiled" for jetclass1 (the gridpack-based mode
-    this scan has always used - see download_gridpack.py), or plain
-    "jetclass2/<short>" for jetclass2 (no precompiled/raw split there at
-    all - every gen_configs/jetclass2/* process is one flat directory).
-
-    A BARE name with no jetclass1/jetclass2 prefix is disambiguated by
-    gen_configs/'s own naming convention: every jetclass2 process directory
-    is named train_* (train_qcd, train_higgs2p, train_higgspm2p, ...); no
-    jetclass1 process is - so "train_qcd" alone is enough to infer jetclass2,
-    matching how --procs is written elsewhere in this repo (e.g. run_condor.py
-    examples).
-    '''
+    '''The bare process name, e.g. HToBB, from a full process path.'''
     parts = [p for p in proc.split('/') if p and p != 'precompiled']
     if parts and parts[0] in ('jetclass1', 'jetclass2'):
         family, rest = parts[0], parts[1:]
@@ -98,13 +54,7 @@ def normalize_proc(proc):
 
 
 def count_njets_command(ntuple_path):
-    '''
-    Bash snippet setting $NJETS to the number of entries in `ntuple_path`'s
-    NTUPLE_TREE_NAME tree (i.e. jets, not events) - or -1 if $RC (from the
-    preceding run.sh call) was nonzero or the file isn't there. Runs in a
-    subshell so sourcing LCG_SETUP (needed for the `root` binary) doesn't
-    pollute the rest of the job's environment - same reasoning as run.sh's
-    own ntuple-making step.
+    '''The shell command that counts the output ntuple's entries into the results line.
     '''
     root_expr = ('std::cout << ((TTree*)TFile::Open("{path}")->Get("{tree}"))->GetEntries()'
                  ' << std::endl;').format(path=ntuple_path, tree=NTUPLE_TREE_NAME)
@@ -117,12 +67,7 @@ def count_njets_command(ntuple_path):
 
 
 def file_size_command(ntuple_path):
-    '''
-    Bash snippet setting $SIZE_BYTES to `ntuple_path`'s size on disk in
-    bytes, or -1 if $RC (from the preceding run.sh call) was nonzero or the
-    file isn't there. Just a `stat` - no LCG/ROOT needed, unlike
-    count_njets_command().
-    '''
+    '''The shell command that records the output ntuple's size into the results line.'''
     return (
         'if [ "$RC" -eq 0 ] && [ -f "{path}" ]; then '
         'SIZE_BYTES=$(stat -c%s "{path}" 2>/dev/null); '
@@ -173,19 +118,12 @@ if __name__ == '__main__':
 
     os.makedirs(args.condor_dir, exist_ok=True)
 
-    # pre-create every process's output subdirectory ONCE, serially, before
-    # submitting any jobs - run.sh's own "mkdir -p" (done independently by
-    # every job right before it copies its output to EOS) is NOT safe against
-    # this: when the shared parent directory doesn't exist yet at all and
-    # ~10-100 jobs race to create it for the first time simultaneously, EOS's
-    # FUSE client on some worker nodes ends up with a stale/negative cache
-    # entry for it that a few in-job retries don't reliably clear, causing
-    # that job's copy-to-EOS step to fail for real (verified directly: the
-    # directory existed fine server-side and from other clients throughout -
-    # see testing/test-generation-time/README.md). Doing it here instead,
-    # one directory at a time from a single process before any job starts,
-    # means no worker node ever has to create a brand-new shared directory -
-    # only ever write into one that's already real and already cached.
+    # Create every process' output subdirectory here, serially, before any job starts.
+    # run.sh's own "mkdir -p" is not enough: when many jobs race to create the same
+    # brand-new shared directory, the EOS client on some worker nodes keeps a negative
+    # cache entry that the in-job retries do not clear, and that job's copy to EOS then
+    # fails for real. Creating them up front means no worker ever has to create a new
+    # shared directory, only write into one that already exists.
     print('Pre-creating output directories...')
     for short, full in procs:
         d = os.path.join(args.output_path, full, args.card)

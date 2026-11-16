@@ -1,7 +1,10 @@
 #!/bin/bash -x
 
-# a wrapper to generate hepmc file
-# note: this can only generate events from a certain paramter choice
+# Generate the events.hepmc for one batch: MadGraph5 for the hard process, then
+# Pythia8 for the shower.
+#
+# One random parameter point is drawn per invocation, so a retry gives a fresh
+# draw.
 
 NEVENT=$1
 
@@ -18,15 +21,10 @@ if [ -f mg5_params.dat ]; then
 fi
 
 # step1: setup the MG dir for the first time
-# MG5 looks up lhapdf-config by BARE NAME and it is on PATH nowhere, so without a user
-# config generate_events dies with "lhapdf executable (lhapdf-config) is not found on
-# your system" for any process whose run card asks for pdlabel=lhapdf. On a developer's
-# lxplus account this is masked by an existing ~/.mg5/mg5_configuration.txt; on a bare
-# worker node there is none. crab/templates/run_job.sh writes one for the CRAB route,
-# which is why that route works - this covers every other way of invoking the chain
-# (run.sh directly, run_condor*.py, a fresh checkout).
-#
-# Only written when absent, so a user's own configuration is never overwritten.
+# MG5 looks up lhapdf-config by bare name and it is on PATH nowhere, so without a
+# user config generate_events dies for any process whose run card asks for
+# pdlabel=lhapdf. An interactive account usually has one already; a bare worker
+# node does not. Only written when absent, so a user's own config is kept.
 if [ ! -f "$HOME/.mg5/mg5_configuration.txt" ]; then
     LHA=$MG5_PATH/HEPTools/lhapdf6_py3/bin/lhapdf-config
     if [ -x "$LHA" ]; then
@@ -55,14 +53,10 @@ if [ -f mg5_params.dat ]; then
 fi
 
 sed -i "s/\$NEVENT/$NEVENT/g" mg5_step2.dat # initialize nevent
-# MG5 seed. NOT bash's $RANDOM: that only spans 0-32767, so over the ~8000 MG5 runs
-# of a 4000-job signal round some ~980 PAIRS of batches draw the same iseed (birthday
-# problem). Today those pairs still differ, because `shuf` picks the (mass, pT_min)
-# point from a 4900-line grid independently - but that is the parameter grid rescuing
-# the seed, not the seed being sound, and it would stop being true for a process with
-# a smaller grid or none. $RANDOM can also return 0, which MG5 does not read as a
-# literal seed. Draw from /dev/urandom instead, over the same 9e8 range run_chain.sh
-# uses for the CMSSW seeds, which makes a collision in a full round ~1e-4 likely.
+# MG5 seed, drawn from /dev/urandom rather than bash's $RANDOM: that spans only
+# 0-32767, so a few thousand batches would repeat seeds often, and it can return 0,
+# which MG5 does not read as a literal seed. The 9e8 range matches the one used for
+# the CMSSW seeds and makes a collision over a full round negligible.
 MG5_SEED=$(( $(od -An -N4 -tu4 /dev/urandom) % 900000000 + 1 ))
 sed -i "s/\$SEED/$MG5_SEED/g" mg5_step2.dat # initialize seed, important!
 echo "MG5 seed: $MG5_SEED"
@@ -90,19 +84,16 @@ fi
 
 # run pythia
 rm -f events.hepmc
-# Main:numberOfEvents=-1 is meant to auto-detect the event count from the LHEF,
-# but newer Pythia8 releases reject -1 as out of range and silently fall back
-# to their own default (1000), causing a hang when the LHEF has fewer events.
-# Set it explicitly to the requested count instead.
+# Main:numberOfEvents=-1 should auto-detect the count from the LHEF, but newer
+# Pythia8 releases reject -1 and fall back to their own default of 1000, which
+# hangs when the LHEF holds fewer events. State the count explicitly instead.
 sed -i "s/^Main:numberOfEvents.*/Main:numberOfEvents      = $NEVENT/" py8.dat
-# Pythia reads `PDF:pSet = LHAPDF6:...` (set by the CP5 tune block) by dlopen'ing
-# libpythia8lhapdf6.so *by bare name*. That plugin lives in HEPTools/pythia8/lib,
-# not HEPTools/lib, and the only thing that used to find it was the absolute ELF
-# RPATH baked into the MG5 build, which names this install's own EOS prefix. On a
-# grid worker node the tarball unpacks elsewhere and that prefix does not exist, so
-# the dlopen failed and Pythia aborted with "could not set up PDF for beam A".
-# List every directory holding the plugin and its NEEDED libs explicitly, so the
-# lookup never depends on RPATH. These are relative symlinks into bin/HEPTools and
-# are preserved by the tarball, so they resolve wherever MG5 is unpacked.
+# `PDF:pSet = LHAPDF6:...` makes Pythia dlopen libpythia8lhapdf6.so by bare name.
+# That plugin lives in HEPTools/pythia8/lib, not HEPTools/lib, and would otherwise
+# only be found through the absolute RPATH baked into the MG5 build - which does
+# not exist on a node where the tarball was unpacked elsewhere. Name every
+# directory holding the plugin and its dependencies, so the lookup never depends
+# on RPATH. These are relative symlinks into bin/HEPTools, preserved by the
+# tarball, so they resolve wherever MG5 is unpacked.
 PY8_LD_PATH=$MG5_PATH/HEPTools/lib:$MG5_PATH/HEPTools/pythia8/lib:$MG5_PATH/HEPTools/lhapdf6_py3/lib
 LD_LIBRARY_PATH=$PY8_LD_PATH:$LD_LIBRARY_PATH $MG5_PATH/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface py8.dat

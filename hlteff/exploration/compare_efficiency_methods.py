@@ -1,53 +1,33 @@
 #!/usr/bin/env python3
 
-'''
-Compares two different ways of estimating the offline-vs-HLT charged-hadron
-tracking efficiency from the same paired QCD ntuples derive_curves.py uses
-(see hlteff/README.md "Data source") - motivated by the suspicion that the
-matching-based method (derive_curves.py's own, via match_jet() with
---dr-max) might be *understating* the true HLT efficiency: a genuine HLT
-track that migrates slightly in (eta,phi) relative to its offline
-counterpart (a real, if modest, effect - see README "Notable findings" on
-pT resolution) could fall outside the dR window and register as "no match"
-even though the particle WAS reconstructed, undercounting efficiency.
+'''Compare two ways of estimating the offline-against-HLT charged-hadron tracking
+efficiency from the same paired QCD ntuples derive_curves.py uses.
 
-Two methods, computed from the SAME read of the SAME jets:
+The motivation is the suspicion that the matching-based method understates the true HLT
+efficiency: a genuine HLT track that migrates slightly in (eta, phi) relative to its
+offline counterpart can fall outside the dR window and register as unmatched, even
+though the particle was reconstructed.
 
-- "matching" (derive_curves.py's own method): per jet, offline and scouting
-  charged-hadron candidates are greedily matched within --dr-max (nearest
-  deltaR first). efficiency_matching[eta,pt] = n_matched / n_offline, where
-  both indices are the OFFLINE candidate's own (eta,pt) bin. Requires
-  geometric pairing to work correctly; sensitive to --dr-max and to any
-  systematic eta/phi shift between the two reconstructions.
-- "counting" (this script's own addition, per the request that motivated
-  it): no per-particle pairing at all. Every offline charged-hadron
-  candidate is binned by its own (eta,pt) into n_offline[eta,pt]; every
-  scouting charged-hadron candidate is independently binned by ITS OWN
-  (eta,pt) into n_scout[eta,pt] - completely unpaired, just two marginal
-  counts. efficiency_counting[eta,pt] = n_scout / n_offline. This can only
-  work because it's the SAME underlying set of jets on both sides (the
-  README's own "Data source" - offline/scouting rows are two independent
-  reconstructions of the identical event) and because the Delphes
-  ChargedHadronTrackingEfficiency module this measurement feeds is itself
-  only ever a function of (pT, eta) - a genuinely-reconstructed particle's
-  own (pT, eta) is what determines its simulated fate either way, so a
-  particle-count ratio per bin is a valid alternate estimator of exactly
-  the same physical quantity dR-matching tries to measure, without dR
-  itself entering at all. The tradeoff: this can't tell a genuine
-  HLT-reconstructed track from an unrelated fake landing in the same bin
-  (dR-matching's own protection against that), so a real difference
-  between the two methods could go either way - matching missing genuine
-  migrated tracks (undercounting) vs counting picking up unrelated fakes
-  (overcounting) - the comparison itself is the diagnostic.
+Both methods are computed from the same read of the same jets:
 
-n_offline (the shared denominator) is identical between the two methods by
-construction - matching only changes what counts as "found" in the
-numerator, so it's read once and reused, not recomputed twice.
+- "matching", derive_curves.py's own: offline and scouting candidates are greedily
+  matched within --dr-max, and the efficiency is the matched fraction, indexed by the
+  offline candidate's bin. It needs the geometric pairing to work, so it is sensitive
+  to --dr-max and to any systematic shift between the two reconstructions.
+- "counting": no pairing at all. Offline and scouting candidates are each binned by
+  their own (eta, pT), and the efficiency is the ratio of the two marginal counts.
+  This is valid only because both sides are reconstructions of the identical events,
+  and because the Delphes module it feeds is itself only a function of (pT, eta): a
+  particle's own (pT, eta) determines its simulated fate either way. The trade-off is
+  that it cannot tell a genuine HLT track from an unrelated fake in the same bin.
 
-Produces one figure (efficiency_comparison_chargedHadron.png, one panel per
-|eta| bin, house style matching plot_curves.py/plot_jet_pt.py) with both
-curves overlaid, plus a full (eta, pT bin) -> (n_offline, n_matched,
-n_scout, eff_matching, eff_counting) table printed to stdout.
+So a real difference between the two could go either way - matching missing migrated
+tracks, or counting picking up fakes - and the comparison itself is the diagnostic.
+
+The denominator is identical between the two by construction, so it is read once.
+
+Produces one figure with both curves overlaid, one panel per |eta| bin, plus a full
+table to stdout.
 
 Usage:
   python hlteff/exploration/compare_efficiency_methods.py [--input-dir DIR]
@@ -92,6 +72,7 @@ plt.rcParams.update({
 
 
 def new_panel_figure(ne):
+    '''A figure with one shared-y panel per |eta| bin.'''
     fig, axes = plt.subplots(1, ne, figsize=(7 * ne, 5.5), sharey=True)
     if ne == 1:
         axes = [axes]
@@ -99,6 +80,7 @@ def new_panel_figure(ne):
 
 
 def finish_panel(ax, ie, xlabel, logx=True):
+    '''Apply the shared axis styling, labels and |eta| title to one panel.'''
     if logx:
         ax.set_xscale('log')
     ax.set_xlabel(xlabel)
@@ -110,6 +92,7 @@ def finish_panel(ax, ie, xlabel, logx=True):
 
 
 def save(fig, outdir, name):
+    '''Write the figure to outdir and close it.'''
     outpath = os.path.join(outdir, name)
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
@@ -118,12 +101,14 @@ def save(fig, outdir, name):
 
 
 def step_edges(edges, values):
+    '''(x, y) for a step plot of a piecewise-constant function over the given edges.'''
     x = list(edges)
     y = list(values) + [values[-1]]
     return x, y
 
 
 def measure(input_dir, n_files, max_jets, dr_max, chunk_size=20000):
+    '''Read the jets and fill both methods' count grids in one pass.'''
     files = sorted(glob.glob(os.path.join(input_dir, 'dnnTuples_nanov15_*.root')))[:n_files]
     if not files:
         raise SystemExit('no dnnTuples_nanov15_*.root files found in {}'.format(input_dir))
@@ -199,6 +184,7 @@ def measure(input_dir, n_files, max_jets, dr_max, chunk_size=20000):
 
 
 def print_table(n_offline, n_matched, n_scout):
+    '''Print the per-bin counts and both efficiency estimates.'''
     ne, npt = n_eta_bins(), n_pt_bins()
     header = '{:<14}{:<16}{:>10}{:>10}{:>10}{:>14}{:>14}'.format(
         '|eta| bin', 'pT bin [GeV]', 'n_off', 'n_match', 'n_scout', 'eff_match', 'eff_count')
@@ -221,6 +207,7 @@ def print_table(n_offline, n_matched, n_scout):
 
 
 def plot_comparison(n_offline, n_matched, n_scout, outdir, min_count=200):
+    '''Overlay the two efficiency estimates, one panel per |eta| bin.'''
     ne, npt = n_eta_bins(), n_pt_bins()
     pt_centers = np.array([pt_bin_center(ip) for ip in range(npt)])
 
@@ -252,6 +239,7 @@ def plot_comparison(n_offline, n_matched, n_scout, outdir, min_count=200):
 
 
 def main():
+    '''Measure, print the table, and write the figure.'''
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input-dir', default=DEFAULT_INPUT_DIR,

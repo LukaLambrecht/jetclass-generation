@@ -3,9 +3,8 @@
 # CMSSW environment (after `scram runtime -sh`), i.e. inside the container - see
 # fullsim_configs/run_chain.sh, which calls this.
 #
-# Standalone rather than a ROOT macro: with ACLiC the compile itself works, but
-# as soon as FWLite opens the file, cling auto-parses the CMSSW headers and
-# ROOT 6.14 segfaults while reverting a transaction containing a lambda.
+# Standalone rather than a ROOT macro: under ACLiC the compile works, but as soon
+# as FWLite opens a file cling auto-parses the CMSSW headers and segfaults.
 #
 #   usage: build.sh [OUTPUT_BINARY] [SOURCE_DIR]
 # SOURCE_DIR must hold makeNtuplesFullSim.cc, StandaloneTypes.h and the shared
@@ -15,9 +14,9 @@ set -e
 OUT=${1:-makeNtuplesFullSim}
 SRC=${2:-$(dirname "$(readlink -f "$0")")}
 
-# When the environment is set up straight out of the release (no developer area,
-# which is how the container is used here) scram leaves CMSSW_RELEASE_BASE EMPTY
-# and points CMSSW_BASE at the release instead - so prefer whichever is set.
+# Set up straight out of a release, with no developer area, scram leaves
+# CMSSW_RELEASE_BASE empty and points CMSSW_BASE at the release - so take
+# whichever is set.
 BASE=${CMSSW_RELEASE_BASE:-$CMSSW_BASE}
 if [ -z "$BASE" ]; then
     echo "ERROR: no CMSSW environment (CMSSW_BASE/CMSSW_RELEASE_BASE unset) - run inside the container, after 'scram runtime -sh'" >&2
@@ -25,8 +24,8 @@ if [ -z "$BASE" ]; then
 fi
 
 # CMSSW_FWLITE_INCLUDE_PATH is scram's own list of the externals' include
-# directories (boost, tbb, clhep, fastjet, ...) - using it avoids hardcoding
-# either the external versions or which of them the CMSSW headers happen to need
+# directories, so using it avoids hardcoding their versions or which ones the
+# CMSSW headers need.
 INCLUDES="-I$SRC -I$BASE/src"
 IFS=':' read -ra extra_inc <<< "${CMSSW_FWLITE_INCLUDE_PATH}"
 for d in "${extra_inc[@]}"; do
@@ -34,7 +33,7 @@ for d in "${extra_inc[@]}"; do
 done
 
 # `scram tool info` only works from inside a scram area, which the build
-# directory is not - so ask from the release directory instead
+# directory is not, so ask from the release directory.
 tool_var () { (cd "$BASE" && scram tool info "$1" 2>/dev/null) | sed -n "s/^$2=//p" | head -1; }
 FASTJET_BASE=${FASTJET_BASE:-$(tool_var fastjet FASTJET_BASE)}
 FASTJET_CONTRIB_BASE=${FASTJET_CONTRIB_BASE:-$(tool_var fastjet-contrib FASTJET_CONTRIB_BASE)}
@@ -48,8 +47,8 @@ CMSLIBS="-L$LIBDIR -lFWCoreFWLite -lDataFormatsFWLite -lDataFormatsCommon -lData
          -lDataFormatsJetReco -lDataFormatsVertexReco -lDataFormatsTrackReco
          -lDataFormatsHepMCCandidate -lDataFormatsParticleFlowCandidate -lDataFormatsMath
          -lFWCoreUtilities -lFWCoreParameterSet"
-# Nsubjettiness and RecursiveTools (SoftDrop) are all inside the single
-# "fragile" shared library of the fastjet-contrib external
+# Nsubjettiness and RecursiveTools (SoftDrop) both live in the single "fragile"
+# shared library of the fastjet-contrib external.
 FJLIBS="-L$FASTJET_BASE/lib -lfastjet -lfastjettools -L$FASTJET_CONTRIB_BASE/lib -lfastjetcontribfragile"
 
 echo "Building $OUT from $SRC (CMSSW at $BASE)"
