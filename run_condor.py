@@ -53,7 +53,6 @@ THISDIR = os.path.dirname(os.path.abspath(__file__))
 # NotImplementedError for it rather than guessing. To add one, fit the ratios from a
 # timing scan (testing/test-production-time/plot_njets.py) and fill in the dict.
 JETS_PER_EVENT = {
-    # fitted from testing/test-production-time/output_20260831_jetclass1/
     'jetclass1': {
         'HToBB':       1.0,
         'HToCC':       1.0,
