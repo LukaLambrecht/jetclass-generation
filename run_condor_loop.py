@@ -27,7 +27,7 @@ Usage:
       --nevents-per-job 5000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
 
   # same, but targeting a jet count per job instead (see run_condor.py's own
-  # --target-njets docs for the njets-per-event map this needs)
+  # --target-njets docs for the jets-per-event ratios this needs)
   python run_condor_loop.py --backend delphes --procs jetclass1/HToBB,jetclass1/HToCC --njobs 10 \\
       --target-njets-per-job 150000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250
 
@@ -49,7 +49,6 @@ import subprocess
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
 RUN_CONDOR_PY = os.path.join(THISDIR, 'run_condor.py')
-DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json')
 sys.path.insert(0, THISDIR)
 from run_condor import (BACKENDS, DEFAULT_MEM, RUNSH_DEFAULT_OPTS, nevent_for_target_njets,
                          output_subdirs, validate_proc)
@@ -95,8 +94,7 @@ def submit_clusters(args, procs, backend_opts):
     try:
         for proc in procs:
             if args.target_njets_per_job is not None:
-                nevent = nevent_for_target_njets(proc, args.target_njets_per_job,
-                                                 args.njets_map or DEFAULT_NJETS_MAP)
+                nevent = nevent_for_target_njets(proc, args.target_njets_per_job)
             else:
                 nevent = args.nevents_per_job
             arglists = [' '.join([args.backend, proc, str(nevent), str(args.batch_size),
@@ -143,9 +141,6 @@ if __name__ == '__main__':
     nevent_group.add_argument('--target-njets-per-job', type=float, default=None,
         help='target number of jets PER JOB instead of --nevents-per-job (forwarded to'
              ' run_condor.py as --target-njets - see its own docs for the translation)')
-    parser.add_argument('--njets-map', default=None,
-        help='forwarded to run_condor.py as --njets-map, if given (default: let run_condor.py'
-             ' use its own default, run_configs/njets_per_nevents.json)')
     parser.add_argument('--output-path', required=True,
         help='REQUIRED: detector-output directory (same as run.sh positional arg 6, forwarded'
              ' to run_condor.py as --output-path) - where every job\'s '
@@ -240,8 +235,6 @@ if __name__ == '__main__':
             cmd = [sys.executable, RUN_CONDOR_PY, '--backend', args.backend, '--proc', proc]
             if args.target_njets_per_job is not None:
                 cmd += ['--target-njets', str(args.target_njets_per_job)]
-                if args.njets_map is not None:
-                    cmd += ['--njets-map', args.njets_map]
             else:
                 cmd += ['--nevent', str(args.nevents_per_job)]
             cmd += ['--output-path', args.output_path]

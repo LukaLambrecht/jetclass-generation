@@ -33,21 +33,44 @@ Example:
   python run_condor.py --backend fullsim --proc jetclass1/HToBB --nevent 20 --output-path /eos/user/l/llambrec/jetclass/output_fullsim_test --batch-size 10 --jobnum 0
 
   # target a number of jets instead of events: NEVENT is derived here from
-  # --target-njets using the process' measured jets-per-event ratio
+  # --target-njets using the process' measured jets-per-event ratio (JETS_PER_EVENT
+  # below - only the families that have one)
   python run_condor.py --proc jetclass1/HToBB --target-njets 150000 --output-path /eos/user/l/llambrec/jetclass/output_test --batch-size 250 --jobnum 0 --delphes-cards onlyFatJetNoPU
 '''
 
 import os
 import sys
-import json
 import argparse
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jobtools'))
 import condortools as ct
-from download_gridpack import normalize_proc
 
 THISDIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_NJETS_MAP = os.path.join(THISDIR, 'run_configs', 'njets_per_nevents.json')
+# Measured jets per generated event, by gen_configs family and then by process, used to
+# translate a target jet count into NEVENT (see --target-njets).
+#
+# A family mapped to None has no measured table yet, and --target-njets raises
+# NotImplementedError for it rather than guessing. To add one, fit the ratios from a
+# timing scan (testing/test-production-time/plot_njets.py) and fill in the dict.
+JETS_PER_EVENT = {
+    # fitted from testing/test-production-time/output_20260831_jetclass1/
+    'jetclass1': {
+        'HToBB':       1.0,
+        'HToCC':       1.0,
+        'HToGG':       1.0,
+        'HToWW2Q1L':   1.0,
+        'HToWW4Q':     1.0,
+        'TTBar':       2.0,
+        'TTBarLep':    1.5,
+        'WToQQ':       1.0,
+        'ZJetsToNuNu': 0.3,
+        'ZToQQ':       1.0,
+    },
+    'jetclass2': None,
+    # yields are known per pThat bin (see gen_configs/jetclass2sb/README.md) but have
+    # not been collected into a table here
+    'jetclass2sb': None,
+}
 # Each backend's own default BACKEND_OPTS, mirrored here because the backends are
 # shell files with nothing importable. Needed only so OUTPUT_PATH still lands in
 # the right positional slot for run.sh when --backend-opts is omitted. Keep in
@@ -111,36 +134,62 @@ def validate_proc(proc, thisdir):
                 proc, proc, 'y' if len(subdirs) == 1 else 'ies', ', '.join(subdirs) or '<none>', hint))
 
 
-def nevent_for_target_njets(proc, target_njets, njets_map_path):
-    '''
-    Translate a target jet count into NEVENT for `proc`, using the
-    process -> jets-per-event ratios in the JSON file at njets_map_path. It is
-    keyed by the bare process name normalize_proc() extracts from PROC.
+def split_proc(proc):
+    '''(family, process) for a PROC path, e.g. 'jetclass1/HToBB/precompiled' ->
+    ('jetclass1', 'HToBB').
 
-    Raises rather than falling back if the map is missing or does not cover this
-    process: silently guessing NEVENT would be worse than an explicit error.
+    Anything after the process name, such as jetclass1's precompiled/raw mode, is a
+    variant of the same process and is dropped.
     '''
-    if not os.path.exists(njets_map_path):
-        raise Exception(
-            '--target-njets was given but the njets-per-event map {!r} does not exist - '
-            'either create it (see run_configs/njets_per_nevents.json for the format: '
-            '{{"<process>": <jets per event>, ...}}, e.g. from '
-            'testing/test-generation-time/plot_njets.py\'s fitted ratios) or point '
-            '--njets-map at an existing one.'.format(njets_map_path))
-    with open(njets_map_path) as f:
-        njets_map = json.load(f)
-    short = normalize_proc(proc)
-    if short not in njets_map:
-        raise Exception(
-            '--target-njets was given but {!r} (process {!r}) has no entry in {!r}. '
-            'Known processes: {}'.format(short, proc, njets_map_path, ', '.join(sorted(njets_map))))
-    ratio = njets_map[short]
+    parts = [p for p in proc.split('/') if p]
+    if len(parts) < 2:
+        raise ValueError(
+            'cannot tell the family and process apart in --proc {!r}: expected'
+            ' <family>/<process>[/<mode>], e.g. jetclass1/HToBB/precompiled or'
+            ' jetclass2/train_qcd'.format(proc))
+    return parts[0], parts[1]
+
+
+def jets_per_event(proc):
+    '''The measured jets per generated event for `proc`, from JETS_PER_EVENT.
+
+    Raises NotImplementedError for a family that has no table yet, and ValueError for an
+    unknown family or process. Never falls back to a guess: silently inventing a ratio
+    would mis-size a whole production.
+    '''
+    family, process = split_proc(proc)
+    if family not in JETS_PER_EVENT:
+        raise ValueError(
+            'unknown gen_configs family {!r} (from --proc {!r}). Known families: {}'.format(
+                family, proc, ', '.join(sorted(JETS_PER_EVENT))))
+    table = JETS_PER_EVENT[family]
+    if table is None:
+        raise NotImplementedError(
+            'no jets-per-event table for the {!r} family yet, so a target jet count'
+            ' cannot be translated into NEVENT for --proc {!r}. Give an explicit event'
+            ' count instead, or measure the ratios and add them to JETS_PER_EVENT in'
+            ' run_condor.py (see its own comment).'.format(family, proc))
+    if process not in table:
+        raise ValueError(
+            'process {!r} (from --proc {!r}) has no entry in the {!r} jets-per-event'
+            ' table. Known processes: {}'.format(
+                process, proc, family, ', '.join(sorted(table))))
+    ratio = table[process]
     if ratio <= 0:
-        raise Exception('{!r} has a non-positive jets-per-event ratio ({}) in {!r}'.format(
-            short, ratio, njets_map_path))
+        raise ValueError('{!r} has a non-positive jets-per-event ratio ({})'.format(
+            process, ratio))
+    return ratio
+
+
+def nevent_for_target_njets(proc, target_njets):
+    '''Translate a target jet count into NEVENT for `proc`.
+
+    See jets_per_event() for where the ratio comes from and when this raises.
+    '''
+    ratio = jets_per_event(proc)
     nevent = round(target_njets / ratio)
-    print('Translating target {:g} jets for {} (ratio {:g} jets/event, from {}) -> {} events'.format(
-        target_njets, short, ratio, njets_map_path, nevent))
+    print('Translating target {:g} jets for {} (ratio {:g} jets/event) -> {} events'.format(
+        target_njets, proc, ratio, nevent))
     return nevent
 
 
@@ -161,10 +210,9 @@ if __name__=='__main__':
              ' here rather than positionally - see --target-njets for why)')
     nevent_group.add_argument('--target-njets', type=float, default=None,
         help='target number of jets instead of NEVENT - translated to NEVENT here (not in'
-             ' run.sh) via --njets-map')
-    parser.add_argument('--njets-map', default=DEFAULT_NJETS_MAP,
-        help='JSON file mapping process name -> jets per event, used only with --target-njets'
-             ' (default: run_configs/njets_per_nevents.json)')
+             ' run.sh) via this process\' measured jets-per-event ratio. Only available'
+             ' for families with a measured table (see JETS_PER_EVENT in run_condor.py);'
+             ' raises for the others')
     parser.add_argument('--output-path', required=True,
         help='REQUIRED: output directory (same as run.sh positional arg 7) - where'
              ' this job\'s ntuple_*.root end up. Not to be confused with'
@@ -242,7 +290,7 @@ if __name__=='__main__':
     validate_proc(args.proc, thisdir)
 
     if args.target_njets is not None:
-        nevent = nevent_for_target_njets(args.proc, args.target_njets, args.njets_map)
+        nevent = nevent_for_target_njets(args.proc, args.target_njets)
     else:
         nevent = args.nevent
 
